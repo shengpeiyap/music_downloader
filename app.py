@@ -10,6 +10,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import ipaddress
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from email.parser import BytesParser
@@ -19,6 +20,42 @@ ROOT = Path(__file__).resolve().parent
 FORMATS = {"mp3": "audio/mpeg", "wav": "audio/wav", "flac": "audio/flac", "ogg": "audio/ogg", "m4a": "audio/mp4"}
 MAX_UPLOAD = 150 * 1024 * 1024
 SAFE_NAME = re.compile(r"[^\w .()-]+", re.UNICODE)
+
+
+def fetch_media_stream(url: str, temp_dir: str | Path | None = None) -> Path:
+    """Stream a media URL into a uniquely named file in the local temp directory.
+
+    The caller owns the returned file and should remove it when finished.
+    Only HTTP(S) URLs without embedded credentials are accepted.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(url.strip())
+        host = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or not host or parsed.username or parsed.password:
+            raise ValueError("A valid HTTP(S) media URL is required")
+        # Avoid direct requests to local/private IP literals from this local service.
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            address = None
+        if address and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved):
+            raise ValueError("Local and private network addresses are not allowed")
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("A valid HTTP(S) media URL is required") from exc
+
+    request = urllib.request.Request(url.strip(), headers={"User-Agent": "MusicDesk/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            final = urllib.parse.urlsplit(response.geturl())
+            if final.scheme not in {"http", "https"}:
+                raise ValueError("Unsupported redirect scheme")
+            with tempfile.NamedTemporaryFile(mode="wb", prefix="musicdesk-media-", suffix=".bin",
+                                             dir=temp_dir, delete=False) as output:
+                path = Path(output.name)
+                shutil.copyfileobj(response, output, length=64 * 1024)
+        return path
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ValueError("Unable to fetch media stream") from exc
 
 
 def find_ffmpeg() -> str | None:

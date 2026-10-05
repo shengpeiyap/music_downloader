@@ -1,9 +1,11 @@
 import unittest
 import sys
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from app import find_ffmpeg, parse_share_url
+from app import fetch_media_stream, find_ffmpeg, parse_share_url
+import tempfile
+from pathlib import Path
 
 
 class FfmpegResolutionTests(unittest.TestCase):
@@ -36,6 +38,26 @@ class ShareUrlTests(unittest.TestCase):
         for url in ("http://open.spotify.com/track/abc", "https://example.com/track/abc", "https://open.spotify.com/album/abc"):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 parse_share_url(url)
+
+
+class FetchMediaStreamTests(unittest.TestCase):
+    def test_streams_response_to_temp_file(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.geturl.return_value = "https://media.example/audio"
+        response.read.side_effect = [b"media", b""]
+        with tempfile.TemporaryDirectory() as directory, patch("app.urllib.request.urlopen", return_value=response):
+            path = fetch_media_stream("https://media.example/audio", directory)
+            try:
+                self.assertEqual(Path(path).read_bytes(), b"media")
+                self.assertEqual(Path(path).parent, Path(directory))
+            finally:
+                Path(path).unlink()
+
+    def test_rejects_non_http_and_private_ip_urls(self):
+        for url in ("file:///etc/passwd", "http://127.0.0.1/media"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                fetch_media_stream(url)
 
 
 if __name__ == "__main__":
