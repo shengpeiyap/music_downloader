@@ -23,7 +23,7 @@ import musicbrainzngs
 
 musicbrainzngs.set_useragent("MusicDesk", "1.0", "https://github.com/musicdesk")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 FORMATS = {"mp3": "audio/mpeg", "wav": "audio/wav", "flac": "audio/flac", "ogg": "audio/ogg", "m4a": "audio/mp4"}
 MAX_UPLOAD = 150 * 1024 * 1024
 SAFE_NAME = re.compile(r"[^\w .()-]+", re.UNICODE)

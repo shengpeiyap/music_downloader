@@ -15,6 +15,12 @@ Install Python 3.10 or newer, then double-click `start.bat`. On first launch it 
 
 The app opens at <http://127.0.0.1:8765>. Metadata lookup needs an internet connection; audio conversion runs locally.
 
+## Portable Windows app
+
+To build a desktop package, run `build_windows.bat` after the first `start.bat` setup. It creates `dist\MusicDesk-portable.zip`; extract it and open `MusicDesk.exe`. The executable opens a native window when the Microsoft Edge WebView2 runtime is available, and falls back to the default browser otherwise. The package includes the app icon, yt-dlp, SpotDL, and FFmpeg. Building requires an internet connection to install the packaging tools.
+
+`icon.ico` is also used as the website favicon. The app still needs an internet connection for public music metadata and lyrics.
+
 ## macOS / Linux
 
 Install Python 3.10 or newer, then run:

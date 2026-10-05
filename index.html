@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MusicDesk · 音乐资料与格式转换</title>
+  <link rel="icon" href="/icon.ico" sizes="any">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
   <style>
     :root{color-scheme:dark;--bg:#0c0f0d;--panel:#151a17;--line:#29332c;--muted:#9ba89e;--green:#b8f36b;--text:#f3f6f1}
@@ -313,7 +314,12 @@ $('downloadBtn').addEventListener('click', async () => {
       throw Error(d.error || '下载失败');
     }
     
-    const sourceUrl = r.headers.get('X-Source-Url');
+    const rawSourceUrl = r.headers.get('X-Source-Url');
+    let sourceUrl = '';
+    try {
+      const parsedSource = new URL(rawSourceUrl);
+      if (['http:', 'https:'].includes(parsedSource.protocol)) sourceUrl = parsedSource.href;
+    } catch (_) {}
     const blob = await r.blob();
     const audioUrl = URL.createObjectURL(blob);
     
