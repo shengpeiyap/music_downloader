@@ -1,26 +1,35 @@
 # MusicDesk
 
-一个在本机运行的音乐 metadata 查看与音频格式转换工具。
+A local music metadata viewer and audio format converter.
 
-## 功能
+## Features
 
-- 读取 Spotify 单曲及 YouTube Music / YouTube 视频分享链接的公开 metadata（标题、发布者和缩略图）。
-- 将本地音频转换为 MP3、M4A、FLAC、WAV 或 OGG。
-- 不从 Spotify 或 YouTube Music 下载受版权保护的音频。请仅转换你拥有或获准处理的文件。
-- 上传文件只在本机临时目录处理；转换结束后临时目录自动清理。
+- Read public title, publisher, and thumbnail metadata from Spotify track and YouTube Music / YouTube video share links.
+- Convert local audio to MP3, M4A, FLAC, WAV, or OGG.
+- Does not download copyrighted audio from streaming services. Convert only files you own or are authorized to process.
+- Uploaded audio is processed in a temporary local folder and removed after conversion.
 
-## 运行
+## Windows quick start
 
-需要 Python 3.10+。音频转换需要安装 FFmpeg，并确保 `ffmpeg` 命令可从 PATH 使用。
+Install Python 3.10 or newer, then double-click `start.bat`. On first launch it creates a project-local Python environment and installs the audio conversion package. That package includes an FFmpeg executable, so you do not need to find an FFmpeg download or edit PATH. First-time setup needs an internet connection. Later launches reuse the installed files.
 
-```powershell
+The app opens at <http://127.0.0.1:8765>. Metadata lookup needs an internet connection; audio conversion runs locally.
+
+## macOS / Linux
+
+Install Python 3.10 or newer, then run:
+
+```sh
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
 python app.py
 ```
 
-打开 <http://127.0.0.1:8765>。metadata 查询需要互联网连接；转换完全在本机运行。
+The bundled FFmpeg package is selected automatically on supported platforms. An FFmpeg executable already on PATH is used as a fallback.
 
-## 验证
+## Tests
 
-```powershell
+```sh
 python -m unittest -v
 ```

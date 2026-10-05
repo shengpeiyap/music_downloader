@@ -1,6 +1,21 @@
 import unittest
+import sys
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from app import parse_share_url
+from app import find_ffmpeg, parse_share_url
+
+
+class FfmpegResolutionTests(unittest.TestCase):
+    def test_prefers_app_managed_ffmpeg(self):
+        with patch.dict(sys.modules, {"imageio_ffmpeg": SimpleNamespace(get_ffmpeg_exe=lambda: sys.executable)}):
+            with patch("app.shutil.which", return_value="system-ffmpeg"):
+                self.assertEqual(find_ffmpeg(), sys.executable)
+
+    def test_falls_back_to_system_ffmpeg(self):
+        with patch.dict(sys.modules, {"imageio_ffmpeg": None}):
+            with patch("app.shutil.which", return_value="system-ffmpeg"):
+                self.assertEqual(find_ffmpeg(), "system-ffmpeg")
 
 
 class ShareUrlTests(unittest.TestCase):

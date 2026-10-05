@@ -21,6 +21,19 @@ MAX_UPLOAD = 150 * 1024 * 1024
 SAFE_NAME = re.compile(r"[^\w .()-]+", re.UNICODE)
 
 
+def find_ffmpeg() -> str | None:
+    """Use the app-managed FFmpeg binary, then fall back to the system PATH."""
+    try:
+        import imageio_ffmpeg
+
+        bundled = imageio_ffmpeg.get_ffmpeg_exe()
+        if Path(bundled).is_file():
+            return bundled
+    except (ImportError, OSError, RuntimeError):
+        pass
+    return shutil.which("ffmpeg")
+
+
 def parse_share_url(raw: str) -> dict:
     """Validate supported share URLs and return provider, ID, and canonical URL."""
     try:
@@ -89,7 +102,8 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path != "/api/convert":
             self.send_json(404, {"error": "找不到该接口。"})
             return
-        if not shutil.which("ffmpeg"):
+        ffmpeg = find_ffmpeg()
+        if not ffmpeg:
             self.send_json(503, {"error": "未检测到 FFmpeg。请先安装 FFmpeg 并加入 PATH。"})
             return
         try:
@@ -110,7 +124,7 @@ class Handler(SimpleHTTPRequestHandler):
                 source = Path(work) / ("input" + Path(source_name).suffix[:12])
                 target = Path(work) / ("converted." + fmt)
                 source.write_bytes(file_part.get_payload(decode=True) or b"")
-                proc = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(source), "-y", str(target)], capture_output=True, timeout=300)
+                proc = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", str(source), "-y", str(target)], capture_output=True, timeout=300)
                 if proc.returncode or not target.exists():
                     raise ValueError("转换失败。请确认上传的是可读取的音频文件。")
                 converted = target.read_bytes()
