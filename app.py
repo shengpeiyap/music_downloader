@@ -254,17 +254,19 @@ def parse_share_url(raw: str) -> dict:
 
 
 def fetch_spotify_via_spotdl_sdk(url: str) -> dict | None:
-    """初始化并调用 spotdl SDK，带 Client 初始化保护"""
+    """Use SpotDL only when this machine has Spotify API credentials configured."""
     try:
+        client_id = os.environ.get("SPOTIFY_CLIENT_ID", "").strip()
+        client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip()
+        if not client_id or not client_secret:
+            return None
         from spotdl.utils.spotify import SpotifyClient
         from spotdl.utils.search import Song
-        
-        # 先安全初始化 spotdl 的客户端，防止抛出 Client not created 异常
         try:
-            SpotifyClient.init()
+            SpotifyClient.init(client_id, client_secret)
         except Exception:
+            # SpotDL may already be initialized by another request in this process.
             pass
-            
         song = Song.from_url(url)
         return {
             "title": song.name,
@@ -275,8 +277,27 @@ def fetch_spotify_via_spotdl_sdk(url: str) -> dict | None:
             "thumbnail": song.cover_url
         }
     except Exception as e:
-        print(f"[MusicDesk] spotdl SDK 抓取未使用: {e}")
+        print(f"[MusicDesk] SpotDL metadata fallback: {e}")
         return None
+
+
+def fetch_spotify_oembed(raw_url: str) -> dict:
+    """Fetch Spotify's public title and cover metadata without API credentials."""
+    meta = {"title": "", "artist": "", "thumbnail": None}
+    endpoint = "https://open.spotify.com/oembed?url=" + urllib.parse.quote(raw_url, safe="")
+    request = urllib.request.Request(endpoint, headers={"User-Agent": "MusicDesk/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            data = json.loads(response.read(1024 * 1024))
+        meta["title"] = html_module.unescape(str(data.get("title", ""))).strip()
+        meta["thumbnail"] = data.get("thumbnail_url")
+        # Some Spotify oEmbed responses include the artist before the track title.
+        parts = re.split(r"\s+-\s+", meta["title"], maxsplit=1)
+        if len(parts) == 2:
+            meta["artist"], meta["title"] = parts[0].strip(), parts[1].strip()
+    except (OSError, TimeoutError, ValueError, urllib.error.URLError) as exc:
+        print(f"[MusicDesk] Spotify oEmbed unavailable: {exc}")
+    return meta
 
 
 def fetch_spotify_web_html(raw_url: str) -> dict:
@@ -304,15 +325,6 @@ def fetch_spotify_web_html(raw_url: str) -> dict:
                     meta["artist"] = re.split(r"\s*[·|]\s*", content, maxsplit=1)[0]
                 elif key == "og:image":
                     meta["thumbnail"] = content
-            title_m = re.search(r'<meta property="og:title" content="([^"]+)"', html)
-            artist_m = re.search(r'<meta property="twitter:audio:artist_name" content="([^"]+)"', html) or \
-                       re.search(r'<meta name="music:musician" content="([^"]+)"', html) or \
-                       re.search(r'<meta property="og:description" content="([^·"]+)', html)
-            img_m = re.search(r'<meta property="og:image" content="([^"]+)"', html)
-
-            if title_m: meta["title"] = title_m.group(1).strip()
-            if artist_m: meta["artist"] = artist_m.group(1).strip()
-            if img_m: meta["thumbnail"] = img_m.group(1).strip()
     except Exception:
         pass
     return meta
@@ -392,10 +404,14 @@ def lookup_metadata(raw_url: str) -> dict:
             track_num = spot_sdk["track_num"]
             thumbnail = spot_sdk["thumbnail"]
         else:
-            web_meta = fetch_spotify_web_html(link["url"])
+            web_meta = fetch_spotify_oembed(link["url"])
             if web_meta.get("title"): title = web_meta["title"]
             if web_meta.get("artist"): artist = web_meta["artist"]
             if web_meta.get("thumbnail"): thumbnail = web_meta["thumbnail"]
+            web_meta = fetch_spotify_web_html(link["url"])
+            if title == "未知标题" and web_meta.get("title"): title = web_meta["title"]
+            if artist == "未知艺人" and web_meta.get("artist"): artist = web_meta["artist"]
+            if not thumbnail and web_meta.get("thumbnail"): thumbnail = web_meta["thumbnail"]
 
     # 2. 如果是 YouTube 链接
     elif link["provider"] == "youtube":
@@ -411,6 +427,9 @@ def lookup_metadata(raw_url: str) -> dict:
             pass
 
     artist = re.sub(r"\s*-\s*Topic$", "", artist, flags=re.IGNORECASE).strip()
+
+    if title == "未知标题":
+        raise ValueError("无法读取该链接的曲名或公开 metadata。请确认链接有效并检查网络后重试。")
 
     # 3. 补充 MusicBrainz 精细专辑数据
     if title and title != "未知标题":
