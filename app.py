@@ -1,4 +1,4 @@
-"""Local music metadata lookup and personal-audio converter with Source URL tracking."""
+"""Local music metadata lookup and personal-audio converter with Player & Lyrics View integration."""
 from __future__ import annotations
 
 import json
@@ -110,6 +110,42 @@ def crop_yt_padding_smart(img_bytes: bytes) -> bytes:
     except Exception as e:
         print(f"[MusicDesk 智能裁剪提示]: {e}")
         return img_bytes
+
+
+def fetch_lrc_lyrics(title: str, artist: str) -> str:
+    if not title or title == "未知标题":
+        return ""
+    try:
+        clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} else artist.strip()
+        query = f"track_name={urllib.parse.quote(title)}"
+        if clean_artist:
+            query += f"&artist_name={urllib.parse.quote(clean_artist)}"
+
+        url = f"https://lrclib.net/api/get?{query}"
+        req = urllib.request.Request(url, headers={"User-Agent": "MusicDesk/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            synced = data.get("syncedLyrics", "")
+            if synced:
+                print(f"[MusicDesk 歌词成功] 成功检索到 LRC 同步歌词")
+                return synced
+            plain = data.get("plainLyrics", "")
+            if plain:
+                return plain
+    except Exception:
+        try:
+            search_url = f"https://lrclib.net/api/search?q={urllib.parse.quote(f'{artist} {title}')}"
+            req = urllib.request.Request(search_url, headers={"User-Agent": "MusicDesk/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                results = json.loads(resp.read().decode("utf-8"))
+                if isinstance(results, list) and len(results) > 0:
+                    for item in results:
+                        if item.get("syncedLyrics"):
+                            print(f"[MusicDesk 歌词成功] 通过模糊检索找到 LRC 同步歌词")
+                            return item["syncedLyrics"]
+        except Exception:
+            pass
+    return ""
 
 
 def find_executable(name: str) -> list[str]:
@@ -316,7 +352,7 @@ def process_and_export_media(
         if proc.returncode or not staged.is_file():
             raise ValueError("FFmpeg 处理音频失败")
 
-        from mutagen.id3 import APIC, ID3, TALB, TDRC, TRCK, TIT2, TPE1, TPE2
+        from mutagen.id3 import APIC, ID3, TALB, TDRC, TRCK, TIT2, TPE1, TPE2, USLT
 
         tags = ID3()
         tags.add(TIT2(encoding=3, text=[title]))
@@ -328,6 +364,10 @@ def process_and_export_media(
             tags.add(TDRC(encoding=3, text=[year]))
         if track_num:
             tags.add(TRCK(encoding=3, text=[track_num]))
+
+        lyrics_text = fetch_lrc_lyrics(title, artist)
+        if lyrics_text:
+            tags.add(USLT(encoding=3, lang='eng', desc='', text=lyrics_text))
 
         if cover.is_file() and cover.stat().st_size > 0:
             mime = "image/png" if cover.suffix.lower() == ".png" else "image/jpeg"
@@ -582,6 +622,20 @@ class Handler(SimpleHTTPRequestHandler):
                 sys.stdout.flush()
                 self.send_json(200, result)
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                self.send_json(400, {"error": str(exc)})
+            return
+
+        if self.path == "/api/lyrics_text":
+            try:
+                body = self.rfile.read(min(int(self.headers.get("Content-Length", "0")), 8192))
+                req_data = json.loads(body)
+                title = req_data.get("title", "")
+                artist = req_data.get("artist", "")
+                lrc = fetch_lrc_lyrics(title, artist)
+                if not lrc:
+                    raise ValueError("未在公开歌词库中检索到对应的同步 LRC 歌词。")
+                self.send_json(200, {"lyrics": lrc})
+            except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
 

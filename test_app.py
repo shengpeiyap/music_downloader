@@ -3,7 +3,7 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app import fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, lookup_metadata, parse_share_url, process_and_export_media
+from app import fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, lookup_metadata, parse_share_url, process_and_export_media
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -31,7 +31,7 @@ class ShareUrlTests(unittest.TestCase):
             b'<meta name="music:musician" content="Artist Name">'
             b'<meta property="og:image" content="https://img.example/cover.jpg">'
         )
-        with patch("app.urllib.request.urlopen", return_value=response):
+        with patch("app.urllib.request.urlopen", return_value=response), redirect_stdout(StringIO()):
             result = fetch_spotify_embed_html("abc123")
         self.assertEqual(result["title"], "Song & More")
         self.assertEqual(result["artist"], "Artist Name")
@@ -76,6 +76,21 @@ class ShareUrlTests(unittest.TestCase):
                 parse_share_url(url)
 
 
+class LyricsLookupTests(unittest.TestCase):
+    def test_fetches_synced_lyrics_from_lrclib(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'{"syncedLyrics":"[00:01.00]Hello"}'
+        with patch("app.urllib.request.urlopen", return_value=response), redirect_stdout(StringIO()):
+            lyrics = fetch_lrc_lyrics("Song", "Artist")
+        self.assertEqual(lyrics, "[00:01.00]Hello")
+
+    def test_skips_lookup_without_a_track_title(self):
+        with patch("app.urllib.request.urlopen") as open_url:
+            self.assertEqual(fetch_lrc_lyrics("未知标题", "Artist"), "")
+        open_url.assert_not_called()
+
+
 class FetchMediaStreamTests(unittest.TestCase):
     def test_ytdlp_execution(self):
         def mock_run(cmd, **kwargs):
@@ -107,7 +122,7 @@ class ProcessAndExportTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0)
 
             with patch("app.find_ffmpeg", return_value="ffmpeg"), patch("app.subprocess.run", side_effect=fake_ffmpeg), \
-                 patch("mutagen.id3.ID3.save") as save:
+                 patch("mutagen.id3.ID3.save") as save, patch("app.fetch_lrc_lyrics", return_value=""):
                 result = process_and_export_media(
                     source, {"title": "Song", "artist": "Artist"}, cover, "MP3", output
                 )
