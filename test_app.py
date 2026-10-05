@@ -3,7 +3,7 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app import fetch_media_stream, find_ffmpeg, parse_share_url
+from app import fetch_media_stream, find_ffmpeg, parse_share_url, process_and_export_media
 import tempfile
 from pathlib import Path
 
@@ -58,6 +58,38 @@ class FetchMediaStreamTests(unittest.TestCase):
         for url in ("file:///etc/passwd", "http://127.0.0.1/media"):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 fetch_media_stream(url)
+
+
+class ProcessAndExportTests(unittest.TestCase):
+    def test_exports_mp3_with_id3_and_cover_then_cleans_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "cached.bin"
+            cover = root / "cover.jpg"
+            output = root / "out"
+            source.write_bytes(b"source")
+            cover.write_bytes(b"cover-data")
+
+            def fake_ffmpeg(args, **kwargs):
+                Path(args[-1]).write_bytes(b"mp3-data")
+                return SimpleNamespace(returncode=0)
+
+            with patch("app.find_ffmpeg", return_value="ffmpeg"), patch("app.subprocess.run", side_effect=fake_ffmpeg), \
+                 patch("mutagen.id3.ID3.save") as save:
+                result = process_and_export_media(source, "Song", "Artist", cover, "MP3", output)
+
+            self.assertEqual(result.read_bytes(), b"mp3-data")
+            self.assertFalse(source.exists())
+            save.assert_called_once()
+
+    def test_rejects_non_mp3_id3_export(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "cached.bin"
+            cover = Path(directory) / "cover.jpg"
+            source.write_bytes(b"source")
+            cover.write_bytes(b"cover")
+            with self.assertRaises(ValueError):
+                process_and_export_media(source, "Song", "Artist", cover, "flac", directory)
 
 
 if __name__ == "__main__":

@@ -71,6 +71,64 @@ def find_ffmpeg() -> str | None:
     return shutil.which("ffmpeg")
 
 
+def process_and_export_media(
+    source_path: str | Path,
+    title: str,
+    artist: str,
+    cover_path: str | Path,
+    export_format: str,
+    output_dir: str | Path,
+    *,
+    cleanup_source: bool = True,
+) -> Path:
+    """Convert a cached audio file, write MP3 ID3 metadata, and save its export.
+
+    This first version exports MP3, since ID3 tags and embedded APIC cover art
+    are MP3 metadata. On success it removes the supplied cached source file.
+    """
+    source = Path(source_path)
+    cover = Path(cover_path)
+    fmt = str(export_format).strip().lower().lstrip(".")
+    if not source.is_file():
+        raise ValueError("Cached media file does not exist")
+    if not cover.is_file():
+        raise ValueError("Cover image file does not exist")
+    if not isinstance(title, str) or not title.strip() or not isinstance(artist, str) or not artist.strip():
+        raise ValueError("Title and artist are required")
+    if fmt != "mp3":
+        raise ValueError("ID3 metadata export currently supports MP3 only")
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise ValueError("FFmpeg is not installed or available on PATH")
+
+    destination_dir = Path(output_dir)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    base = SAFE_NAME.sub("_", f"{title.strip()} - {artist.strip()}").strip(" .") or "audio"
+    destination = destination_dir / f"{base}.mp3"
+    with tempfile.TemporaryDirectory(prefix="musicdesk-export-", dir=destination_dir) as work:
+        staged = Path(work) / "export.mp3"
+        proc = subprocess.run(
+            [ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0", "-vn", str(staged)],
+            capture_output=True, timeout=300,
+        )
+        if proc.returncode or not staged.is_file():
+            raise ValueError("FFmpeg could not convert the media file")
+
+        from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1
+
+        tags = ID3()
+        tags.add(TIT2(encoding=3, text=[title.strip()]))
+        tags.add(TPE1(encoding=3, text=[artist.strip()]))
+        mime = "image/png" if cover.suffix.lower() == ".png" else "image/jpeg"
+        tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover.read_bytes()))
+        tags.save(staged, v2_version=3)
+        os.replace(staged, destination)
+
+    if cleanup_source:
+        source.unlink(missing_ok=True)
+    return destination
+
+
 def parse_share_url(raw: str) -> dict:
     """Validate supported share URLs and return provider, ID, and canonical URL."""
     try:
