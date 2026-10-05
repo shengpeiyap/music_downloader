@@ -1,2 +1,6 @@
 imageio-ffmpeg==0.6.0
 mutagen>=1.47,<2
+yt-dlp>=2024.0.0
+spotdl>=4.2.0
+musicbrainzngs>=0.7.1
+Pillow>=10,<13

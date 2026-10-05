@@ -3,7 +3,7 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app import fetch_media_stream, fetch_spotify_oembed, fetch_spotify_web_html, find_ffmpeg, lookup_metadata, parse_share_url, process_and_export_media
+from app import fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, lookup_metadata, parse_share_url, process_and_export_media
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -23,29 +23,28 @@ class FfmpegResolutionTests(unittest.TestCase):
 
 
 class ShareUrlTests(unittest.TestCase):
-    def test_spotify_html_metadata_ignores_attribute_order_and_decodes_entities(self):
+    def test_spotify_embed_metadata_decodes_entities(self):
         response = MagicMock()
         response.__enter__.return_value = response
         response.read.return_value = (
-            b'<meta content="Song &amp; More" property="og:title">'
-            b'<meta content="Artist Name" name="music:musician">'
-            b'<meta content="https://img.example/cover.jpg" property="og:image">'
+            b'<meta property="og:title" content="Song &amp; More">'
+            b'<meta name="music:musician" content="Artist Name">'
+            b'<meta property="og:image" content="https://img.example/cover.jpg">'
         )
         with patch("app.urllib.request.urlopen", return_value=response):
-            result = fetch_spotify_web_html("https://open.spotify.com/track/abc123")
+            result = fetch_spotify_embed_html("abc123")
         self.assertEqual(result["title"], "Song & More")
         self.assertEqual(result["artist"], "Artist Name")
         self.assertEqual(result["thumbnail"], "https://img.example/cover.jpg")
 
     def test_musicbrainz_can_fill_unknown_artist(self):
-        with patch("app.fetch_spotify_via_spotdl_sdk", return_value=None), \
-             patch("app.fetch_spotify_oembed", return_value={"title": "Song", "artist": "", "thumbnail": "https://img.example/cover.jpg"}), \
-             patch("app.fetch_spotify_web_html", return_value={"title": "Song", "artist": "", "thumbnail": None}), \
+        with patch("app.fetch_spotify_oembed", return_value={"title": "Song", "artist": "", "thumbnail": "https://img.example/cover.jpg"}), \
+             patch("app.fetch_spotify_embed_html", return_value={"title": "Song", "artist": "", "thumbnail": None}), \
              patch("app.lookup_musicbrainz_metadata", return_value={
                  "artist": "Artist", "album": "Album", "year": "2000", "track_num": "", "cover_url": None
              }) as lookup:
             result = lookup_metadata("https://open.spotify.com/track/abc123")
-        lookup.assert_called_once_with("Song", "未知艺人")
+        lookup.assert_called_once_with("Song", "\u672a\u77e5\u827a\u4eba", known_album="")
         self.assertEqual(result["artist"], "Artist")
 
     def test_spotify_oembed_reads_public_title_and_thumbnail(self):
@@ -57,11 +56,6 @@ class ShareUrlTests(unittest.TestCase):
         self.assertEqual(result["title"], "Song")
         self.assertEqual(result["thumbnail"], "https://img.example/cover.jpg")
         self.assertIn("open.spotify.com/oembed?url=", open_url.call_args.args[0].full_url)
-
-    def test_spotify_sdk_skips_when_credentials_are_missing(self):
-        with patch.dict("os.environ", {}, clear=True), patch.dict("sys.modules", {"spotdl": None}):
-            from app import fetch_spotify_via_spotdl_sdk
-            self.assertIsNone(fetch_spotify_via_spotdl_sdk("https://open.spotify.com/track/abc123"))
 
     def test_spotify_track(self):
         self.assertEqual(parse_share_url("https://open.spotify.com/track/abc123?si=xyz"), {
@@ -87,14 +81,15 @@ class FetchMediaStreamTests(unittest.TestCase):
         def mock_run(cmd, **kwargs):
             # 找到输出路径参数中的基目录
             base_dir = Path(cmd[cmd.index("-o") + 1]).parent
-            fake_mp3 = base_dir / "ytdlp_test.mp3"
+            fake_mp3 = base_dir / "ytdlp_dQw4w9WgXcQ.mp3"
             fake_mp3.write_bytes(b"media")
             return SimpleNamespace(returncode=0, stdout="success", stderr="")
 
         with tempfile.TemporaryDirectory() as directory, patch("app.subprocess.run", side_effect=mock_run), redirect_stdout(StringIO()):
-            path = fetch_media_stream("https://www.youtube.com/watch?v=dQw4w9WgXcQ", temp_dir=directory)
+            path, source_url = fetch_media_stream("https://www.youtube.com/watch?v=dQw4w9WgXcQ", temp_dir=directory)
             self.assertTrue(path.exists())
             self.assertEqual(path.read_bytes(), b"media")
+            self.assertEqual(source_url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 
 
 class ProcessAndExportTests(unittest.TestCase):

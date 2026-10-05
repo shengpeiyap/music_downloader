@@ -1,4 +1,4 @@
-"""Local music metadata lookup and personal-audio converter with MusicBrainz & SpotDL integration."""
+"""Local music metadata lookup and personal-audio converter with Source URL tracking."""
 from __future__ import annotations
 
 import json
@@ -16,7 +16,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from email.parser import BytesParser
 from email.policy import default
+from io import BytesIO
 
+from PIL import Image
 import musicbrainzngs
 
 musicbrainzngs.set_useragent("MusicDesk", "1.0", "https://github.com/musicdesk")
@@ -53,8 +55,61 @@ def find_ffmpeg_exe() -> str | None:
     return shutil.which("ffmpeg")
 
 
-# Keep compatibility with earlier callers and existing tests.
 find_ffmpeg = find_ffmpeg_exe
+
+
+def crop_yt_padding_smart(img_bytes: bytes) -> bytes:
+    if not img_bytes:
+        return img_bytes
+    try:
+        img = Image.open(BytesIO(img_bytes)).convert("RGB")
+        w, h = img.size
+
+        min_dim = min(w, h)
+        left = (w - min_dim) // 2
+        top = (h - min_dim) // 2
+        img_sq = img.crop((left, top, left + min_dim, top + min_dim))
+
+        sq_w, sq_h = img_sq.size
+        pixels = img_sq.load()
+        bg_color = pixels[0, 0]
+
+        def is_similar(c1, c2, tol=25):
+            return sum(abs(a - b) for a, b in zip(c1, c2)) < tol
+
+        top_b, bottom_b, left_b, right_b = 0, sq_h, 0, sq_w
+
+        for y in range(sq_h // 2):
+            if not all(is_similar(pixels[x, y], bg_color) for x in range(0, sq_w, 5)):
+                top_b = y
+                break
+
+        for y in range(sq_h - 1, sq_h // 2, -1):
+            if not all(is_similar(pixels[x, y], bg_color) for x in range(0, sq_w, 5)):
+                bottom_b = y + 1
+                break
+
+        for x in range(sq_w // 2):
+            if not all(is_similar(pixels[x, y], bg_color) for x in range(0, sq_h, 5)):
+                left_b = x
+                break
+
+        for x in range(sq_w - 1, sq_w // 2, -1):
+            if not all(is_similar(pixels[x, y], bg_color) for x in range(0, sq_h, 5)):
+                right_b = x + 1
+                break
+
+        if (right_b - left_b > 50) and (bottom_b - top_b > 50):
+            img_final = img_sq.crop((left_b, top_b, right_b, bottom_b))
+        else:
+            img_final = img_sq
+
+        output = BytesIO()
+        img_final.save(output, format="JPEG", quality=95)
+        return output.getvalue()
+    except Exception as e:
+        print(f"[MusicDesk 智能裁剪提示]: {e}")
+        return img_bytes
 
 
 def find_executable(name: str) -> list[str]:
@@ -74,14 +129,52 @@ def find_executable(name: str) -> list[str]:
     return [name]
 
 
-def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> Path | None:
+def fetch_youtube_rich_metadata(url: str) -> dict:
+    meta = {"title": "", "artist": "", "album": "", "year": "", "thumbnail": None}
+    try:
+        cmd = find_executable("yt-dlp") + ["--dump-json", "--no-playlist", url]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=get_env_with_utf8(),
+            shell=(os.name == 'nt')
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            info = json.loads(proc.stdout)
+            meta["title"] = info.get("track") or info.get("title") or ""
+            meta["artist"] = info.get("artist") or info.get("uploader") or info.get("channel") or ""
+            meta["album"] = info.get("album") or ""
+            
+            release_date = str(info.get("release_date") or info.get("upload_date") or "")
+            if len(release_date) >= 4:
+                meta["year"] = release_date[:4]
+            elif info.get("release_year"):
+                meta["year"] = str(info.get("release_year"))
+
+            meta["thumbnail"] = info.get("thumbnail")
+    except Exception as e:
+        print(f"[MusicDesk YouTube 元数据抓取提示]: {e}")
+
+    return meta
+
+
+def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> tuple[Path | None, str]:
     target_url = url.strip()
     if "spotify.com" in target_url:
         clean_title = re.sub(r"\s*-\s*Topic$", "", title, flags=re.IGNORECASE).strip()
-        clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} else artist.strip()
-        search_query = f"{clean_artist} {clean_title} Official Audio".strip()
+        clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} or artist.strip() == clean_title else artist.strip()
+        
+        if clean_artist:
+            search_query = f"{clean_artist} {clean_title}".strip()
+        else:
+            search_query = f"{clean_title}".strip()
+
         if not search_query or search_query == "Official Audio":
             search_query = "music"
+
         target_url = f"ytsearch1:{search_query}"
         print(f"[yt-dlp 引擎] 检索关键词: {search_query}")
 
@@ -89,6 +182,8 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> Path 
         "-x",
         "--audio-format", "mp3",
         "--no-playlist",
+        "--print", "after_move:filepath",
+        "--print", "webpage_url",
         "-o", str(base_dir / "ytdlp_%(id)s.%(ext)s"),
         target_url
     ]
@@ -105,19 +200,32 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> Path 
         shell=(os.name == 'nt')
     )
     
-    if proc.returncode == 0:
-        mp3_files = list(base_dir.glob("ytdlp_*.mp3"))
-        if mp3_files:
-            latest = max(mp3_files, key=lambda p: p.stat().st_mtime)
-            print(f"[MusicDesk 成功] yt-dlp 成功提取: {latest.name}")
-            return latest
+    source_url = ""
+    if proc.returncode == 0 and proc.stdout.strip():
+        lines = [line.strip() for line in proc.stdout.strip().splitlines() if line.strip()]
+        for line in lines:
+            if line.startswith("http://") or line.startswith("https://"):
+                source_url = line
+
+    mp3_files = list(base_dir.glob("ytdlp_*.mp3"))
+    if mp3_files:
+        latest = max(mp3_files, key=lambda p: p.stat().st_mtime)
+        
+        if not source_url:
+            video_id = latest.stem.replace("ytdlp_", "")
+            source_url = f"https://www.youtube.com/watch?v={video_id}"
+
+        print(f"[MusicDesk 成功] yt-dlp 成功提取: {latest.name}")
+        print(f"[MusicDesk 音频来源] {source_url}")
+        sys.stdout.flush()
+        return latest, source_url
     
     print(f"[yt-dlp 抓取失败]")
     sys.stdout.flush()
-    return None
+    return None, ""
 
 
-def fetch_with_spotdl(url: str, base_dir: Path) -> Path | None:
+def fetch_with_spotdl(url: str, base_dir: Path) -> tuple[Path | None, str]:
     print(f"[MusicDesk 调度] 尝试 [spotdl] 下载...")
     sys.stdout.flush()
     cmd = find_executable("spotdl") + ["download", url.strip()]
@@ -137,14 +245,16 @@ def fetch_with_spotdl(url: str, base_dir: Path) -> Path | None:
         mp3_files = list(base_dir.glob("*.mp3"))
         if mp3_files:
             latest = max(mp3_files, key=lambda p: p.stat().st_mtime)
-            return latest
+            print(f"[MusicDesk 音频来源] {url}")
+            sys.stdout.flush()
+            return latest, url
 
     print(f"[spotdl 下载未成功]")
     sys.stdout.flush()
-    return None
+    return None, ""
 
 
-def fetch_media_stream(url: str, title: str = "", artist: str = "", preferred_engine: str = "ytdlp", temp_dir: str | Path | None = None) -> Path:
+def fetch_media_stream(url: str, title: str = "", artist: str = "", preferred_engine: str = "ytdlp", temp_dir: str | Path | None = None) -> tuple[Path, str]:
     base_dir = Path(temp_dir) if temp_dir else Path(tempfile.gettempdir())
 
     engines = {
@@ -152,15 +262,17 @@ def fetch_media_stream(url: str, title: str = "", artist: str = "", preferred_en
         "spotdl": lambda: fetch_with_spotdl(url, base_dir),
     }
 
-    priority_order = [preferred_engine]
+    valid_engine = preferred_engine if preferred_engine in engines else "ytdlp"
+
+    priority_order = [valid_engine]
     for eng in ["ytdlp", "spotdl"]:
         if eng not in priority_order:
             priority_order.append(eng)
 
     for eng_name in priority_order:
-        res_file = engines[eng_name]()
+        res_file, source_url = engines[eng_name]()
         if res_file and res_file.is_file():
-            return res_file
+            return res_file, source_url
 
     raise ValueError("所有配置的下载引擎均无法匹配或提取该歌曲。")
 
@@ -253,135 +365,136 @@ def parse_share_url(raw: str) -> dict:
     raise ValueError("目前支持 Spotify 单曲链接，以及 YouTube Music / YouTube 视频链接。")
 
 
-def fetch_spotify_via_spotdl_sdk(url: str) -> dict | None:
-    """Use SpotDL only when this machine has Spotify API credentials configured."""
-    try:
-        client_id = os.environ.get("SPOTIFY_CLIENT_ID", "").strip()
-        client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip()
-        if not client_id or not client_secret:
-            return None
-        from spotdl.utils.spotify import SpotifyClient
-        from spotdl.utils.search import Song
-        try:
-            SpotifyClient.init(client_id, client_secret)
-        except Exception:
-            # SpotDL may already be initialized by another request in this process.
-            pass
-        song = Song.from_url(url)
-        return {
-            "title": song.name,
-            "artist": song.artist,
-            "album": song.album_name,
-            "year": str(song.year) if song.year else "",
-            "track_num": str(song.track_number) if song.track_number else "",
-            "thumbnail": song.cover_url
-        }
-    except Exception as e:
-        print(f"[MusicDesk] SpotDL metadata fallback: {e}")
-        return None
-
-
 def fetch_spotify_oembed(raw_url: str) -> dict:
-    """Fetch Spotify's public title and cover metadata without API credentials."""
     meta = {"title": "", "artist": "", "thumbnail": None}
-    endpoint = "https://open.spotify.com/oembed?url=" + urllib.parse.quote(raw_url, safe="")
-    request = urllib.request.Request(endpoint, headers={"User-Agent": "MusicDesk/1.0"})
     try:
-        with urllib.request.urlopen(request, timeout=8) as response:
-            data = json.loads(response.read(1024 * 1024))
-        meta["title"] = html_module.unescape(str(data.get("title", ""))).strip()
-        meta["thumbnail"] = data.get("thumbnail_url")
-        # Some Spotify oEmbed responses include the artist before the track title.
-        parts = re.split(r"\s+-\s+", meta["title"], maxsplit=1)
-        if len(parts) == 2:
-            meta["artist"], meta["title"] = parts[0].strip(), parts[1].strip()
-    except (OSError, TimeoutError, ValueError, urllib.error.URLError) as exc:
-        print(f"[MusicDesk] Spotify oEmbed unavailable: {exc}")
+        endpoint = "https://open.spotify.com/oembed?url=" + urllib.parse.quote(raw_url, safe="")
+        req = urllib.request.Request(endpoint, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=6) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            raw_title = html_module.unescape(str(data.get("title", ""))).strip()
+            meta["thumbnail"] = data.get("thumbnail_url")
+            meta["artist"] = html_module.unescape(str(data.get("author_name", ""))).strip()
+            
+            if " - " in raw_title and not meta["artist"]:
+                parts = raw_title.split(" - ", 1)
+                meta["artist"], meta["title"] = parts[0].strip(), parts[1].strip()
+            else:
+                meta["title"] = raw_title
+    except Exception as exc:
+        print(f"[MusicDesk] Spotify oEmbed 解析提示: {exc}")
     return meta
 
 
-def fetch_spotify_web_html(raw_url: str) -> dict:
-    """直接解析 Spotify 页面结构（提取歌名、歌手与 1:1 封面）"""
+def fetch_spotify_embed_html(track_id: str) -> dict:
     meta = {"title": "", "artist": "", "thumbnail": None}
     try:
-        req = urllib.request.Request(raw_url, headers={
+        url = f"https://open.spotify.com/embed/track/{track_id}"
+        req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept-Language": "ja,en-US;q=0.9,en;q=0.8"
         })
         with urllib.request.urlopen(req, timeout=6) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
-            # Parse attributes independently: Spotify can reorder meta attributes.
-            for tag in re.findall(r"<meta\b[^>]*>", html, flags=re.IGNORECASE):
-                attrs = dict((key.lower(), html_module.unescape(value)) for key, value in re.findall(
-                    r'''([\w:-]+)\s*=\s*["']([^"']*)["']''', tag, flags=re.IGNORECASE
-                ))
-                key = (attrs.get("property") or attrs.get("name") or "").lower()
-                content = attrs.get("content", "").strip()
-                if key == "og:title":
-                    meta["title"] = content
-                elif key in {"twitter:audio:artist_name", "music:musician"}:
-                    meta["artist"] = content
-                elif key == "og:description" and not meta["artist"]:
-                    meta["artist"] = re.split(r"\s*[·|]\s*", content, maxsplit=1)[0]
-                elif key == "og:image":
-                    meta["thumbnail"] = content
+            title_m = re.search(r'<meta property="og:title" content="([^"]+)"', html)
+            artist_m = re.search(r'<meta property="twitter:audio:artist_name" content="([^"]+)"', html) or \
+                       re.search(r'<meta name="music:musician" content="([^"]+)"', html)
+            img_m = re.search(r'<meta property="og:image" content="([^"]+)"', html)
+
+            if title_m: meta["title"] = html_module.unescape(title_m.group(1)).strip()
+            if artist_m: meta["artist"] = html_module.unescape(artist_m.group(1)).strip()
+            if img_m: meta["thumbnail"] = img_m.group(1).strip()
     except Exception:
         pass
     return meta
 
 
-def lookup_musicbrainz_metadata(title: str, artist: str) -> dict:
-    """ MusicBrainz 检索：按发行日期升序筛选原版专辑 """
-    print(f"[MusicDesk - MusicBrainz] 正在检索: {title} - {artist}")
-    res_meta = {"artist": artist, "album": "", "year": "", "track_num": "", "cover_url": None}
+def lookup_musicbrainz_metadata(title: str, artist: str, known_album: str = "") -> dict:
+    print(f"[MusicDesk - MusicBrainz 检索] 正在查找: {title} - {artist} (已知专辑: {known_album})")
+    res_meta = {"artist": artist, "album": known_album, "year": "", "track_num": "", "cover_url": None}
     if not title or title == "未知标题":
         return res_meta
 
     try:
-        clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} else artist.strip()
+        clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} or artist.strip() == title.strip() else artist.strip()
+        
         query = f'recording:"{title}"'
         if clean_artist:
             query += f' AND artist:"{clean_artist}"'
+        if known_album:
+            query += f' AND release:"{known_album}"'
 
-        result = musicbrainzngs.search_recordings(query=query, limit=10)
+        result = musicbrainzngs.search_recordings(query=query, limit=15)
         recordings = result.get("recording-list", [])
+
+        if not recordings and known_album:
+            query_fallback = f'recording:"{title}"'
+            if clean_artist: query_fallback += f' AND artist:"{clean_artist}"'
+            result = musicbrainzngs.search_recordings(query=query_fallback, limit=15)
+            recordings = result.get("recording-list", [])
+
+        album_releases = []
+        single_releases = []
 
         for rec in recordings:
             artist_credit = rec.get("artist-credit", [])
             if artist_credit and isinstance(artist_credit[0], dict):
                 mb_artist = artist_credit[0].get("artist", {}).get("name", "")
-                if mb_artist and (not clean_artist or res_meta["artist"] == "未知艺人"):
+                if mb_artist and (not clean_artist or res_meta["artist"] in {"未知艺人", title}):
                     res_meta["artist"] = mb_artist
 
             releases = rec.get("release-list", [])
-            # 依发行时间排序，优先获取最早期发行的原版专辑
-            releases_sorted = sorted(releases, key=lambda r: r.get("date", "9999"))
+            for rel in releases:
+                rel_group = rel.get("release-group", {})
+                primary_type = rel_group.get("type", "").lower()
+                secondary_types = [t.lower() for t in rel_group.get("secondary-type-list", [])]
 
-            for rel in releases_sorted:
-                rel_id = rel.get("id")
-                album_name = rel.get("title", "")
+                if "live" in secondary_types or "remix" in secondary_types:
+                    continue
+
                 date_str = rel.get("date", "")
-                year = date_str.split("-")[0] if date_str else ""
+                year = date_str.split("-")[0] if date_str else "9999"
 
+                item = {
+                    "id": rel.get("id"),
+                    "title": rel.get("title", ""),
+                    "year": year if year != "9999" else "",
+                    "is_album": primary_type == "album"
+                }
+
+                if primary_type == "album":
+                    album_releases.append(item)
+                else:
+                    single_releases.append(item)
+
+        candidate_releases = sorted(album_releases, key=lambda r: r["year"] or "9999") + \
+                             sorted(single_releases, key=lambda r: r["year"] or "9999")
+
+        for rel in candidate_releases:
+            rel_id = rel["id"]
+            album_name = rel["title"]
+            year = rel["year"]
+
+            cover_url = None
+            try:
+                test_url = f"https://coverartarchive.org/release/{rel_id}/front-500"
+                req = urllib.request.Request(test_url, method='HEAD', headers={"User-Agent": "MusicDesk/1.0"})
+                with urllib.request.urlopen(req, timeout=3):
+                    cover_url = test_url
+            except Exception:
                 cover_url = None
-                try:
-                    test_url = f"https://coverartarchive.org/release/{rel_id}/front-500"
-                    req = urllib.request.Request(test_url, method='HEAD', headers={"User-Agent": "MusicDesk/1.0"})
-                    with urllib.request.urlopen(req, timeout=3):
-                        cover_url = test_url
-                except Exception:
-                    cover_url = None
 
+            if not res_meta["album"]:
+                res_meta["album"] = album_name
+            if not res_meta["year"]:
+                res_meta["year"] = year
+
+            if cover_url:
+                res_meta["cover_url"] = cover_url
                 res_meta["album"] = album_name
                 res_meta["year"] = year
-                if cover_url:
-                    res_meta["cover_url"] = cover_url
-                    print(f"[MusicDesk - MusicBrainz] 匹配到专辑 [{album_name} ({year})] 封面: {cover_url}")
-                    return res_meta
-
-                if album_name and not res_meta["album"]:
-                    res_meta["album"] = album_name
-                    res_meta["year"] = year
+                print(f"[MusicDesk 成功] 命中优先原画专辑封面 [{album_name} ({year})]: {cover_url}")
+                return res_meta
 
     except Exception as e:
         print(f"[MusicDesk - MusicBrainz 提示]: {e}")
@@ -393,55 +506,53 @@ def lookup_metadata(raw_url: str) -> dict:
     link = parse_share_url(raw_url)
     title, artist, album, year, track_num, thumbnail = "未知标题", "未知艺人", "", "", "", None
 
-    # 1. 如果是 Spotify 链接，先尝试 SDK，若未成功再降级使用 HTML/oEmbed 提取
     if link["provider"] == "spotify":
-        spot_sdk = fetch_spotify_via_spotdl_sdk(link["url"])
-        if spot_sdk:
-            title = spot_sdk["title"]
-            artist = spot_sdk["artist"]
-            album = spot_sdk["album"]
-            year = spot_sdk["year"]
-            track_num = spot_sdk["track_num"]
-            thumbnail = spot_sdk["thumbnail"]
-        else:
-            web_meta = fetch_spotify_oembed(link["url"])
-            if web_meta.get("title"): title = web_meta["title"]
-            if web_meta.get("artist"): artist = web_meta["artist"]
-            if web_meta.get("thumbnail"): thumbnail = web_meta["thumbnail"]
-            web_meta = fetch_spotify_web_html(link["url"])
-            if title == "未知标题" and web_meta.get("title"): title = web_meta["title"]
-            if artist == "未知艺人" and web_meta.get("artist"): artist = web_meta["artist"]
-            if not thumbnail and web_meta.get("thumbnail"): thumbnail = web_meta["thumbnail"]
+        oembed_data = fetch_spotify_oembed(link["url"])
+        if oembed_data.get("title"): title = oembed_data["title"]
+        if oembed_data.get("artist"): artist = oembed_data["artist"]
+        if oembed_data.get("thumbnail"): thumbnail = oembed_data["thumbnail"]
 
-    # 2. 如果是 YouTube 链接
+        if title == "未知标题" or artist == "未知艺人":
+            embed_data = fetch_spotify_embed_html(link["id"])
+            if title == "未知标题" and embed_data.get("title"): title = embed_data["title"]
+            if artist == "未知艺人" and embed_data.get("artist"): artist = embed_data["artist"]
+            if not thumbnail and embed_data.get("thumbnail"): thumbnail = embed_data["thumbnail"]
+
     elif link["provider"] == "youtube":
-        try:
-            endpoint = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(link["url"], safe="")
-            req = urllib.request.Request(endpoint, headers={"User-Agent": "MusicDesk/1.0"})
-            with urllib.request.urlopen(req, timeout=6) as response:
-                data = json.loads(response.read())
-                title = data.get("title", title)
-                artist = data.get("author_name", artist)
-                thumbnail = data.get("thumbnail_url")
-        except Exception:
-            pass
+        yt_rich = fetch_youtube_rich_metadata(link["url"])
+        if yt_rich.get("title"): title = yt_rich["title"]
+        if yt_rich.get("artist"): artist = yt_rich["artist"]
+        if yt_rich.get("album"): album = yt_rich["album"]
+        if yt_rich.get("year"): year = yt_rich["year"]
+        if yt_rich.get("thumbnail"): thumbnail = yt_rich["thumbnail"]
+
+        if title == "未知标题":
+            try:
+                endpoint = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(link["url"], safe="")
+                req = urllib.request.Request(endpoint, headers={"User-Agent": "MusicDesk/1.0"})
+                with urllib.request.urlopen(req, timeout=6) as response:
+                    data = json.loads(response.read())
+                    title = data.get("title", title)
+                    artist = data.get("author_name", artist)
+                    if not thumbnail: thumbnail = data.get("thumbnail_url")
+            except Exception:
+                pass
 
     artist = re.sub(r"\s*-\s*Topic$", "", artist, flags=re.IGNORECASE).strip()
 
-    if title == "未知标题":
-        raise ValueError("无法读取该链接的曲名或公开 metadata。请确认链接有效并检查网络后重试。")
-
-    # 3. 补充 MusicBrainz 精细专辑数据
     if title and title != "未知标题":
-        mb_meta = lookup_musicbrainz_metadata(title, artist)
-        if mb_meta.get("artist") and artist == "未知艺人":
+        mb_meta = lookup_musicbrainz_metadata(title, artist, known_album=album)
+        if mb_meta.get("artist") and (artist == "未知艺人" or artist == title):
             artist = mb_meta["artist"]
-        if mb_meta.get("album") and not album:
+        if mb_meta.get("album"):
             album = mb_meta["album"]
-        if mb_meta.get("year") and not year:
+        if mb_meta.get("year"):
             year = mb_meta["year"]
-        if mb_meta.get("cover_url") and not thumbnail:
+        if mb_meta.get("cover_url"):
             thumbnail = mb_meta["cover_url"]
+
+    if title == "未知标题":
+        raise ValueError("未能读取到该音频链接信息，请检查链接或网络连接后重试。")
 
     return {
         "provider": link["provider"], "id": link["id"], "url": link["url"],
@@ -493,14 +604,19 @@ class Handler(SimpleHTTPRequestHandler):
                 sys.stdout.flush()
                 
                 with tempfile.TemporaryDirectory(prefix="musicdesk-dl-") as temp_dir:
-                    downloaded_file = fetch_media_stream(url, title, artist, preferred_engine, temp_dir)
+                    downloaded_file, source_url = fetch_media_stream(url, title, artist, preferred_engine, temp_dir)
                     
                     cover_p = Path(temp_dir) / "cover.jpg"
                     if thumbnail:
                         try:
                             req = urllib.request.Request(thumbnail, headers={"User-Agent": "Mozilla/5.0"})
                             with urllib.request.urlopen(req, timeout=10) as res:
-                                cover_p.write_bytes(res.read())
+                                raw_cover_bytes = res.read()
+                                if "ytimg.com" in thumbnail or "youtube.com" in thumbnail:
+                                    processed_cover = crop_yt_padding_smart(raw_cover_bytes)
+                                else:
+                                    processed_cover = raw_cover_bytes
+                                cover_p.write_bytes(processed_cover)
                         except Exception:
                             cover_p.write_bytes(b"")
                     else:
@@ -521,6 +637,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "audio/mpeg")
                 self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(download_name))
+                self.send_header("Access-Control-Expose-Headers", "X-Source-Url")
+                self.send_header("X-Source-Url", urllib.parse.quote(source_url, safe="/:?=&_"))
                 self.send_header("Content-Length", str(len(converted)))
                 self.end_headers()
                 self.wfile.write(converted)
