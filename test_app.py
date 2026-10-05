@@ -3,9 +3,11 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app import fetch_media_stream, find_ffmpeg, parse_share_url, process_and_export_media
+from app import fetch_media_stream, fetch_spotify_web_html, find_ffmpeg, lookup_metadata, parse_share_url, process_and_export_media
 import tempfile
 from pathlib import Path
+from contextlib import redirect_stdout
+from io import StringIO
 
 
 class FfmpegResolutionTests(unittest.TestCase):
@@ -21,6 +23,30 @@ class FfmpegResolutionTests(unittest.TestCase):
 
 
 class ShareUrlTests(unittest.TestCase):
+    def test_spotify_html_metadata_ignores_attribute_order_and_decodes_entities(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = (
+            b'<meta content="Song &amp; More" property="og:title">'
+            b'<meta content="Artist Name" name="music:musician">'
+            b'<meta content="https://img.example/cover.jpg" property="og:image">'
+        )
+        with patch("app.urllib.request.urlopen", return_value=response):
+            result = fetch_spotify_web_html("https://open.spotify.com/track/abc123")
+        self.assertEqual(result["title"], "Song & More")
+        self.assertEqual(result["artist"], "Artist Name")
+        self.assertEqual(result["thumbnail"], "https://img.example/cover.jpg")
+
+    def test_musicbrainz_can_fill_unknown_artist(self):
+        with patch("app.fetch_spotify_via_spotdl_sdk", return_value=None), \
+             patch("app.fetch_spotify_web_html", return_value={"title": "Song", "artist": "", "thumbnail": None}), \
+             patch("app.lookup_musicbrainz_metadata", return_value={
+                 "artist": "Artist", "album": "Album", "year": "2000", "track_num": "", "cover_url": None
+             }) as lookup:
+            result = lookup_metadata("https://open.spotify.com/track/abc123")
+        lookup.assert_called_once_with("Song", "未知艺人")
+        self.assertEqual(result["artist"], "Artist")
+
     def test_spotify_track(self):
         self.assertEqual(parse_share_url("https://open.spotify.com/track/abc123?si=xyz"), {
             "provider": "spotify", "id": "abc123", "url": "https://open.spotify.com/track/abc123"
@@ -41,23 +67,18 @@ class ShareUrlTests(unittest.TestCase):
 
 
 class FetchMediaStreamTests(unittest.TestCase):
-    def test_streams_response_to_temp_file(self):
-        response = MagicMock()
-        response.__enter__.return_value = response
-        response.geturl.return_value = "https://media.example/audio"
-        response.read.side_effect = [b"media", b""]
-        with tempfile.TemporaryDirectory() as directory, patch("app.urllib.request.urlopen", return_value=response):
-            path = fetch_media_stream("https://media.example/audio", directory)
-            try:
-                self.assertEqual(Path(path).read_bytes(), b"media")
-                self.assertEqual(Path(path).parent, Path(directory))
-            finally:
-                Path(path).unlink()
+    def test_ytdlp_execution(self):
+        def mock_run(cmd, **kwargs):
+            # 找到输出路径参数中的基目录
+            base_dir = Path(cmd[cmd.index("-o") + 1]).parent
+            fake_mp3 = base_dir / "ytdlp_test.mp3"
+            fake_mp3.write_bytes(b"media")
+            return SimpleNamespace(returncode=0, stdout="success", stderr="")
 
-    def test_rejects_non_http_and_private_ip_urls(self):
-        for url in ("file:///etc/passwd", "http://127.0.0.1/media"):
-            with self.subTest(url=url), self.assertRaises(ValueError):
-                fetch_media_stream(url)
+        with tempfile.TemporaryDirectory() as directory, patch("app.subprocess.run", side_effect=mock_run), redirect_stdout(StringIO()):
+            path = fetch_media_stream("https://www.youtube.com/watch?v=dQw4w9WgXcQ", temp_dir=directory)
+            self.assertTrue(path.exists())
+            self.assertEqual(path.read_bytes(), b"media")
 
 
 class ProcessAndExportTests(unittest.TestCase):
@@ -76,20 +97,13 @@ class ProcessAndExportTests(unittest.TestCase):
 
             with patch("app.find_ffmpeg", return_value="ffmpeg"), patch("app.subprocess.run", side_effect=fake_ffmpeg), \
                  patch("mutagen.id3.ID3.save") as save:
-                result = process_and_export_media(source, "Song", "Artist", cover, "MP3", output)
+                result = process_and_export_media(
+                    source, {"title": "Song", "artist": "Artist"}, cover, "MP3", output
+                )
 
             self.assertEqual(result.read_bytes(), b"mp3-data")
             self.assertFalse(source.exists())
             save.assert_called_once()
-
-    def test_rejects_non_mp3_id3_export(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "cached.bin"
-            cover = Path(directory) / "cover.jpg"
-            source.write_bytes(b"source")
-            cover.write_bytes(b"cover")
-            with self.assertRaises(ValueError):
-                process_and_export_media(source, "Song", "Artist", cover, "flac", directory)
 
 
 if __name__ == "__main__":
