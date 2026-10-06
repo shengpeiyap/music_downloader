@@ -33,6 +33,11 @@ ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 FORMATS = {"mp3": "audio/mpeg", "wav": "audio/wav", "flac": "audio/flac", "ogg": "audio/ogg", "m4a": "audio/mp4"}
 MAX_UPLOAD = 150 * 1024 * 1024
 SAFE_NAME = re.compile(r"[^\w .()-]+", re.UNICODE)
+MUSICDESK_API_VERSION = 1
+MUSICDESK_API_CAPABILITIES = (
+    "metadata", "search_metadata", "lyrics_text", "download", "convert",
+    "parse_local_tag", "package_custom_tag",
+)
 
 
 def get_env_with_utf8() -> dict[str, str]:
@@ -837,7 +842,12 @@ class Handler(SimpleHTTPRequestHandler):
             if not self.is_api_authorized():
                 self.send_json(401, {"error": "配对密钥无效。"})
                 return
-            self.send_json(200, {"ok": True, "service": "MusicDesk"})
+            self.send_json(200, {
+                "ok": True,
+                "service": "MusicDesk",
+                "api_version": MUSICDESK_API_VERSION,
+                "capabilities": list(MUSICDESK_API_CAPABILITIES),
+            })
             return
         if getattr(self.server, "lan_mode", False) and not is_loopback_address(self.client_address[0]):
             # Remote LAN clients get the API only; keep the browser UI local to this computer.

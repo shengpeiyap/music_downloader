@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import acquire_custom_audio_source, build_download_query, create_musicdesk_server, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_download_query, create_musicdesk_server, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -165,6 +165,14 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('id="apiServerUrl"', page)
         self.assertIn('id="apiPairingToken"', page)
         self.assertIn("Authorization: `Bearer ${androidApiConfig.token}`", page)
+        self.assertIn("let androidApiConnected = false", page)
+        self.assertIn("function updateAndroidApiGates()", page)
+        self.assertIn("function testAndroidApiConnection(config, showProgress = true)", page)
+        self.assertIn("const REQUIRED_ANDROID_API_VERSION = 1", page)
+        self.assertIn("result.api_version !== REQUIRED_ANDROID_API_VERSION", page)
+        self.assertIn("REQUIRED_ANDROID_API_CAPABILITIES.every", page)
+        self.assertIn("此功能已锁定。请先连接电脑上的 MusicDesk 服务", page)
+        self.assertIn("testAndroidApiConnection(androidApiConfig, false)", page)
         self.assertIn("async function saveApiResponse(response, fallbackName)", page)
         self.assertIn("AndroidMusic.writeDownloadChunk", page)
         manifest = (Path(__file__).parent / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
@@ -472,7 +480,10 @@ class LanApiTests(unittest.TestCase):
             connection.request("GET", "/api/status", headers={"Authorization": "Bearer pairing-secret"})
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
-            self.assertTrue(__import__("json").loads(response.read())["ok"])
+            status = __import__("json").loads(response.read())
+            self.assertTrue(status["ok"])
+            self.assertEqual(status["api_version"], MUSICDESK_API_VERSION)
+            self.assertEqual(set(status["capabilities"]), set(MUSICDESK_API_CAPABILITIES))
 
             connection.request("OPTIONS", "/api/download", headers={"Origin": "null"})
             response = connection.getresponse()

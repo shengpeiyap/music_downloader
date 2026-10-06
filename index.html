@@ -414,14 +414,29 @@
 const $=id=>document.getElementById(id);
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 let androidApiConfig = null;
+let androidApiConnected = false;
+const REQUIRED_ANDROID_API_VERSION = 1;
+const REQUIRED_ANDROID_API_CAPABILITIES = ['metadata', 'search_metadata', 'lyrics_text', 'download', 'convert', 'parse_local_tag', 'package_custom_tag'];
 try { androidApiConfig = JSON.parse(localStorage.getItem('musicdesk-api-config') || 'null'); } catch (_) {}
 function requestMusicDeskApi(path, options) {
   if (window.AndroidMusic && /^\/api\//.test(path)) {
-    if (!androidApiConfig || !androidApiConfig.url || !androidApiConfig.token) {
-      return Promise.reject(new Error('请先在“在线解析”页面连接电脑上的 MusicDesk 服务。'));
+    if (!androidApiConnected || !androidApiConfig || !androidApiConfig.url || !androidApiConfig.token) {
+      return Promise.reject(new Error('此功能已锁定。请先连接电脑上的 MusicDesk 服务，确认 API 匹配后再使用。'));
     }
     const headers = {...(options && options.headers || {}), Authorization: `Bearer ${androidApiConfig.token}`};
-    return fetch(`${androidApiConfig.url}${path}`, {...options, headers});
+    return fetch(`${androidApiConfig.url}${path}`, {...options, headers}).then(response => {
+      if (response.status === 401) {
+        androidApiConnected = false;
+        updateApiConnectionMessage(false, '配对密钥无效或已过期；功能已锁定，请重新连接。');
+      }
+      return response;
+    }).catch(error => {
+      if (error instanceof TypeError) {
+        androidApiConnected = false;
+        updateApiConnectionMessage(false, '电脑服务无法访问；在线功能已锁定。请确认电脑服务运行中且手机和电脑在同一 Wi‑Fi。');
+      }
+      throw error;
+    });
   }
   return fetch(path, options);
 }
@@ -437,6 +452,8 @@ function normalizedApiConfig(url, token) {
 }
 
 function updateApiConnectionMessage(connected, message = '') {
+  androidApiConnected = !!connected;
+  updateAndroidApiGates();
   const saved = !!androidApiConfig;
   $('apiConnectionStatus').textContent = message || (connected ? `已连接：${androidApiConfig.url}` : saved ? `已保存：${androidApiConfig.url}（点按钮测试连接）` : '尚未连接');
   $('androidOnlineNote').textContent = connected
@@ -444,7 +461,40 @@ function updateApiConnectionMessage(connected, message = '') {
     : saved ? `已保存电脑地址 ${androidApiConfig.url}；请测试连接后使用在线功能。` : '连接同一 Wi‑Fi 上运行的 MusicDesk 电脑，即可使用在线服务。';
   $('androidCustomNote').firstChild.textContent = connected
     ? '自定义封装已连接电脑服务。'
-    : '自定义封装需要先连接运行中的电脑服务。';
+    : '自定义封装暂不可用；连接并验证电脑 API 后开放。';
+}
+
+function updateAndroidApiGates() {
+  if (!window.AndroidMusic) return;
+  const gated = document.querySelectorAll(
+    '#lookup input, #lookup button, #enginePriority, #viewLrcBtn, #downloadBtn, ' +
+    '#convert input, #convert select, #convert button, ' +
+    '#customTagForm input, #customTagForm select, #customTagForm textarea, #customTagForm button'
+  );
+  gated.forEach(control => { control.disabled = !androidApiConnected; });
+}
+
+async function testAndroidApiConnection(config, showProgress = true) {
+  if (showProgress) updateApiConnectionMessage(false, '正在测试电脑服务…');
+  try {
+    const response = await fetch(`${config.url}/api/status`, {headers: {Authorization: `Bearer ${config.token}`}});
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || '电脑服务拒绝了连接。');
+    if (result.service !== 'MusicDesk' || result.api_version !== REQUIRED_ANDROID_API_VERSION ||
+        !REQUIRED_ANDROID_API_CAPABILITIES.every(capability => result.capabilities && result.capabilities.includes(capability))) {
+      throw new Error('电脑端 API 版本或功能不匹配；请更新电脑端 MusicDesk 后再连接。功能已保持锁定。');
+    }
+    androidApiConfig = config;
+    localStorage.setItem('musicdesk-api-config', JSON.stringify(config));
+    $('apiPairingToken').value = config.token;
+    updateApiConnectionMessage(true);
+    return true;
+  } catch (error) {
+    updateApiConnectionMessage(false, /Failed to fetch|NetworkError|Load failed/i.test(error.message)
+      ? '电脑服务未连通，在线功能已锁定：检查同一 Wi‑Fi、电脑 LAN 地址/端口、配对码及防火墙。'
+      : error.message);
+    return false;
+  }
 }
 
 $('connectApiBtn').addEventListener('click', async () => {
@@ -452,26 +502,13 @@ $('connectApiBtn').addEventListener('click', async () => {
   try { config = normalizedApiConfig($('apiServerUrl').value, $('apiPairingToken').value); }
   catch (error) { updateApiConnectionMessage(false, error.message); return; }
   $('connectApiBtn').disabled = true;
-  updateApiConnectionMessage(false, '正在测试电脑服务…');
-  try {
-    const response = await fetch(`${config.url}/api/status`, {headers: {Authorization: `Bearer ${config.token}`}});
-    const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.error || '电脑服务拒绝了连接。');
-    androidApiConfig = config;
-    localStorage.setItem('musicdesk-api-config', JSON.stringify(config));
-    $('apiPairingToken').value = config.token;
-    updateApiConnectionMessage(true);
-  } catch (error) {
-    updateApiConnectionMessage(false, /Failed to fetch|NetworkError|Load failed/i.test(error.message)
-      ? '连不上电脑：检查同一 Wi‑Fi、IP/端口、配对密钥及 Windows 防火墙。'
-      : error.message);
-  } finally {
-    $('connectApiBtn').disabled = false;
-  }
+  await testAndroidApiConnection(config);
+  $('connectApiBtn').disabled = false;
 });
 
 $('forgetApiBtn').addEventListener('click', () => {
   androidApiConfig = null;
+  androidApiConnected = false;
   localStorage.removeItem('musicdesk-api-config');
   $('apiPairingToken').value = '';
   updateApiConnectionMessage(false, '已断开电脑服务。');
@@ -1714,6 +1751,7 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   if (androidApiConfig) {
     $('apiServerUrl').value = androidApiConfig.url || '';
     $('apiPairingToken').value = androidApiConfig.token || '';
+    testAndroidApiConnection(androidApiConfig, false);
   }
   updateApiConnectionMessage(false);
   $('selectDirBtn').style.display = 'inline-block';
