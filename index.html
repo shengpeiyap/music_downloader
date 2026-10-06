@@ -94,7 +94,7 @@
         <div class="result" id="result">
           <div class="result-header">
             <div class="result-info">
-              <img id="cover" alt="封面">
+              <img id="cover" src="/default_song_img.png" alt="封面">
               <div>
                 <strong id="title"></strong>
                 <small id="artist"></small><br>
@@ -161,7 +161,7 @@
           <!-- 左侧：封面选择与预览 -->
           <div class="tag-cover-box">
             <label style="margin:0;font-weight:600">专辑封面预览</label>
-            <img id="customCoverPreview" class="tag-cover-preview" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' fill='%2329332c'/%3E%3C/svg%3E" alt="封面">
+            <img id="customCoverPreview" class="tag-cover-preview" src="/default_song_img.png" alt="封面">
             <label style="width:100%;text-align:center;margin:0;cursor:pointer;font-size:12px;color:var(--green)">
               上传/更换封面
               <input id="customCoverInput" type="file" accept="image/*" style="display:none">
@@ -236,7 +236,7 @@
 
       <!-- 主播放控制面板 -->
       <div class="player-main-card">
-        <img id="nowCover" class="now-playing-cover" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%2329332c'/%3E%3C/svg%3E" alt="封面">
+        <img id="nowCover" class="now-playing-cover" src="/default_song_img.png" alt="封面">
         <h3 id="nowTitle" style="margin:0 0 6px;font-size:20px">未选择歌曲</h3>
         <p id="nowArtist" style="margin:0 0 20px;color:var(--muted);font-size:14px">本地音乐离线播放器</p>
 
@@ -258,6 +258,11 @@
 <script>
 const $=id=>document.getElementById(id);
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const DEFAULT_COVER = '/default_song_img.png';
+document.addEventListener('error', event => {
+  const image = event.target;
+  if (image instanceof HTMLImageElement && !image.src.endsWith(DEFAULT_COVER)) image.src = DEFAULT_COVER;
+}, true);
 let currentMetadata = null;
 let parsedLyrics = [];
 let localTracks = []; // [{file, title, artist, album, cover, lrc}, ...]
@@ -371,7 +376,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
     $('title').textContent = d.title;
     $('artist').textContent = d.artist;
     $('provider').textContent = isKeywordSearch ? '关键词搜索' : (d.provider === 'spotify' ? 'Spotify' : 'YouTube Music / YouTube');
-    $('cover').src = isKeywordSearch ? (d.cover || '') : (d.thumbnail || '');
+    $('cover').src = isKeywordSearch ? (d.cover || DEFAULT_COVER) : (d.thumbnail || DEFAULT_COVER);
     $('result').style.display = 'flex';$('lookupStatus').textContent = isKeywordSearch ? '搜索完成，可继续查看歌词或下载。' : '信息已读取。';
   } catch(err) {
     $('lookupStatus').textContent = err.message;
@@ -507,7 +512,7 @@ $('customAudioInput').addEventListener('change', async (e) => {
     if (d.cover) {
       $('customCoverPreview').src = d.cover;
     } else {
-      $('customCoverPreview').src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' fill='%2329332c'/%3E%3C/svg%3E";
+      $('customCoverPreview').src = DEFAULT_COVER;
     }
 
     $('customStatus').textContent = '已读取内部资料。您可以更改上述内容后点击导出。';
@@ -544,10 +549,8 @@ $('tagSearchBtn').addEventListener('click', async () => {
     $('tagAlbumArtist').value = d.albumartist || d.artist || '';
     $('tagYear').value = d.year || '';
     $('tagLyrics').value = d.lyrics || '';
-    if (d.cover) {
-      $('customCoverPreview').src = d.cover;
-      $('customCoverPreview').dataset.embeddedCover = d.cover;
-    }
+    $('customCoverPreview').dataset.embeddedCover = d.cover || '';
+    $('customCoverPreview').src = d.cover || DEFAULT_COVER;
     $('customStatus').textContent = '已根据关键词补全信息，请检查后导出。';
   } catch (err) {
     $('customStatus').textContent = err.message;
@@ -690,7 +693,7 @@ function renderLocalPlaylist(filterText = "") {
   container.innerHTML = filtered.map((track) => {
     const origIdx = localTracks.indexOf(track);
     const activeCls = origIdx === currentTrackIdx ? "active" : "";
-    const coverSrc = track.cover || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='%2329332c'/%3E%3C/svg%3E";
+    const coverSrc = track.cover || DEFAULT_COVER;
     return `
       <div class="track-item ${activeCls}" onclick="playLocalTrack(${origIdx})">
         <img id="track-img-${origIdx}" src="${escapeHTML(coverSrc)}" alt="封面">
@@ -722,7 +725,7 @@ function playLocalTrack(idx) {
 
   $('nowTitle').textContent = track.title;
   $('nowArtist').textContent = `${track.artist} - ${track.album}`;
-  $('nowCover').src = track.cover || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' fill='%2329332c'/%3E%3C/svg%3E";
+  $('nowCover').src = track.cover || DEFAULT_COVER;
 
   const player = $('localAudioPlayer');
   player.src = URL.createObjectURL(track.file);

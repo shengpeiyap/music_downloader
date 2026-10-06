@@ -40,11 +40,14 @@ class DesktopLauncherTests(unittest.TestCase):
             (package / "_internal").mkdir(parents=True)
             (package / "MusicDesk.exe").write_bytes(b"app")
             (package / "_internal" / "music_tag.py").write_bytes(b"dependency")
+            (package / "_internal" / "default_song_img.png").write_bytes(b"placeholder")
             archive_path = create_portable_archive(package, root / "package.zip")
 
             import zipfile
             with zipfile.ZipFile(archive_path) as archive:
-                self.assertEqual(set(archive.namelist()), {"MusicDesk.exe", "_internal/music_tag.py"})
+                self.assertEqual(set(archive.namelist()), {
+                    "MusicDesk.exe", "_internal/music_tag.py", "_internal/default_song_img.png"
+                })
                 self.assertIsNone(archive.testzip())
 
 
@@ -55,6 +58,12 @@ class LocalTagMetadataTests(unittest.TestCase):
             "JSON.stringify({title: currentMetadata.title, artist: currentMetadata.artist})",
             page,
         )
+
+    def test_default_cover_is_display_only_and_never_used_as_embedded_cover(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn("const DEFAULT_COVER = '/default_song_img.png'", page)
+        self.assertIn("$('customCoverPreview').dataset.embeddedCover = d.cover || ''", page)
+        self.assertTrue((Path(__file__).parent / "default_song_img.png").is_file())
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")

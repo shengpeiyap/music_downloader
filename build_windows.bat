@@ -11,7 +11,7 @@ if not exist ".venv\Scripts\python.exe" (
 if errorlevel 1 goto :error
 
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onedir --windowed ^
-  --name MusicDesk --icon icon.ico --add-data "index.html;." --add-data "icon.ico;." ^
+  --name MusicDesk --icon icon.ico --add-data "index.html;." --add-data "icon.ico;." --add-data "default_song_img.png;." ^
   --collect-all imageio_ffmpeg --collect-all PIL --collect-all mutagen ^
   --collect-all musicbrainzngs --collect-all music_tag --collect-all webview launcher.py
 if errorlevel 1 goto :error
