@@ -74,6 +74,11 @@
     .android-mini-player{display:none}
     .queue-backdrop{position:fixed;inset:0;background:#0009;z-index:20;display:flex;align-items:flex-end}
     .queue-sheet{width:100%;max-height:78dvh;background:#202321;border:1px solid #3a403b;border-radius:22px 22px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;box-shadow:0 -12px 40px #0007}
+    .queue-sheet{transform:translateY(110%);transition:transform .22s ease;will-change:transform}
+    .queue-sheet.open{transform:translateY(0)}
+    .queue-drag-handle{height:26px;display:flex;align-items:flex-start;justify-content:center;touch-action:none;cursor:grab;user-select:none}
+    .queue-drag-handle span{width:42px;height:5px;border-radius:9px;background:#626963}
+    .queue-header .queue-close{font-size:18px;color:var(--muted);padding:4px 10px}
     .queue-sheet[hidden],.queue-backdrop[hidden]{display:none}
     .queue-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
     .queue-header button{margin:0;background:transparent;color:var(--green);padding:6px}
@@ -89,7 +94,7 @@
     body.android-app .android-mini-info{flex:1;overflow:hidden;text-align:left}
     body.android-app .android-mini-info strong,body.android-app .android-mini-info small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     body.android-app .android-mini-info small{color:var(--muted);font-size:12px}
-    body.android-app #tab-local{padding-bottom:72px}
+    body.android-app #tab-local{padding-bottom:calc(132px + env(safe-area-inset-bottom))}
     body.android-app .now-playing-cover{width:min(72vw,320px);height:min(72vw,320px);margin:8px 0 4px}
     body.android-app #nowTitle{font-size:24px!important}
     body.android-app .player-main-card{padding:14px;gap:8px}
@@ -101,7 +106,7 @@
     body.android-app .playlist-card,body.android-app .player-main-card{height:auto;max-height:none;min-height:0;margin-bottom:12px}
     body.android-app .playlist-card{max-height:calc(100dvh - 150px)}
     body.android-app .player-main-card{min-height:calc(100dvh - 150px);justify-content:flex-start;gap:14px}
-    body.android-app .track-list{max-height:calc(100dvh - 340px)}
+    body.android-app #localTrackList{max-height:calc(100dvh - 340px);padding-bottom:110px;scroll-padding-bottom:110px}
 
     /* 本地播放器专属样式 */
     .local-layout{display:grid;grid-template-columns:320px 1fr;gap:20px}
@@ -355,7 +360,8 @@
     </div>
     <div id="queueBackdrop" class="queue-backdrop" hidden>
       <section id="queueSheet" class="queue-sheet" aria-label="播放列表">
-        <div class="queue-header"><h2 id="queueTitle" style="margin:0;font-size:20px">播放列表</h2><button id="clearQueueBtn" type="button">清空</button></div>
+        <div id="queueDragHandle" class="queue-drag-handle" aria-label="向下拖动收起播放列表"><span></span></div>
+        <div class="queue-header"><h2 id="queueTitle" style="margin:0;font-size:20px">播放列表</h2><div style="display:flex;gap:8px"><button id="clearQueueBtn" type="button">清空</button><button id="closeQueueBtn" class="queue-close" type="button" aria-label="收起播放列表">×</button></div></div>
         <div id="queueList" class="queue-list track-list"></div>
       </section>
     </div>
@@ -384,6 +390,11 @@ let libraryCategory = 'songs';
 let libraryGroup = '';
 let favoriteTrackKeys = new Set();
 try { favoriteTrackKeys = new Set(JSON.parse(localStorage.getItem('musicdesk-favorites') || '[]')); } catch (_) {}
+let queueCloseTimer = null;
+let queueDragStartY = null;
+let queueDragLastTime = 0;
+let queueDragVelocity = 0;
+let androidNoticeTimer = null;
 
 // Tab 切换逻辑
 function switchTab(tabName) {
@@ -910,8 +921,10 @@ window.onAndroidFolderPicked = (raw, isFinal = true, wasCapped = false) => {
     $('androidScopeNote').textContent = localTracks.length
       ? `曲库已就绪，共 ${localTracks.length} 首歌曲。${wasCapped ? '已达到单次导入上限。' : ''}`
       : '文件夹中没有新的支持格式音频，请选择包含音乐的文件夹。';
+    showAndroidNotice(4500);
   } else {
     $('androidScopeNote').textContent = `正在载入曲库…已处理 ${localTracks.length} 首`;
+    $('androidScopeNote').style.display = 'block';
   }
   renderLocalPlaylist($('searchLocal').value);
   syncPlayerControls();
@@ -925,9 +938,11 @@ window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
   }
   if (error || !fileUri) {
     $('androidScopeNote').textContent = error || '无法读取所选音频';
+    $('androidScopeNote').style.display = 'block';
     return;
   }
-  $('androidScopeNote').textContent = '正在播放本地歌曲';
+  if (androidNoticeTimer) clearTimeout(androidNoticeTimer);
+  $('androidScopeNote').style.display = 'none';
   track.androidCachedUrl = fileUri;
   if (artworkData) {
     track.cover = artworkData;
@@ -1087,6 +1102,7 @@ function playLocalTrack(idx) {
 
   if (track.contentUri && window.AndroidMusic) {
     $('androidScopeNote').textContent = '正在从文件夹读取音频…';
+    $('androidScopeNote').style.display = 'block';
     AndroidMusic.loadAudio(track.contentUri, idx);
   } else {
     track.objectUrl = URL.createObjectURL(track.file);
@@ -1204,7 +1220,61 @@ function renderQueue() {
     </div>`).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">播放列表为空</div>';
 }
 
-function closeQueue() { $('queueBackdrop').hidden = true; }
+function openQueue() {
+  renderQueue();
+  if (queueCloseTimer) clearTimeout(queueCloseTimer);
+  $('queueBackdrop').hidden = false;
+  $('queueSheet').style.transform = '';
+  requestAnimationFrame(() => $('queueSheet').classList.add('open'));
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(true);
+}
+
+function closeQueue() {
+  if ($('queueBackdrop').hidden) return;
+  $('queueSheet').classList.remove('open');
+  $('queueSheet').style.transform = '';
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(false);
+  if (queueCloseTimer) clearTimeout(queueCloseTimer);
+  queueCloseTimer = setTimeout(() => { $('queueBackdrop').hidden = true; }, 240);
+}
+
+function showAndroidNotice(hideAfterMs = 0) {
+  const note = $('androidScopeNote');
+  note.style.display = 'block';
+  if (androidNoticeTimer) clearTimeout(androidNoticeTimer);
+  if (hideAfterMs > 0) androidNoticeTimer = setTimeout(() => { note.style.display = 'none'; }, hideAfterMs);
+}
+
+const queueDragHandle = $('queueDragHandle');
+queueDragHandle.addEventListener('pointerdown', event => {
+  queueDragStartY = event.clientY;
+  queueDragLastTime = performance.now();
+  queueDragVelocity = 0;
+  queueDragHandle.dataset.lastDelta = '0';
+  queueDragHandle.setPointerCapture(event.pointerId);
+});
+queueDragHandle.addEventListener('pointermove', event => {
+  if (queueDragStartY === null) return;
+  const delta = event.clientY - queueDragStartY;
+  const now = performance.now();
+  queueDragVelocity = (event.clientY - (queueDragStartY + Number(queueDragHandle.dataset.lastDelta || 0))) / Math.max(1, now - queueDragLastTime);
+  queueDragLastTime = now;
+  queueDragHandle.dataset.lastDelta = String(delta);
+  if (delta >= 0) $('queueSheet').style.transform = `translateY(${delta}px)`;
+});
+function finishQueueDrag() {
+  if (queueDragStartY === null) return;
+  const delta = Number(queueDragHandle.dataset.lastDelta || 0);
+  queueDragHandle.dataset.lastDelta = '0';
+  queueDragStartY = null;
+  if (delta > 100 || (delta > 35 && queueDragVelocity > 0.55)) closeQueue();
+  else {
+    $('queueSheet').style.transform = '';
+    $('queueSheet').style.maxHeight = '';
+  }
+}
+queueDragHandle.addEventListener('pointerup', finishQueueDrag);
+queueDragHandle.addEventListener('pointercancel', finishQueueDrag);
 
 function clearQueue() {
   $('localAudioPlayer').pause();
@@ -1251,11 +1321,12 @@ $('favoriteTrackBtn').addEventListener('click', () => {
   $('favoriteTrackBtn').classList.toggle('active', track.favorite);
   renderLocalPlaylist($('searchLocal').value);
 });
-$('openQueueBtn').addEventListener('click', () => { renderQueue(); $('queueBackdrop').hidden = false; });
-$('miniQueueBtn').addEventListener('click', () => { renderQueue(); $('queueBackdrop').hidden = false; });
+$('openQueueBtn').addEventListener('click', openQueue);
+$('miniQueueBtn').addEventListener('click', openQueue);
 $('miniPlayBtn').addEventListener('click', () => $('togglePlaybackBtn').click());
 $('miniPlayerOpen').addEventListener('click', () => showAndroidLocalTab('player'));
 $('clearQueueBtn').addEventListener('click', clearQueue);
+$('closeQueueBtn').addEventListener('click', closeQueue);
 $('queueBackdrop').addEventListener('click', event => { if (event.target === $('queueBackdrop')) closeQueue(); });
 
 $('togglePlaybackBtn').addEventListener('click', () => {
@@ -1336,7 +1407,7 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   $('selectFilesBtn').style.display = 'inline-block';
   $('selectFilesBtn').textContent = '选择歌曲';
   $('playlistDropZone').style.display = 'none';
-  $('androidScopeNote').style.display = 'block';
+  $('androidScopeNote').style.display = 'none';
   $('androidLocalTabs').style.display = 'flex';
   $('libraryFilterTabs').style.display = 'flex';
   showAndroidLocalTab('library');
@@ -1344,5 +1415,6 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   renderLocalPlaylist('');
   renderQueue();
   syncPlayerControls();
+  AndroidMusic.restoreFolders();
 }
 </script></body></html>

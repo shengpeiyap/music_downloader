@@ -2,6 +2,7 @@ package com.musicdesk.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.media.MediaMetadataRetriever;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -28,13 +29,18 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.UUID;
+import java.util.HashSet;
+import java.util.Set;
 
 public final class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 4102;
     private static final int FOLDER_CHOOSER_REQUEST = 4103;
+    private static final String PREFS_NAME = "musicdesk-library";
+    private static final String PREF_SAVED_FOLDERS = "saved-folder-uris";
 
     private WebView webView;
     private ValueCallback<Uri[]> fileSelectionCallback;
+    private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
 
     @Override
@@ -120,35 +126,15 @@ public final class MainActivity extends Activity {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) {
                 Uri tree = data.getData();
                 if (webView != null) webView.evaluateJavascript(
-                        "document.getElementById('androidScopeNote').textContent='正在扫描文件夹中的音频…'", null);
+                        "document.getElementById('androidScopeNote').textContent='正在扫描文件夹中的音频…';document.getElementById('androidScopeNote').style.display='block'", null);
                 try {
                     getContentResolver().takePersistableUriPermission(tree,
                             data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION));
+                    rememberFolder(tree);
                 } catch (SecurityException ignored) {
                     // The current picker session still grants access even if persistence is unavailable.
                 }
-                folderExecutor.execute(() -> {
-                    JSONArray tracks = scanTree(tree);
-                    int chunkSize = 100;
-                    int total = tracks.length();
-                    if (total == 0) {
-                        runOnUiThread(() -> {
-                            if (webView != null) webView.evaluateJavascript("window.onAndroidFolderPicked && window.onAndroidFolderPicked('[]',true,false)", null);
-                        });
-                    }
-                    for (int start = 0; start < total; start += chunkSize) {
-                        JSONArray batch = new JSONArray();
-                        int end = Math.min(start + chunkSize, total);
-                        for (int index = start; index < end; index++) batch.put(tracks.optJSONObject(index));
-                        String payload = JSONObject.quote(batch.toString());
-                        boolean finished = end == total;
-                        boolean capped = total >= 5000;
-                        String script = "window.onAndroidFolderPicked && window.onAndroidFolderPicked(" + payload + "," + finished + "," + capped + ")";
-                        runOnUiThread(() -> {
-                            if (webView != null) webView.evaluateJavascript(script, null);
-                        });
-                    }
-                });
+                scanFolderAsync(tree);
             }
             return;
         }
@@ -164,6 +150,38 @@ public final class MainActivity extends Activity {
             // Return an empty array so the page can show a useful empty-library state.
         }
         return results;
+    }
+
+    private void scanFolderAsync(Uri tree) {
+        folderExecutor.execute(() -> {
+            JSONArray tracks = scanTree(tree);
+            int chunkSize = 100;
+            int total = tracks.length();
+            if (total == 0) {
+                runOnUiThread(() -> {
+                    if (webView != null) webView.evaluateJavascript("window.onAndroidFolderPicked && window.onAndroidFolderPicked('[]',true,false)", null);
+                });
+            }
+            for (int start = 0; start < total; start += chunkSize) {
+                JSONArray batch = new JSONArray();
+                int end = Math.min(start + chunkSize, total);
+                for (int index = start; index < end; index++) batch.put(tracks.optJSONObject(index));
+                String payload = JSONObject.quote(batch.toString());
+                boolean finished = end == total;
+                boolean capped = total >= 5000;
+                String script = "window.onAndroidFolderPicked && window.onAndroidFolderPicked(" + payload + "," + finished + "," + capped + ")";
+                runOnUiThread(() -> {
+                    if (webView != null) webView.evaluateJavascript(script, null);
+                });
+            }
+        });
+    }
+
+    private void rememberFolder(Uri tree) {
+        SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        Set<String> saved = new HashSet<>(preferences.getStringSet(PREF_SAVED_FOLDERS, new HashSet<>()));
+        saved.add(tree.toString());
+        preferences.edit().putStringSet(PREF_SAVED_FOLDERS, saved).apply();
     }
 
     private void scanDocumentTree(Uri tree, String parentId, JSONArray results, int depth, String folderPath) {
@@ -232,6 +250,23 @@ public final class MainActivity extends Activity {
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
                 startActivityForResult(intent, FOLDER_CHOOSER_REQUEST);
             });
+        }
+
+        @JavascriptInterface
+        public void restoreFolders() {
+            SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            Set<String> saved = new HashSet<>(preferences.getStringSet(PREF_SAVED_FOLDERS, new HashSet<>()));
+            if (saved.isEmpty()) return;
+            runOnUiThread(() -> {
+                if (webView != null) webView.evaluateJavascript(
+                        "document.getElementById('androidScopeNote').textContent='正在恢复上次的曲库…';document.getElementById('androidScopeNote').style.display='block'", null);
+            });
+            for (String value : saved) scanFolderAsync(Uri.parse(value));
+        }
+
+        @JavascriptInterface
+        public void setQueueOpen(boolean open) {
+            queueOpen = open;
         }
 
         @JavascriptInterface
@@ -344,6 +379,11 @@ public final class MainActivity extends Activity {
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
+        if (queueOpen && webView != null) {
+            queueOpen = false;
+            webView.evaluateJavascript("window.closeQueue && window.closeQueue()", null);
+            return;
+        }
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
             return;
