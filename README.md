@@ -28,7 +28,7 @@ In the native desktop window, downloading or converting a file opens the Windows
 
 ## Android preview
 
-The `android` directory contains an Android Studio WebView project. Open that directory in Android Studio and build the `app` debug variant. The preview currently supports the local music library, Android audio-file selection, playback controls, and embedded lyrics. Online metadata lookup, downloading, tag export, and format conversion still depend on the desktop Python backend and are not enabled in the Android preview.
+The `android` directory contains an Android Studio WebView project. Open that directory in Android Studio and build the `app` debug variant. The Android preview supports selecting individual audio files or recursively importing a folder, with separate Library and Now Playing views and playback controls. Folder import reads title, artist, album, and embedded cover where Android can decode them; embedded lyrics remain available for files selected through the file picker. Folder-imported audio is copied to the app cache only when played; removing a track does not remove the user's original file. Online metadata lookup, downloading, tag export, and format conversion still depend on the desktop Python backend and are not enabled in the Android preview.
 
 The Android build requires JDK 17 and Android SDK Platform 36. The project bundles the current `index.html` and default cover during the Gradle build, so they do not need to be copied by hand. Embedded tag and lyric reading uses the existing jsmediatags CDN script and therefore needs an internet connection on first load; playback itself stays on the phone.
 

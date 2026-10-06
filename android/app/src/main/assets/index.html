@@ -61,6 +61,16 @@
     .player-timeline input{flex:1;min-width:0;accent-color:var(--green);padding:0}
     .drop-zone input[type=file]{display:none}
     .android-scope-note{display:none;margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:12px}
+    .android-local-tabs{display:none;gap:8px;margin-bottom:12px}
+    .android-local-tabs button{flex:1;margin:0;background:#29332c;color:var(--muted);padding:10px}
+    .android-local-tabs button.active{background:var(--green);color:#17200f}
+    body.android-app .nav-tabs,body.android-app #tab-local>h1,body.android-app #tab-local>.intro{display:none!important}
+    body.android-app main{padding-top:12px}
+    body.android-app .local-layout{display:block}
+    body.android-app .playlist-card,body.android-app .player-main-card{height:auto;max-height:none;min-height:0;margin-bottom:12px}
+    body.android-app .playlist-card{max-height:calc(100dvh - 150px)}
+    body.android-app .player-main-card{min-height:calc(100dvh - 150px);justify-content:flex-start;gap:14px}
+    body.android-app .track-list{max-height:calc(100dvh - 340px)}
 
     /* 本地播放器专属样式 */
     .local-layout{display:grid;grid-template-columns:320px 1fr;gap:20px}
@@ -235,10 +245,15 @@
   <div id="tab-local" class="tab-content">
     <h1>本地曲库，<br>随时畅听。</h1>
     <p class="intro">选择电脑中的音乐文件夹，直接解析本地 ID3 标签、专辑原画与内嵌 LRC 歌词。</p>
+    <p id="androidScopeNote" class="android-scope-note">选择歌曲或导入文件夹，建立本地曲库。</p>
+    <div id="androidLocalTabs" class="android-local-tabs">
+      <button id="androidLibraryTab" type="button" class="active">曲库</button>
+      <button id="androidNowPlayingTab" type="button">正在播放</button>
+    </div>
 
     <div class="local-layout">
       <!-- 播放列表 -->
-      <div class="playlist-card">
+      <div class="playlist-card" id="playlistCard">
         <div class="playlist-header">
           <h2 style="margin:0;font-size:18px">本地播放列表</h2>
           <div style="display:flex;gap:6px">
@@ -256,8 +271,7 @@
       </div>
 
       <!-- 主播放控制面板 -->
-      <div class="player-main-card">
-        <p id="androidScopeNote" class="android-scope-note">MusicDesk Android 预览版：支持本地音乐播放和歌词显示；联网下载与格式转换正在移植中。</p>
+      <div class="player-main-card" id="playerMainCard">
         <img id="nowCover" class="now-playing-cover" src="default_song_img.png" alt="封面">
         <h3 id="nowTitle" style="margin:0 0 6px;font-size:20px">未选择歌曲</h3>
         <p id="nowArtist" style="margin:0 0 20px;color:var(--muted);font-size:14px">本地音乐离线播放器</p>
@@ -665,7 +679,10 @@ $('customTagForm').addEventListener('submit', async (e) => {
 
 // ===== 本地离线播放器 Tab 逻辑 =====
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|flac|wav|ogg)$/i;
-$('selectDirBtn').addEventListener('click', () => $('dirInput').click());
+$('selectDirBtn').addEventListener('click', () => {
+  if (window.AndroidMusic) AndroidMusic.pickFolder();
+  else $('dirInput').click();
+});
 $('selectFilesBtn').addEventListener('click', () => $('audioFilesInput').click());
 $('audioFilesInput').addEventListener('change', event => {
   addLocalAudioFiles(Array.from(event.target.files), false);
@@ -781,6 +798,59 @@ function addLocalAudioFiles(inputFiles, replace) {
   syncPlayerControls();
 }
 
+function localTrackKey(track) {
+  if (track.contentUri) return track.contentUri;
+  return `${track.file.name}:${track.file.size}:${track.file.lastModified}`;
+}
+
+function showAndroidLocalTab(tab) {
+  const showLibrary = tab === 'library';
+  $('playlistCard').style.display = showLibrary ? 'flex' : 'none';
+  $('playerMainCard').style.display = showLibrary ? 'none' : 'flex';
+  $('androidLibraryTab').classList.toggle('active', showLibrary);
+  $('androidNowPlayingTab').classList.toggle('active', !showLibrary);
+}
+$('androidLibraryTab').addEventListener('click', () => showAndroidLocalTab('library'));
+$('androidNowPlayingTab').addEventListener('click', () => showAndroidLocalTab('player'));
+
+window.onAndroidFolderPicked = raw => {
+  let records = [];
+  try { records = JSON.parse(raw); } catch (_) {}
+  const known = new Set(localTracks.map(localTrackKey));
+  const added = records.filter(record => record && record.uri && !known.has(record.uri)).map(record => ({
+    file: null, contentUri: record.uri, title: record.title || record.name || '未知标题',
+    artist: record.artist || '未知歌手', album: record.album || '未知专辑',
+    cover: record.cover || null, lrc: '', objectUrl: null, androidCachedUrl: null
+  }));
+  localTracks.push(...added);
+  $('playlistDropZone').textContent = added.length
+    ? `文件夹导入完成：新增 ${added.length} 首${records.length >= 5000 ? '（已达到单次导入上限）' : ''}`
+    : '文件夹中没有新的支持格式音频';
+  $('androidScopeNote').textContent = added.length
+    ? `曲库已就绪，共 ${localTracks.length} 首歌曲。`
+    : '文件夹中没有新的支持格式音频，请选择包含音乐的文件夹。';
+  renderLocalPlaylist($('searchLocal').value);
+  syncPlayerControls();
+};
+
+window.onAndroidAudioReady = (idx, contentUri, fileUri, error) => {
+  const track = localTracks[idx];
+  if (!track || idx !== currentTrackIdx || track.contentUri !== contentUri) {
+    if (window.AndroidMusic) AndroidMusic.releaseAudio(contentUri);
+    return;
+  }
+  if (error || !fileUri) {
+    $('androidScopeNote').textContent = error || '无法读取所选音频';
+    return;
+  }
+  $('androidScopeNote').textContent = '正在播放本地歌曲';
+  track.androidCachedUrl = fileUri;
+  const player = $('localAudioPlayer');
+  player.src = fileUri;
+  const playRequest = player.play();
+  if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
+};
+
 function readLocalTrackMetadata(track) {
   jsmediatags.read(track.file, {
     onSuccess: tag => {
@@ -855,7 +925,11 @@ function playLocalTrack(idx) {
   if (idx < 0 || idx >= localTracks.length) return;
   const player = $('localAudioPlayer');
   const previousTrack = localTracks[currentTrackIdx];
-  if (previousTrack && previousTrack.objectUrl) URL.revokeObjectURL(previousTrack.objectUrl);
+  if (previousTrack && previousTrack.objectUrl) { URL.revokeObjectURL(previousTrack.objectUrl); previousTrack.objectUrl = null; }
+  if (previousTrack && previousTrack.contentUri && previousTrack.androidCachedUrl && window.AndroidMusic) {
+    AndroidMusic.releaseAudio(previousTrack.contentUri);
+    previousTrack.androidCachedUrl = null;
+  }
   player.pause();
   currentTrackIdx = idx;
   const track = localTracks[idx];
@@ -864,14 +938,20 @@ function playLocalTrack(idx) {
   $('nowArtist').textContent = `${track.artist} - ${track.album}`;
   $('nowCover').src = track.cover || DEFAULT_COVER;
 
-  track.objectUrl = URL.createObjectURL(track.file);
-  player.src = track.objectUrl;
-  const playRequest = player.play();
-  if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
+  if (track.contentUri && window.AndroidMusic) {
+    $('androidScopeNote').textContent = '正在从文件夹读取音频…';
+    AndroidMusic.loadAudio(track.contentUri, idx);
+  } else {
+    track.objectUrl = URL.createObjectURL(track.file);
+    player.src = track.objectUrl;
+    const playRequest = player.play();
+    if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
+  }
 
   renderLocalPlaylist($('searchLocal').value);
   renderLocalLyrics(track.lrc);
   syncPlayerControls();
+  if (document.body.classList.contains('android-app')) showAndroidLocalTab('player');
 }
 
 function removeLocalTrack(idx) {
@@ -879,6 +959,7 @@ function removeLocalTrack(idx) {
   const wasCurrent = idx === currentTrackIdx;
   const [removed] = localTracks.splice(idx, 1);
   if (removed.objectUrl) URL.revokeObjectURL(removed.objectUrl);
+  if (removed.contentUri && removed.androidCachedUrl && window.AndroidMusic) AndroidMusic.releaseAudio(removed.contentUri);
   if (wasCurrent) {
     const player = $('localAudioPlayer');
     player.pause();
@@ -992,14 +1073,19 @@ $('localAudioPlayer').addEventListener('ended', () => {
 });
 
 if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
+  document.body.classList.add('android-app');
   document.querySelectorAll('.tab-btn')[0].hidden = true;
   document.querySelectorAll('.tab-btn')[1].hidden = true;
   $('tab-online').classList.remove('active');
   $('tab-custom').classList.remove('active');
-  $('selectDirBtn').style.display = 'none';
+  $('selectDirBtn').style.display = 'inline-block';
+  $('selectDirBtn').textContent = '选择文件夹';
   $('selectFilesBtn').style.display = 'inline-block';
+  $('selectFilesBtn').textContent = '选择歌曲';
   $('playlistDropZone').style.display = 'none';
   $('androidScopeNote').style.display = 'block';
+  $('androidLocalTabs').style.display = 'flex';
+  showAndroidLocalTab('library');
   switchTab('local');
 }
 </script></body></html>

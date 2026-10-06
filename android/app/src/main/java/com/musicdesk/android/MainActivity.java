@@ -2,22 +2,39 @@ package com.musicdesk.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.media.MediaMetadataRetriever;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.DocumentsContract;
 import android.view.ViewGroup;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.UUID;
 
 public final class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 4102;
+    private static final int FOLDER_CHOOSER_REQUEST = 4103;
 
     private WebView webView;
     private ValueCallback<Uri[]> fileSelectionCallback;
+    private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,6 +77,7 @@ public final class MainActivity extends Activity {
                 return true;
             }
         });
+        webView.addJavascriptInterface(new AndroidMusicBridge(), "AndroidMusic");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(
@@ -97,11 +115,172 @@ public final class MainActivity extends Activity {
             }
             return;
         }
+        if (requestCode == FOLDER_CHOOSER_REQUEST) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                Uri tree = data.getData();
+                if (webView != null) webView.evaluateJavascript(
+                        "document.getElementById('androidScopeNote').textContent='正在扫描文件夹中的音频…'", null);
+                try {
+                    getContentResolver().takePersistableUriPermission(tree,
+                            data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION));
+                } catch (SecurityException ignored) {
+                    // The current picker session still grants access even if persistence is unavailable.
+                }
+                folderExecutor.execute(() -> {
+                    JSONArray tracks = scanTree(tree);
+                    String payload = JSONObject.quote(tracks.toString());
+                    runOnUiThread(() -> {
+                        if (webView != null) webView.evaluateJavascript("window.onAndroidFolderPicked && window.onAndroidFolderPicked(" + payload + ")", null);
+                    });
+                });
+            }
+            return;
+        }
         super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private JSONArray scanTree(Uri tree) {
+        JSONArray results = new JSONArray();
+        try {
+            String rootId = DocumentsContract.getTreeDocumentId(tree);
+            scanDocumentTree(tree, rootId, results, 0);
+        } catch (RuntimeException ignored) {
+            // Return an empty array so the page can show a useful empty-library state.
+        }
+        return results;
+    }
+
+    private void scanDocumentTree(Uri tree, String parentId, JSONArray results, int depth) {
+        if (depth > 32 || results.length() >= 5000) return;
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
+        String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE};
+        try (Cursor cursor = getContentResolver().query(children, columns, null, null, null)) {
+            if (cursor == null) return;
+            while (cursor.moveToNext() && results.length() < 5000) {
+                String id = cursor.getString(0);
+                String name = cursor.getString(1);
+                String mime = cursor.getString(2);
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                    scanDocumentTree(tree, id, results, depth + 1);
+                } else if (isAudio(name, mime)) {
+                    Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(tree, id);
+                    JSONObject track = new JSONObject();
+                    try {
+                        track.put("uri", fileUri.toString());
+                        track.put("name", name);
+                        track.put("title", name.replaceFirst("(?i)\\.[^.]+$", ""));
+                        track.put("artist", "未知歌手");
+                        track.put("album", "未知专辑");
+                        MediaMetadataRetriever metadata = new MediaMetadataRetriever();
+                        try {
+                            metadata.setDataSource(this, fileUri);
+                            String title = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+                            String artist = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                            String album = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+                            if (title != null && !title.trim().isEmpty()) track.put("title", title);
+                            if (artist != null && !artist.trim().isEmpty()) track.put("artist", artist);
+                            if (album != null && !album.trim().isEmpty()) track.put("album", album);
+                            byte[] artwork = metadata.getEmbeddedPicture();
+                            if (artwork != null && artwork.length <= 4 * 1024 * 1024) {
+                                track.put("cover", "data:image/jpeg;base64," + android.util.Base64.encodeToString(artwork, android.util.Base64.NO_WRAP));
+                            }
+                        } catch (RuntimeException ignored) {
+                            // File-name metadata remains usable when a provider cannot parse tags.
+                        } finally {
+                            try {
+                                metadata.release();
+                            } catch (IOException ignored) {
+                                // Releasing provider metadata must not interrupt folder scanning.
+                            }
+                        }
+                        results.put(track);
+                    } catch (org.json.JSONException ignored) {
+                        // Skip malformed provider entries.
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Some document providers deny individual subdirectories; continue elsewhere.
+        }
+    }
+
+    private boolean isAudio(String name, String mime) {
+        if (mime != null && mime.startsWith("audio/")) return true;
+        return name != null && name.matches("(?i).+\\.(mp3|m4a|flac|wav|ogg|opus|aac|wma)$");
+    }
+
+    private final class AndroidMusicBridge {
+        @JavascriptInterface
+        public void pickFolder() {
+            runOnUiThread(() -> {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                startActivityForResult(intent, FOLDER_CHOOSER_REQUEST);
+            });
+        }
+
+        @JavascriptInterface
+        public void loadAudio(String contentUri, int index) {
+            folderExecutor.execute(() -> {
+                String localUri = null;
+                String error = "";
+                try {
+                    Uri source = Uri.parse(contentUri);
+                    String extension = ".audio";
+                    String path = source.getLastPathSegment();
+                    if (path != null && path.matches("(?i).*\\.(mp3|m4a|flac|wav|ogg|opus|aac|wma)$")) {
+                        extension = path.substring(path.lastIndexOf('.'));
+                    }
+                    File folder = new File(getCacheDir(), "musicdesk-audio");
+                    if (!folder.exists() && !folder.mkdirs()) throw new java.io.IOException("无法创建音频缓存目录");
+                    File cached = new File(folder, cacheKey(contentUri) + extension);
+                    if (!cached.isFile() || cached.length() == 0) {
+                        try (InputStream input = getContentResolver().openInputStream(source);
+                             FileOutputStream output = new FileOutputStream(cached)) {
+                            if (input == null) throw new java.io.IOException("无法读取所选音频");
+                            byte[] buffer = new byte[64 * 1024];
+                            int count;
+                            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                        }
+                    }
+                    localUri = Uri.fromFile(cached).toString();
+                } catch (Exception failure) {
+                    error = failure.getMessage() == null ? "读取音频失败" : failure.getMessage();
+                }
+                final String resultUri = localUri;
+                final String resultError = error;
+                String script = "window.onAndroidAudioReady && window.onAndroidAudioReady(" + index + ","
+                        + JSONObject.quote(contentUri) + "," + JSONObject.quote(resultUri == null ? "" : resultUri)
+                        + "," + JSONObject.quote(resultError) + ")";
+                runOnUiThread(() -> {
+                    if (webView != null) webView.evaluateJavascript(script, null);
+                });
+            });
+        }
+
+        @JavascriptInterface
+        public void releaseAudio(String contentUri) {
+            File folder = new File(getCacheDir(), "musicdesk-audio");
+            File[] cachedFiles = folder.listFiles();
+            if (cachedFiles == null) return;
+            for (File file : cachedFiles) {
+                if (file.getName().startsWith(cacheKey(contentUri))) file.delete();
+            }
+        }
+    }
+
+    private String cacheKey(String contentUri) {
+        return UUID.nameUUIDFromBytes(contentUri.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
     }
 
     @Override
     protected void onDestroy() {
+        folderExecutor.shutdownNow();
+        File audioCache = new File(getCacheDir(), "musicdesk-audio");
+        File[] cachedFiles = audioCache.listFiles();
+        if (cachedFiles != null) for (File file : cachedFiles) file.delete();
+        audioCache.delete();
         if (fileSelectionCallback != null) {
             fileSelectionCallback.onReceiveValue(null);
             fileSelectionCallback = null;

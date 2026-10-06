@@ -97,7 +97,17 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("compileSdk = 36", gradle)
         self.assertEqual((root / "android/app/src/main/assets/index.html").read_bytes(), (root / "index.html").read_bytes())
         self.assertEqual((root / "android/app/src/main/assets/default_song_img.png").read_bytes(), (root / "default_song_img.png").read_bytes())
-        self.assertNotIn("addJavascriptInterface", activity)
+        self.assertIn("ACTION_OPEN_DOCUMENT_TREE", activity)
+        self.assertIn("buildChildDocumentsUriUsingTree", activity)
+        self.assertIn('webView.addJavascriptInterface(new AndroidMusicBridge(), "AndroidMusic")', activity)
+        self.assertIn('webView.loadUrl("file:///android_asset/index.html")', activity)
+        self.assertIn('window.onAndroidFolderPicked', page)
+        self.assertIn('AndroidMusic.loadAudio(track.contentUri, idx)', page)
+        self.assertIn('id="androidLibraryTab"', page)
+        self.assertIn('id="androidNowPlayingTab"', page)
+        self.assertIn('id="playlistCard"', page)
+        self.assertIn('id="playerMainCard"', page)
+        self.assertIn('body.android-app .nav-tabs', page)
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
