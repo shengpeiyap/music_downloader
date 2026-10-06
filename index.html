@@ -64,7 +64,38 @@
     .android-local-tabs{display:none;gap:8px;margin-bottom:12px}
     .android-local-tabs button{flex:1;margin:0;background:#29332c;color:var(--muted);padding:10px}
     .android-local-tabs button.active{background:var(--green);color:#17200f}
+    .player-page-tabs{display:flex;justify-content:center;gap:26px;width:100%;margin:0 0 8px}
+    .player-page-tabs button{margin:0;padding:7px 4px;background:none;border-radius:0;color:var(--muted);border-bottom:2px solid transparent}
+    .player-page-tabs button.active{color:var(--text);border-color:var(--green)}
+    .player-quick-actions{display:flex;justify-content:space-around;width:100%;max-width:460px;margin:0 0 12px}
+    .player-quick-actions button{margin:0;background:transparent;color:var(--muted);font-size:20px;padding:8px}
+    .player-quick-actions button.active{color:var(--green)}
+    .playback-mode-button{background:transparent!important;color:var(--green)!important;font-size:12px!important;width:auto!important;border-radius:8px!important;padding:8px 10px!important}
+    .android-mini-player{display:none}
+    .queue-backdrop{position:fixed;inset:0;background:#0009;z-index:20;display:flex;align-items:flex-end}
+    .queue-sheet{width:100%;max-height:78dvh;background:#202321;border:1px solid #3a403b;border-radius:22px 22px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;box-shadow:0 -12px 40px #0007}
+    .queue-sheet[hidden],.queue-backdrop[hidden]{display:none}
+    .queue-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    .queue-header button{margin:0;background:transparent;color:var(--green);padding:6px}
+    .queue-list{overflow:auto}
+    .library-filter-tabs{display:none;gap:6px;overflow-x:auto;padding:2px 0 8px}
+    .library-filter-tabs button{flex:none;margin:0;background:#232c25;color:var(--muted);font-size:12px;padding:7px 11px}
+    .library-filter-tabs button.active{background:var(--green);color:#17200f}
+    .library-actions{display:flex;align-items:center;justify-content:space-between;margin:2px 0 6px;color:var(--muted);font-size:12px}
+    .library-actions button{margin:0;padding:7px 10px;background:transparent;color:var(--green);font-size:12px}
+    .library-group-back{display:none;margin:0 0 6px;background:transparent;color:var(--green);padding:5px 0;text-align:left}
+    body.android-app .android-mini-player{position:fixed;display:flex;align-items:center;gap:10px;left:12px;right:12px;bottom:calc(8px + env(safe-area-inset-bottom));padding:9px 12px;background:#202321;border:1px solid #39413b;border-radius:14px;z-index:10;box-shadow:0 6px 24px #0008}
+    body.android-app .android-mini-player img{width:42px;height:42px;object-fit:cover;border-radius:8px}
+    body.android-app .android-mini-info{flex:1;overflow:hidden;text-align:left}
+    body.android-app .android-mini-info strong,body.android-app .android-mini-info small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    body.android-app .android-mini-info small{color:var(--muted);font-size:12px}
+    body.android-app #tab-local{padding-bottom:72px}
+    body.android-app .now-playing-cover{width:min(72vw,320px);height:min(72vw,320px);margin:8px 0 4px}
+    body.android-app #nowTitle{font-size:24px!important}
+    body.android-app .player-main-card{padding:14px;gap:8px}
     body.android-app .nav-tabs,body.android-app #tab-local>h1,body.android-app #tab-local>.intro{display:none!important}
+    body.android-app .footer{display:none}
+    body.android-app .library-filter-tabs{display:flex}
     body.android-app main{padding-top:12px}
     body.android-app .local-layout{display:block}
     body.android-app .playlist-card,body.android-app .player-main-card{height:auto;max-height:none;min-height:0;margin-bottom:12px}
@@ -255,7 +286,7 @@
       <!-- 播放列表 -->
       <div class="playlist-card" id="playlistCard">
         <div class="playlist-header">
-          <h2 style="margin:0;font-size:18px">本地播放列表</h2>
+          <h2 id="playlistHeading" style="margin:0;font-size:18px">所有歌曲</h2>
           <div style="display:flex;gap:6px">
             <button id="selectDirBtn" style="margin:0;padding:8px 12px;font-size:12px">选择文件夹</button>
             <button id="selectFilesBtn" style="display:none;margin:0;padding:8px 12px;font-size:12px">选择歌曲</button>
@@ -264,6 +295,15 @@
           <input type="file" id="audioFilesInput" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple style="display:none">
         </div>
         <input type="text" id="searchLocal" placeholder="搜索本地歌名/歌手..." style="padding:8px 12px;font-size:12px;margin-bottom:8px">
+        <div id="libraryFilterTabs" class="library-filter-tabs">
+          <button type="button" data-category="songs" class="active">歌曲</button>
+          <button type="button" data-category="artists">歌手</button>
+          <button type="button" data-category="albums">专辑</button>
+          <button type="button" data-category="folders">文件夹</button>
+          <button type="button" data-category="favorites">收藏</button>
+        </div>
+        <div class="library-actions"><span id="libraryTrackCount">0 首</span><button id="playAllBtn" type="button">▶ 播放全部</button></div>
+        <button id="libraryGroupBack" class="library-group-back" type="button">‹ 返回分类</button>
         <div id="playlistDropZone" class="drop-zone playlist-drop">拖入一首或多首音乐到此处添加</div>
         <div class="track-list" id="localTrackList">
           <div style="color:var(--muted);font-size:13px;text-align:center;padding-top:180px">尚未加载本地音乐<br>点击右上角“选择文件夹”</div>
@@ -272,16 +312,27 @@
 
       <!-- 主播放控制面板 -->
       <div class="player-main-card" id="playerMainCard">
-        <img id="nowCover" class="now-playing-cover" src="default_song_img.png" alt="封面">
-        <h3 id="nowTitle" style="margin:0 0 6px;font-size:20px">未选择歌曲</h3>
-        <p id="nowArtist" style="margin:0 0 20px;color:var(--muted);font-size:14px">本地音乐离线播放器</p>
+        <div class="player-page-tabs">
+          <button id="playerSongViewBtn" type="button" class="active">歌曲</button>
+          <button id="playerLyricsViewBtn" type="button">歌词</button>
+        </div>
+        <div id="playerSongPanel" style="display:flex;flex-direction:column;align-items:center;width:100%">
+          <img id="nowCover" class="now-playing-cover" src="default_song_img.png" alt="封面">
+          <h3 id="nowTitle" style="margin:0 0 6px;font-size:20px">未选择歌曲</h3>
+          <p id="nowArtist" style="margin:0 0 8px;color:var(--muted);font-size:14px">本地音乐离线播放器</p>
+          <div class="player-quick-actions">
+            <button id="favoriteTrackBtn" type="button" aria-label="收藏歌曲" title="收藏歌曲">♡</button>
+          </div>
+        </div>
 
         <div class="player-controls">
           <audio id="localAudioPlayer" preload="metadata" style="display:none"></audio>
           <div class="player-control-buttons">
+            <button id="playbackModeBtn" class="playback-mode-button" type="button" title="切换播放模式">顺序播放</button>
             <button id="previousTrackBtn" type="button" aria-label="上一首" title="上一首" disabled>⏮</button>
             <button id="togglePlaybackBtn" class="play-toggle" type="button" aria-label="播放" title="播放" disabled>▶</button>
             <button id="nextTrackBtn" type="button" aria-label="下一首" title="下一首" disabled>⏭</button>
+            <button id="openQueueBtn" type="button" aria-label="播放队列" title="播放队列">☷</button>
           </div>
           <div class="player-timeline">
             <span id="currentTimeLabel">0:00</span>
@@ -291,10 +342,22 @@
         </div>
 
         <!-- 本地歌词同步视窗 -->
-        <div class="lyrics-viewer" id="localLyricsViewer" style="display:block;width:100%;max-width:460px;height:160px;margin-top:0">
+        <div class="lyrics-viewer" id="localLyricsViewer" style="display:none;width:100%;max-width:460px;height:min(42vh,360px);margin-top:0">
           <div id="localLrcContainer" style="color:var(--muted);font-size:13px;padding-top:50px">歌词准备就绪</div>
         </div>
       </div>
+    </div>
+    <div id="androidMiniPlayer" class="android-mini-player">
+      <img id="miniCover" src="default_song_img.png" alt="">
+      <div id="miniPlayerOpen" class="android-mini-info"><strong id="miniTitle">未选择歌曲</strong><small id="miniArtist">本地音乐离线播放器</small></div>
+      <button id="miniPlayBtn" type="button" aria-label="播放">▶</button>
+      <button id="miniQueueBtn" type="button" aria-label="播放队列">☷</button>
+    </div>
+    <div id="queueBackdrop" class="queue-backdrop" hidden>
+      <section id="queueSheet" class="queue-sheet" aria-label="播放列表">
+        <div class="queue-header"><h2 id="queueTitle" style="margin:0;font-size:20px">播放列表</h2><button id="clearQueueBtn" type="button">清空</button></div>
+        <div id="queueList" class="queue-list track-list"></div>
+      </section>
     </div>
   </div>
 
@@ -314,6 +377,13 @@ let parsedLyrics = [];
 let localTracks = []; // [{file, title, artist, album, cover, lrc}, ...]
 let currentTrackIdx = -1;
 let parsedLocalLyrics = [];
+const PLAYBACK_MODES = ['sequential', 'repeat-one', 'repeat-all', 'shuffle'];
+const PLAYBACK_MODE_LABELS = {sequential: '顺序播放', 'repeat-one': '单曲循环', 'repeat-all': '列表循环', shuffle: '随机播放'};
+let playbackMode = 'sequential';
+let libraryCategory = 'songs';
+let libraryGroup = '';
+let favoriteTrackKeys = new Set();
+try { favoriteTrackKeys = new Set(JSON.parse(localStorage.getItem('musicdesk-favorites') || '[]')); } catch (_) {}
 
 // Tab 切换逻辑
 function switchTab(tabName) {
@@ -756,7 +826,10 @@ function addLocalAudioFiles(inputFiles, replace) {
   }
   if (replace) {
     $('localAudioPlayer').pause();
-    localTracks.forEach(track => track.objectUrl && URL.revokeObjectURL(track.objectUrl));
+    localTracks.forEach(track => {
+      if (track.objectUrl) URL.revokeObjectURL(track.objectUrl);
+      if (track.contentUri && track.androidCachedUrl && window.AndroidMusic) AndroidMusic.releaseAudio(track.contentUri);
+    });
     localTracks = [];
     currentTrackIdx = -1;
     $('localAudioPlayer').removeAttribute('src');
@@ -767,7 +840,7 @@ function addLocalAudioFiles(inputFiles, replace) {
     parsedLocalLyrics = [];
     renderPlainLyrics($('localLrcContainer'), '', '歌词准备就绪');
   }
-  const known = new Set(localTracks.map(track => `${track.file.name}:${track.file.size}:${track.file.lastModified}`));
+  const known = new Set(localTracks.map(localTrackKey));
   const added = files.filter(file => {
     const key = `${file.name}:${file.size}:${file.lastModified}`;
     if (known.has(key)) return false;
@@ -778,6 +851,8 @@ function addLocalAudioFiles(inputFiles, replace) {
     title: file.name.replace(/\.[^/.]+$/, ''),
     artist: '未知歌手',
     album: '未知专辑',
+    folderPath: file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(0, -1).join('/') : '已选歌曲',
+    favorite: favoriteTrackKeys.has(key),
     cover: null,
     lrc: '',
     objectUrl: null
@@ -809,31 +884,40 @@ function showAndroidLocalTab(tab) {
   $('playerMainCard').style.display = showLibrary ? 'none' : 'flex';
   $('androidLibraryTab').classList.toggle('active', showLibrary);
   $('androidNowPlayingTab').classList.toggle('active', !showLibrary);
+  $('androidMiniPlayer').style.display = showLibrary && currentTrackIdx >= 0 ? 'flex' : 'none';
 }
 $('androidLibraryTab').addEventListener('click', () => showAndroidLocalTab('library'));
 $('androidNowPlayingTab').addEventListener('click', () => showAndroidLocalTab('player'));
 
-window.onAndroidFolderPicked = raw => {
+window.onAndroidFolderPicked = (raw, isFinal = true, wasCapped = false) => {
   let records = [];
   try { records = JSON.parse(raw); } catch (_) {}
   const known = new Set(localTracks.map(localTrackKey));
   const added = records.filter(record => record && record.uri && !known.has(record.uri)).map(record => ({
     file: null, contentUri: record.uri, title: record.title || record.name || '未知标题',
     artist: record.artist || '未知歌手', album: record.album || '未知专辑',
-    cover: record.cover || null, lrc: '', objectUrl: null, androidCachedUrl: null
+    cover: null, lrc: '', folderPath: record.folderPath || '已导入文件夹',
+    favorite: favoriteTrackKeys.has(record.uri), objectUrl: null, androidCachedUrl: null
   }));
   localTracks.push(...added);
   $('playlistDropZone').textContent = added.length
-    ? `文件夹导入完成：新增 ${added.length} 首${records.length >= 5000 ? '（已达到单次导入上限）' : ''}`
-    : '文件夹中没有新的支持格式音频';
-  $('androidScopeNote').textContent = added.length
-    ? `曲库已就绪，共 ${localTracks.length} 首歌曲。`
-    : '文件夹中没有新的支持格式音频，请选择包含音乐的文件夹。';
+    ? `正在导入歌曲：已加入 ${localTracks.length} 首`
+    : '正在整理曲库…';
+  if (isFinal) {
+    $('playlistDropZone').textContent = added.length || localTracks.length
+      ? `文件夹导入完成：曲库共 ${localTracks.length} 首${wasCapped ? '（达到单次导入上限）' : ''}`
+      : '文件夹中没有新的支持格式音频';
+    $('androidScopeNote').textContent = localTracks.length
+      ? `曲库已就绪，共 ${localTracks.length} 首歌曲。${wasCapped ? '已达到单次导入上限。' : ''}`
+      : '文件夹中没有新的支持格式音频，请选择包含音乐的文件夹。';
+  } else {
+    $('androidScopeNote').textContent = `正在载入曲库…已处理 ${localTracks.length} 首`;
+  }
   renderLocalPlaylist($('searchLocal').value);
   syncPlayerControls();
 };
 
-window.onAndroidAudioReady = (idx, contentUri, fileUri, error) => {
+window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
   const track = localTracks[idx];
   if (!track || idx !== currentTrackIdx || track.contentUri !== contentUri) {
     if (window.AndroidMusic) AndroidMusic.releaseAudio(contentUri);
@@ -845,6 +929,12 @@ window.onAndroidAudioReady = (idx, contentUri, fileUri, error) => {
   }
   $('androidScopeNote').textContent = '正在播放本地歌曲';
   track.androidCachedUrl = fileUri;
+  if (artworkData) {
+    track.cover = artworkData;
+    $('nowCover').src = artworkData;
+    updateMiniPlayer();
+    renderLocalPlaylist($('searchLocal').value);
+  }
   const player = $('localAudioPlayer');
   player.src = fileUri;
   const playRequest = player.play();
@@ -873,6 +963,7 @@ function readLocalTrackMetadata(track) {
         $('nowArtist').textContent = `${track.artist} - ${track.album}`;
         $('nowCover').src = track.cover || DEFAULT_COVER;
         renderLocalLyrics(track.lrc);
+        updateMiniPlayer();
       }
       renderLocalPlaylist($('searchLocal').value);
     }
@@ -881,10 +972,39 @@ function readLocalTrackMetadata(track) {
 
 function renderLocalPlaylist(filterText = "") {
   const container = $('localTrackList');
-  const filtered = localTracks.filter(t =>
+  const categoryTitles = {songs: '所有歌曲', artists: '歌手', albums: '专辑', folders: '文件夹', favorites: '我的收藏'};
+  $('playlistHeading').textContent = libraryGroup || categoryTitles[libraryCategory] || '所有歌曲';
+  $('playlistHeading').title = `${localTracks.length} 首歌曲`;
+  $('libraryTrackCount').textContent = `${libraryCategory === 'favorites' ? localTracks.filter(track => track.favorite).length : localTracks.length} 首`;
+  $('libraryFilterTabs').querySelectorAll('[data-category]').forEach(button =>
+    button.classList.toggle('active', button.dataset.category === libraryCategory));
+  $('libraryGroupBack').style.display = libraryGroup ? 'block' : 'none';
+  const searched = localTracks.filter(t =>
     t.title.toLowerCase().includes(filterText.toLowerCase()) ||
-    t.artist.toLowerCase().includes(filterText.toLowerCase())
+    t.artist.toLowerCase().includes(filterText.toLowerCase()) ||
+    (t.album || '').toLowerCase().includes(filterText.toLowerCase()) ||
+    (t.folderPath || '').toLowerCase().includes(filterText.toLowerCase())
   );
+  const categoryFields = {artists: 'artist', albums: 'album', folders: 'folderPath'};
+  if (categoryFields[libraryCategory] && !libraryGroup) {
+    const field = categoryFields[libraryCategory];
+    const groups = new Map();
+    searched.forEach(track => {
+      const name = track[field] || (field === 'folderPath' ? '已导入文件夹' : '未知');
+      groups.set(name, (groups.get(name) || 0) + 1);
+    });
+    const entries = Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    container.innerHTML = entries.length ? entries.map(([name, count]) => `
+      <button type="button" class="track-item library-group-item" data-library-group="${escapeHTML(name)}" style="text-align:left;color:var(--text);width:100%;margin:0;background:#0d110e;border:1px solid transparent">
+        <div class="track-item-info"><strong>${escapeHTML(name)}</strong><small>${count} 首歌曲</small></div>
+      </button>`).join('') : '<div style="color:var(--muted);text-align:center;padding:36px 8px">暂无分类内容</div>';
+    return;
+  }
+  if (libraryGroup) {
+    const field = categoryFields[libraryCategory];
+    searched.splice(0, searched.length, ...searched.filter(track => (track[field] || '未知') === libraryGroup));
+  }
+  const filtered = (libraryCategory === 'favorites' ? searched.filter(track => track.favorite) : searched);
 
   if (filtered.length === 0) {
     container.innerHTML = `<div style="color:var(--muted);font-size:13px;text-align:center;padding:36px 8px">${localTracks.length ? '未找到匹配的本地音乐' : '暂无歌曲；拖入音乐文件即可添加'}</div>`;
@@ -907,6 +1027,29 @@ function renderLocalPlaylist(filterText = "") {
     `;
   }).join('');
 }
+
+$('libraryFilterTabs').addEventListener('click', event => {
+  const button = event.target.closest('[data-category]');
+  if (!button) return;
+  libraryCategory = button.dataset.category;
+  libraryGroup = '';
+  renderLocalPlaylist($('searchLocal').value);
+});
+$('localTrackList').addEventListener('click', event => {
+  const button = event.target.closest('[data-library-group]');
+  if (!button) return;
+  libraryGroup = button.dataset.libraryGroup;
+  renderLocalPlaylist($('searchLocal').value);
+});
+$('libraryGroupBack').addEventListener('click', () => {
+  libraryGroup = '';
+  renderLocalPlaylist($('searchLocal').value);
+});
+$('playAllBtn').addEventListener('click', () => {
+  if (!localTracks.length) return;
+  const nextIndex = playbackMode === 'shuffle' ? Math.floor(Math.random() * localTracks.length) : 0;
+  playLocalTrack(nextIndex);
+});
 
 function updatePlaylistTrackItem(idx) {
   const t = localTracks[idx];
@@ -937,6 +1080,10 @@ function playLocalTrack(idx) {
   $('nowTitle').textContent = track.title;
   $('nowArtist').textContent = `${track.artist} - ${track.album}`;
   $('nowCover').src = track.cover || DEFAULT_COVER;
+  $('favoriteTrackBtn').textContent = track.favorite ? '♥' : '♡';
+  $('favoriteTrackBtn').classList.toggle('active', !!track.favorite);
+  $('favoriteTrackBtn').setAttribute('aria-label', track.favorite ? '取消收藏' : '收藏歌曲');
+  updateMiniPlayer();
 
   if (track.contentUri && window.AndroidMusic) {
     $('androidScopeNote').textContent = '正在从文件夹读取音频…';
@@ -978,7 +1125,9 @@ function removeLocalTrack(idx) {
     currentTrackIdx--;
   }
   renderLocalPlaylist($('searchLocal').value);
+  renderQueue();
   syncPlayerControls();
+  updateMiniPlayer();
 }
 
 function formatPlayerTime(seconds) {
@@ -990,8 +1139,8 @@ function formatPlayerTime(seconds) {
 function syncPlayerControls() {
   const player = $('localAudioPlayer');
   const hasTrack = currentTrackIdx >= 0 && currentTrackIdx < localTracks.length;
-  $('previousTrackBtn').disabled = !hasTrack || (currentTrackIdx === 0 && player.currentTime <= 3);
-  $('nextTrackBtn').disabled = !hasTrack || currentTrackIdx >= localTracks.length - 1;
+  $('previousTrackBtn').disabled = !hasTrack || (playbackMode !== 'shuffle' && currentTrackIdx === 0 && player.currentTime <= 3);
+  $('nextTrackBtn').disabled = !hasTrack || (playbackMode === 'sequential' && currentTrackIdx >= localTracks.length - 1);
   $('togglePlaybackBtn').disabled = !hasTrack;
   $('togglePlaybackBtn').textContent = player.paused ? '▶' : 'Ⅱ';
   $('togglePlaybackBtn').setAttribute('aria-label', player.paused ? '播放' : '暂停');
@@ -1002,7 +1151,112 @@ function syncPlayerControls() {
   seek.disabled = !hasTrack || !Number.isFinite(player.duration) || player.duration <= 0;
   seek.max = Number.isFinite(player.duration) ? player.duration : 0;
   if (!seek.matches(':active')) seek.value = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+  $('playbackModeBtn').textContent = PLAYBACK_MODE_LABELS[playbackMode];
+  $('playbackModeBtn').title = `当前：${PLAYBACK_MODE_LABELS[playbackMode]}，点击切换`;
+  $('miniPlayBtn').textContent = player.paused ? '▶' : 'Ⅱ';
+  $('miniPlayBtn').setAttribute('aria-label', player.paused ? '播放' : '暂停');
 }
+
+function updateMiniPlayer() {
+  const track = localTracks[currentTrackIdx];
+  if (!track) {
+    $('miniTitle').textContent = '未选择歌曲';
+    $('miniArtist').textContent = '本地音乐离线播放器';
+    $('miniCover').src = DEFAULT_COVER;
+    return;
+  }
+  $('miniTitle').textContent = track.title;
+  $('miniArtist').textContent = track.artist;
+  $('miniCover').src = track.cover || DEFAULT_COVER;
+}
+
+function nextLocalTrack() {
+  if (!localTracks.length || currentTrackIdx < 0) return;
+  if (playbackMode === 'shuffle' && localTracks.length > 1) {
+    let next = currentTrackIdx;
+    while (next === currentTrackIdx) next = Math.floor(Math.random() * localTracks.length);
+    playLocalTrack(next);
+  } else if (currentTrackIdx + 1 < localTracks.length) {
+    playLocalTrack(currentTrackIdx + 1);
+  } else if (playbackMode === 'repeat-all') {
+    playLocalTrack(0);
+  }
+}
+
+function previousLocalTrack() {
+  const player = $('localAudioPlayer');
+  if (player.currentTime > 3) { player.currentTime = 0; return; }
+  if (playbackMode === 'shuffle' && localTracks.length > 1) {
+    let previous = currentTrackIdx;
+    while (previous === currentTrackIdx) previous = Math.floor(Math.random() * localTracks.length);
+    playLocalTrack(previous);
+  } else if (currentTrackIdx > 0) playLocalTrack(currentTrackIdx - 1);
+  else if (playbackMode === 'repeat-all' && localTracks.length) playLocalTrack(localTracks.length - 1);
+}
+
+function renderQueue() {
+  $('queueTitle').textContent = `播放列表（${localTracks.length} 首）`;
+  $('queueList').innerHTML = localTracks.map((track, idx) => `
+    <div class="track-item ${idx === currentTrackIdx ? 'active' : ''}" onclick="playLocalTrack(${idx});closeQueue()">
+      <img src="${escapeHTML(track.cover || DEFAULT_COVER)}" alt="">
+      <div class="track-item-info"><strong>${escapeHTML(track.title)}</strong><small>${escapeHTML(track.artist)} - ${escapeHTML(track.album)}</small></div>
+      <button type="button" class="track-remove" aria-label="移除 ${escapeHTML(track.title)}" onclick="event.stopPropagation();removeLocalTrack(${idx})">×</button>
+    </div>`).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">播放列表为空</div>';
+}
+
+function closeQueue() { $('queueBackdrop').hidden = true; }
+
+function clearQueue() {
+  $('localAudioPlayer').pause();
+  localTracks.forEach(track => {
+    if (track.objectUrl) URL.revokeObjectURL(track.objectUrl);
+    if (track.contentUri && track.androidCachedUrl && window.AndroidMusic) AndroidMusic.releaseAudio(track.contentUri);
+  });
+  localTracks = [];
+  currentTrackIdx = -1;
+  $('localAudioPlayer').removeAttribute('src');
+  $('localAudioPlayer').load();
+  $('nowTitle').textContent = '未选择歌曲';
+  $('nowArtist').textContent = '本地音乐离线播放器';
+  $('nowCover').src = DEFAULT_COVER;
+  renderLocalLyrics('');
+  renderLocalPlaylist($('searchLocal').value);
+  renderQueue();
+  updateMiniPlayer();
+  syncPlayerControls();
+  closeQueue();
+}
+
+$('playbackModeBtn').addEventListener('click', () => {
+  playbackMode = PLAYBACK_MODES[(PLAYBACK_MODES.indexOf(playbackMode) + 1) % PLAYBACK_MODES.length];
+  syncPlayerControls();
+});
+$('playerSongViewBtn').addEventListener('click', () => setPlayerContentView('song'));
+$('playerLyricsViewBtn').addEventListener('click', () => setPlayerContentView('lyrics'));
+function setPlayerContentView(view) {
+  const lyrics = view === 'lyrics';
+  $('playerSongPanel').style.display = lyrics ? 'none' : 'flex';
+  $('localLyricsViewer').style.display = lyrics ? 'block' : 'none';
+  $('playerSongViewBtn').classList.toggle('active', !lyrics);
+  $('playerLyricsViewBtn').classList.toggle('active', lyrics);
+}
+$('favoriteTrackBtn').addEventListener('click', () => {
+  const track = localTracks[currentTrackIdx];
+  if (!track) return;
+  track.favorite = !track.favorite;
+  const key = localTrackKey(track);
+  if (track.favorite) favoriteTrackKeys.add(key); else favoriteTrackKeys.delete(key);
+  try { localStorage.setItem('musicdesk-favorites', JSON.stringify(Array.from(favoriteTrackKeys))); } catch (_) {}
+  $('favoriteTrackBtn').textContent = track.favorite ? '♥' : '♡';
+  $('favoriteTrackBtn').classList.toggle('active', track.favorite);
+  renderLocalPlaylist($('searchLocal').value);
+});
+$('openQueueBtn').addEventListener('click', () => { renderQueue(); $('queueBackdrop').hidden = false; });
+$('miniQueueBtn').addEventListener('click', () => { renderQueue(); $('queueBackdrop').hidden = false; });
+$('miniPlayBtn').addEventListener('click', () => $('togglePlaybackBtn').click());
+$('miniPlayerOpen').addEventListener('click', () => showAndroidLocalTab('player'));
+$('clearQueueBtn').addEventListener('click', clearQueue);
+$('queueBackdrop').addEventListener('click', event => { if (event.target === $('queueBackdrop')) closeQueue(); });
 
 $('togglePlaybackBtn').addEventListener('click', () => {
   const player = $('localAudioPlayer');
@@ -1012,12 +1266,10 @@ $('togglePlaybackBtn').addEventListener('click', () => {
   } else player.pause();
 });
 $('previousTrackBtn').addEventListener('click', () => {
-  const player = $('localAudioPlayer');
-  if (player.currentTime > 3) { player.currentTime = 0; return; }
-  if (currentTrackIdx > 0) playLocalTrack(currentTrackIdx - 1);
+  previousLocalTrack();
 });
 $('nextTrackBtn').addEventListener('click', () => {
-  if (currentTrackIdx + 1 < localTracks.length) playLocalTrack(currentTrackIdx + 1);
+  nextLocalTrack();
 });
 $('playbackSeek').addEventListener('input', event => {
   $('localAudioPlayer').currentTime = Number(event.target.value);
@@ -1067,9 +1319,10 @@ $('localAudioPlayer').addEventListener('timeupdate', () => {
 
 // 自动顺序播放下一首
 $('localAudioPlayer').addEventListener('ended', () => {
-  if (currentTrackIdx + 1 < localTracks.length) {
-    playLocalTrack(currentTrackIdx + 1);
-  }
+  if (playbackMode === 'repeat-one') {
+    $('localAudioPlayer').currentTime = 0;
+    $('localAudioPlayer').play().catch(() => syncPlayerControls());
+  } else nextLocalTrack();
 });
 
 if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
@@ -1085,7 +1338,11 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   $('playlistDropZone').style.display = 'none';
   $('androidScopeNote').style.display = 'block';
   $('androidLocalTabs').style.display = 'flex';
+  $('libraryFilterTabs').style.display = 'flex';
   showAndroidLocalTab('library');
   switchTab('local');
+  renderLocalPlaylist('');
+  renderQueue();
+  syncPlayerControls();
 }
 </script></body></html>

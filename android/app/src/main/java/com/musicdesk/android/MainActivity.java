@@ -16,10 +16,11 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.ByteArrayOutputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.io.File;
@@ -128,10 +129,25 @@ public final class MainActivity extends Activity {
                 }
                 folderExecutor.execute(() -> {
                     JSONArray tracks = scanTree(tree);
-                    String payload = JSONObject.quote(tracks.toString());
-                    runOnUiThread(() -> {
-                        if (webView != null) webView.evaluateJavascript("window.onAndroidFolderPicked && window.onAndroidFolderPicked(" + payload + ")", null);
-                    });
+                    int chunkSize = 100;
+                    int total = tracks.length();
+                    if (total == 0) {
+                        runOnUiThread(() -> {
+                            if (webView != null) webView.evaluateJavascript("window.onAndroidFolderPicked && window.onAndroidFolderPicked('[]',true,false)", null);
+                        });
+                    }
+                    for (int start = 0; start < total; start += chunkSize) {
+                        JSONArray batch = new JSONArray();
+                        int end = Math.min(start + chunkSize, total);
+                        for (int index = start; index < end; index++) batch.put(tracks.optJSONObject(index));
+                        String payload = JSONObject.quote(batch.toString());
+                        boolean finished = end == total;
+                        boolean capped = total >= 5000;
+                        String script = "window.onAndroidFolderPicked && window.onAndroidFolderPicked(" + payload + "," + finished + "," + capped + ")";
+                        runOnUiThread(() -> {
+                            if (webView != null) webView.evaluateJavascript(script, null);
+                        });
+                    }
                 });
             }
             return;
@@ -143,14 +159,14 @@ public final class MainActivity extends Activity {
         JSONArray results = new JSONArray();
         try {
             String rootId = DocumentsContract.getTreeDocumentId(tree);
-            scanDocumentTree(tree, rootId, results, 0);
+            scanDocumentTree(tree, rootId, results, 0, "");
         } catch (RuntimeException ignored) {
             // Return an empty array so the page can show a useful empty-library state.
         }
         return results;
     }
 
-    private void scanDocumentTree(Uri tree, String parentId, JSONArray results, int depth) {
+    private void scanDocumentTree(Uri tree, String parentId, JSONArray results, int depth, String folderPath) {
         if (depth > 32 || results.length() >= 5000) return;
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
         String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -162,13 +178,15 @@ public final class MainActivity extends Activity {
                 String name = cursor.getString(1);
                 String mime = cursor.getString(2);
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
-                    scanDocumentTree(tree, id, results, depth + 1);
+                    String childPath = folderPath.isEmpty() ? name : folderPath + "/" + name;
+                    scanDocumentTree(tree, id, results, depth + 1, childPath);
                 } else if (isAudio(name, mime)) {
                     Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(tree, id);
                     JSONObject track = new JSONObject();
                     try {
                         track.put("uri", fileUri.toString());
                         track.put("name", name);
+                        track.put("folderPath", folderPath);
                         track.put("title", name.replaceFirst("(?i)\\.[^.]+$", ""));
                         track.put("artist", "未知歌手");
                         track.put("album", "未知专辑");
@@ -181,10 +199,6 @@ public final class MainActivity extends Activity {
                             if (title != null && !title.trim().isEmpty()) track.put("title", title);
                             if (artist != null && !artist.trim().isEmpty()) track.put("artist", artist);
                             if (album != null && !album.trim().isEmpty()) track.put("album", album);
-                            byte[] artwork = metadata.getEmbeddedPicture();
-                            if (artwork != null && artwork.length <= 4 * 1024 * 1024) {
-                                track.put("cover", "data:image/jpeg;base64," + android.util.Base64.encodeToString(artwork, android.util.Base64.NO_WRAP));
-                            }
                         } catch (RuntimeException ignored) {
                             // File-name metadata remains usable when a provider cannot parse tags.
                         } finally {
@@ -224,9 +238,12 @@ public final class MainActivity extends Activity {
         public void loadAudio(String contentUri, int index) {
             folderExecutor.execute(() -> {
                 String localUri = null;
+                String artworkData = "";
                 String error = "";
+                File cached = null;
                 try {
                     Uri source = Uri.parse(contentUri);
+                    artworkData = readArtwork(source);
                     String extension = ".audio";
                     String path = source.getLastPathSegment();
                     if (path != null && path.matches("(?i).*\\.(mp3|m4a|flac|wav|ogg|opus|aac|wma)$")) {
@@ -234,7 +251,7 @@ public final class MainActivity extends Activity {
                     }
                     File folder = new File(getCacheDir(), "musicdesk-audio");
                     if (!folder.exists() && !folder.mkdirs()) throw new java.io.IOException("无法创建音频缓存目录");
-                    File cached = new File(folder, cacheKey(contentUri) + extension);
+                    cached = new File(folder, cacheKey(contentUri) + extension);
                     if (!cached.isFile() || cached.length() == 0) {
                         try (InputStream input = getContentResolver().openInputStream(source);
                              FileOutputStream output = new FileOutputStream(cached)) {
@@ -246,13 +263,14 @@ public final class MainActivity extends Activity {
                     }
                     localUri = Uri.fromFile(cached).toString();
                 } catch (Exception failure) {
+                    if (cached != null) cached.delete();
                     error = failure.getMessage() == null ? "读取音频失败" : failure.getMessage();
                 }
                 final String resultUri = localUri;
                 final String resultError = error;
                 String script = "window.onAndroidAudioReady && window.onAndroidAudioReady(" + index + ","
                         + JSONObject.quote(contentUri) + "," + JSONObject.quote(resultUri == null ? "" : resultUri)
-                        + "," + JSONObject.quote(resultError) + ")";
+                        + "," + JSONObject.quote(resultError) + "," + JSONObject.quote(artworkData) + ")";
                 runOnUiThread(() -> {
                     if (webView != null) webView.evaluateJavascript(script, null);
                 });
@@ -272,6 +290,36 @@ public final class MainActivity extends Activity {
 
     private String cacheKey(String contentUri) {
         return UUID.nameUUIDFromBytes(contentUri.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+    }
+
+    private String readArtwork(Uri source) {
+        MediaMetadataRetriever metadata = new MediaMetadataRetriever();
+        try {
+            metadata.setDataSource(this, source);
+            byte[] embedded = metadata.getEmbeddedPicture();
+            if (embedded == null || embedded.length > 8 * 1024 * 1024) return "";
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(embedded, 0, embedded.length, bounds);
+            int sample = 1;
+            while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 512) sample *= 2;
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            Bitmap bitmap = BitmapFactory.decodeByteArray(embedded, 0, embedded.length, options);
+            if (bitmap == null) return "";
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output);
+            bitmap.recycle();
+            return "data:image/jpeg;base64," + android.util.Base64.encodeToString(output.toByteArray(), android.util.Base64.NO_WRAP);
+        } catch (RuntimeException ignored) {
+            return "";
+        } finally {
+            try {
+                metadata.release();
+            } catch (IOException ignored) {
+                // Embedded artwork is optional.
+            }
+        }
     }
 
     @Override

@@ -108,6 +108,29 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('id="playlistCard"', page)
         self.assertIn('id="playerMainCard"', page)
         self.assertIn('body.android-app .nav-tabs', page)
+        self.assertIn('id="libraryFilterTabs"', page)
+        self.assertIn('id="playerLyricsViewBtn"', page)
+        self.assertIn('id="androidMiniPlayer"', page)
+        self.assertIn('function renderQueue()', page)
+        self.assertIn('private String readArtwork(Uri source)', activity)
+        self.assertNotIn('track.put("cover"', activity)
+
+    def test_android_player_supports_repeat_shuffle_and_large_library_views(self):
+        root = Path(__file__).parent
+        page = (root / "index.html").read_text(encoding="utf-8")
+        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        for mode in ("sequential", "repeat-one", "repeat-all", "shuffle"):
+            self.assertIn(mode, page)
+        self.assertIn("window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData)", page)
+        self.assertIn("scanDocumentTree(tree, id, results, depth + 1, childPath)", activity)
+        self.assertIn("while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 512)", activity)
+        self.assertIn("int chunkSize = 100", activity)
+        self.assertIn("onAndroidFolderPicked(", activity)
+        self.assertIn("isFinal = true", page)
+        self.assertIn("data-category=\"artists\"", page)
+        self.assertIn("data-category=\"albums\"", page)
+        self.assertIn("data-category=\"folders\"", page)
+        self.assertIn("data-category=\"favorites\"", page)
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
