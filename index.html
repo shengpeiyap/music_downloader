@@ -377,7 +377,9 @@ $('viewLrcBtn').addEventListener('click', async () => {
     const r = await fetch('/api/lyrics_text', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(currentMetadata)
+      // Lyrics lookup only needs these fields. Keyword metadata may include a
+      // base64-encoded cover, which can exceed the server's small JSON limit.
+      body: JSON.stringify({title: currentMetadata.title, artist: currentMetadata.artist})
     });
     const d = await r.json();
     if (!r.ok) throw Error(d.error || '未检索到歌词');

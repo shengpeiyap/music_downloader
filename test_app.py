@@ -49,6 +49,13 @@ class DesktopLauncherTests(unittest.TestCase):
 
 
 class LocalTagMetadataTests(unittest.TestCase):
+    def test_lyrics_reader_sends_only_fields_needed_for_lookup(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn(
+            "JSON.stringify({title: currentMetadata.title, artist: currentMetadata.artist})",
+            page,
+        )
+
     def test_keyword_lookup_result_becomes_youtube_search_for_download(self):
         self.assertEqual(
             build_download_query("", "月明かり", "ヨルシカ", keyword_search=True),
