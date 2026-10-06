@@ -94,19 +94,23 @@
     body.android-app .android-mini-info{flex:1;overflow:hidden;text-align:left}
     body.android-app .android-mini-info strong,body.android-app .android-mini-info small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     body.android-app .android-mini-info small{color:var(--muted);font-size:12px}
-    body.android-app #tab-local{padding-bottom:calc(132px + env(safe-area-inset-bottom))}
+    body.android-app{position:fixed;inset:0;height:100%;overflow:hidden;overscroll-behavior:none;width:100%}
+    body.android-app main{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding:10px 12px 0}
+    body.android-app .header-bar{flex:none;margin-bottom:8px}
+    body.android-app #tab-local{flex:1;min-height:0;overflow:hidden;padding-bottom:calc(78px + env(safe-area-inset-bottom));display:flex;flex-direction:column}
     body.android-app .now-playing-cover{width:min(72vw,320px);height:min(72vw,320px);margin:8px 0 4px}
     body.android-app #nowTitle{font-size:24px!important}
     body.android-app .player-main-card{padding:14px;gap:8px}
     body.android-app .nav-tabs,body.android-app #tab-local>h1,body.android-app #tab-local>.intro{display:none!important}
     body.android-app .footer{display:none}
     body.android-app .library-filter-tabs{display:flex}
-    body.android-app main{padding-top:12px}
-    body.android-app .local-layout{display:block}
-    body.android-app .playlist-card,body.android-app .player-main-card{height:auto;max-height:none;min-height:0;margin-bottom:12px}
-    body.android-app .playlist-card{max-height:calc(100dvh - 150px)}
+    body.android-app main{padding-top:10px}
+    body.android-app .local-layout{display:block;flex:1;min-height:0;overflow:hidden}
+    body.android-app .playlist-card,body.android-app .player-main-card{height:100%;max-height:none;min-height:0;margin-bottom:0;overflow:hidden}
+    body.android-app .playlist-card{display:flex;flex-direction:column}
     body.android-app .player-main-card{min-height:calc(100dvh - 150px);justify-content:flex-start;gap:14px}
-    body.android-app #localTrackList{max-height:calc(100dvh - 340px);padding-bottom:110px;scroll-padding-bottom:110px}
+    body.android-app .playlist-header,body.android-app #searchLocal,body.android-app .library-filter-tabs,body.android-app .library-actions,body.android-app #libraryGroupBack{flex:none}
+    body.android-app #localTrackList{flex:1;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain;padding-bottom:12px;scroll-padding-bottom:12px}
 
     /* 本地播放器专属样式 */
     .local-layout{display:grid;grid-template-columns:320px 1fr;gap:20px}
@@ -365,6 +369,15 @@
         <div id="queueList" class="queue-list track-list"></div>
       </section>
     </div>
+    <div id="playAllBackdrop" class="queue-backdrop" hidden>
+      <section id="playAllSheet" class="queue-sheet play-all-sheet" aria-label="播放全部方式">
+        <div class="queue-drag-handle"><span></span></div>
+        <div class="queue-header"><h2 style="margin:0;font-size:20px">播放全部</h2><button id="closePlayAllBtn" type="button" aria-label="关闭">×</button></div>
+        <p style="color:var(--muted);margin:0 0 14px">选择播放顺序</p>
+        <button id="playAllSequentialBtn" type="button">顺序播放</button>
+        <button id="playAllShuffleBtn" type="button">随机播放</button>
+      </section>
+    </div>
   </div>
 
   <div class="footer">MusicDesk · 在本机运行，上传的文件不会发送到外部服务。</div>
@@ -382,6 +395,8 @@ let currentMetadata = null;
 let parsedLyrics = [];
 let localTracks = []; // [{file, title, artist, album, cover, lrc}, ...]
 let currentTrackIdx = -1;
+let playbackQueue = [];
+let displayedTrackIndices = [];
 let parsedLocalLyrics = [];
 const PLAYBACK_MODES = ['sequential', 'repeat-one', 'repeat-all', 'shuffle'];
 const PLAYBACK_MODE_LABELS = {sequential: '顺序播放', 'repeat-one': '单曲循环', 'repeat-all': '列表循环', shuffle: '随机播放'};
@@ -395,6 +410,53 @@ let queueDragStartY = null;
 let queueDragLastTime = 0;
 let queueDragVelocity = 0;
 let androidNoticeTimer = null;
+let androidView = 'library';
+let androidContentView = 'song';
+let pendingSavedPlayback = null;
+let restoringSavedPlayback = false;
+let lastSavedPlaybackBucket = -1;
+try { pendingSavedPlayback = JSON.parse(localStorage.getItem('musicdesk-playback-state') || 'null'); } catch (_) {}
+
+function persistAndroidPlayback(force = false) {
+  if (!window.AndroidMusic || restoringSavedPlayback || currentTrackIdx < 0) return;
+  const player = $('localAudioPlayer');
+  const seconds = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+  const bucket = Math.floor(seconds / 3);
+  if (!force && bucket === lastSavedPlaybackBucket) return;
+  lastSavedPlaybackBucket = bucket;
+  const track = localTracks[currentTrackIdx];
+  const state = {
+    uri: track && track.contentUri || '', position: seconds, wasPlaying: !player.paused,
+    view: androidView, contentView: androidContentView, category: libraryCategory,
+    group: libraryGroup, search: $('searchLocal').value, mode: playbackMode
+  };
+  try { localStorage.setItem('musicdesk-playback-state', JSON.stringify(state)); } catch (_) {}
+}
+
+function tryRestoreSavedPlayback() {
+  const state = pendingSavedPlayback;
+  if (!state || !state.uri || restoringSavedPlayback) return;
+  const idx = localTracks.findIndex(track => track.contentUri === state.uri);
+  if (idx < 0) return;
+  restoringSavedPlayback = true;
+  libraryCategory = ['songs', 'artists', 'albums', 'folders', 'favorites'].includes(state.category) ? state.category : 'songs';
+  libraryGroup = state.group || '';
+  $('searchLocal').value = state.search || '';
+  playbackMode = PLAYBACK_MODES.includes(state.mode) ? state.mode : 'sequential';
+  renderLocalPlaylist($('searchLocal').value);
+  playbackQueue = displayedTrackIndices.map(index => localTracks[index]).filter(Boolean);
+  if (!playbackQueue.includes(localTracks[idx])) playbackQueue.unshift(localTracks[idx]);
+  pendingSavedPlayback = null;
+  const saved = {uri: state.uri, position: Number(state.position) || 0, wasPlaying: !!state.wasPlaying};
+  window.pendingAudioResume = saved;
+  playLocalTrack(idx, true);
+  setPlayerContentView(state.contentView === 'lyrics' ? 'lyrics' : 'song');
+  showAndroidLocalTab(state.view === 'player' ? 'player' : 'library');
+  restoringSavedPlayback = false;
+  lastSavedPlaybackBucket = -1;
+}
+
+window.addEventListener('pagehide', () => persistAndroidPlayback(true));
 
 // Tab 切换逻辑
 function switchTab(tabName) {
@@ -891,11 +953,13 @@ function localTrackKey(track) {
 
 function showAndroidLocalTab(tab) {
   const showLibrary = tab === 'library';
+  androidView = showLibrary ? 'library' : 'player';
   $('playlistCard').style.display = showLibrary ? 'flex' : 'none';
   $('playerMainCard').style.display = showLibrary ? 'none' : 'flex';
   $('androidLibraryTab').classList.toggle('active', showLibrary);
   $('androidNowPlayingTab').classList.toggle('active', !showLibrary);
   $('androidMiniPlayer').style.display = showLibrary && currentTrackIdx >= 0 ? 'flex' : 'none';
+  persistAndroidPlayback(true);
 }
 $('androidLibraryTab').addEventListener('click', () => showAndroidLocalTab('library'));
 $('androidNowPlayingTab').addEventListener('click', () => showAndroidLocalTab('player'));
@@ -928,6 +992,7 @@ window.onAndroidFolderPicked = (raw, isFinal = true, wasCapped = false) => {
   }
   renderLocalPlaylist($('searchLocal').value);
   syncPlayerControls();
+  tryRestoreSavedPlayback();
 };
 
 window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
@@ -952,8 +1017,24 @@ window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
   }
   const player = $('localAudioPlayer');
   player.src = fileUri;
-  const playRequest = player.play();
-  if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
+  const resume = window.pendingAudioResume && window.pendingAudioResume.uri === contentUri ? window.pendingAudioResume : null;
+  if (resume) {
+    player.addEventListener('loadedmetadata', function restorePosition() {
+      player.removeEventListener('loadedmetadata', restorePosition);
+      player.currentTime = Math.min(resume.position, Number.isFinite(player.duration) ? player.duration : resume.position);
+      window.pendingAudioResume = null;
+      if (resume.wasPlaying) {
+        player.addEventListener('play', () => persistAndroidPlayback(true), {once: true});
+        const request = player.play();
+        if (request && request.catch) request.catch(() => syncPlayerControls());
+      } else {
+        persistAndroidPlayback(true);
+      }
+    }, {once: true});
+  } else {
+    const playRequest = player.play();
+    if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
+  }
 };
 
 function readLocalTrackMetadata(track) {
@@ -987,6 +1068,7 @@ function readLocalTrackMetadata(track) {
 
 function renderLocalPlaylist(filterText = "") {
   const container = $('localTrackList');
+  displayedTrackIndices = [];
   const categoryTitles = {songs: '所有歌曲', artists: '歌手', albums: '专辑', folders: '文件夹', favorites: '我的收藏'};
   $('playlistHeading').textContent = libraryGroup || categoryTitles[libraryCategory] || '所有歌曲';
   $('playlistHeading').title = `${localTracks.length} 首歌曲`;
@@ -1020,6 +1102,7 @@ function renderLocalPlaylist(filterText = "") {
     searched.splice(0, searched.length, ...searched.filter(track => (track[field] || '未知') === libraryGroup));
   }
   const filtered = (libraryCategory === 'favorites' ? searched.filter(track => track.favorite) : searched);
+  displayedTrackIndices = filtered.map(track => localTracks.indexOf(track));
 
   if (filtered.length === 0) {
     container.innerHTML = `<div style="color:var(--muted);font-size:13px;text-align:center;padding:36px 8px">${localTracks.length ? '未找到匹配的本地音乐' : '暂无歌曲；拖入音乐文件即可添加'}</div>`;
@@ -1049,21 +1132,23 @@ $('libraryFilterTabs').addEventListener('click', event => {
   libraryCategory = button.dataset.category;
   libraryGroup = '';
   renderLocalPlaylist($('searchLocal').value);
+  persistAndroidPlayback(true);
 });
 $('localTrackList').addEventListener('click', event => {
   const button = event.target.closest('[data-library-group]');
   if (!button) return;
   libraryGroup = button.dataset.libraryGroup;
   renderLocalPlaylist($('searchLocal').value);
+  persistAndroidPlayback(true);
 });
 $('libraryGroupBack').addEventListener('click', () => {
   libraryGroup = '';
   renderLocalPlaylist($('searchLocal').value);
+  persistAndroidPlayback(true);
 });
 $('playAllBtn').addEventListener('click', () => {
-  if (!localTracks.length) return;
-  const nextIndex = playbackMode === 'shuffle' ? Math.floor(Math.random() * localTracks.length) : 0;
-  playLocalTrack(nextIndex);
+  if (!displayedTrackIndices.length) return;
+  openPlayAllChoice();
 });
 
 function updatePlaylistTrackItem(idx) {
@@ -1077,10 +1162,14 @@ function updatePlaylistTrackItem(idx) {
   if (imgEl && t.cover) imgEl.src = t.cover;
 }
 
-$('searchLocal').addEventListener('input', (e) => renderLocalPlaylist(e.target.value));
+$('searchLocal').addEventListener('input', (e) => { renderLocalPlaylist(e.target.value); persistAndroidPlayback(true); });
 
-function playLocalTrack(idx) {
+function playLocalTrack(idx, keepQueue = false) {
   if (idx < 0 || idx >= localTracks.length) return;
+  if (!keepQueue || !playbackQueue.includes(localTracks[idx])) {
+    const visible = displayedTrackIndices.map(index => localTracks[index]).filter(Boolean);
+    playbackQueue = visible.includes(localTracks[idx]) ? visible : [localTracks[idx]];
+  }
   const player = $('localAudioPlayer');
   const previousTrack = localTracks[currentTrackIdx];
   if (previousTrack && previousTrack.objectUrl) { URL.revokeObjectURL(previousTrack.objectUrl); previousTrack.objectUrl = null; }
@@ -1112,15 +1201,18 @@ function playLocalTrack(idx) {
   }
 
   renderLocalPlaylist($('searchLocal').value);
+  renderQueue();
   renderLocalLyrics(track.lrc);
   syncPlayerControls();
   if (document.body.classList.contains('android-app')) showAndroidLocalTab('player');
+  persistAndroidPlayback(true);
 }
 
 function removeLocalTrack(idx) {
   if (idx < 0 || idx >= localTracks.length) return;
   const wasCurrent = idx === currentTrackIdx;
   const [removed] = localTracks.splice(idx, 1);
+  playbackQueue = playbackQueue.filter(track => track !== removed);
   if (removed.objectUrl) URL.revokeObjectURL(removed.objectUrl);
   if (removed.contentUri && removed.androidCachedUrl && window.AndroidMusic) AndroidMusic.releaseAudio(removed.contentUri);
   if (wasCurrent) {
@@ -1155,8 +1247,10 @@ function formatPlayerTime(seconds) {
 function syncPlayerControls() {
   const player = $('localAudioPlayer');
   const hasTrack = currentTrackIdx >= 0 && currentTrackIdx < localTracks.length;
-  $('previousTrackBtn').disabled = !hasTrack || (playbackMode !== 'shuffle' && currentTrackIdx === 0 && player.currentTime <= 3);
-  $('nextTrackBtn').disabled = !hasTrack || (playbackMode === 'sequential' && currentTrackIdx >= localTracks.length - 1);
+  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  const position = queue.indexOf(localTracks[currentTrackIdx]);
+  $('previousTrackBtn').disabled = !hasTrack || (playbackMode !== 'shuffle' && position <= 0 && player.currentTime <= 3);
+  $('nextTrackBtn').disabled = !hasTrack || (playbackMode === 'sequential' && position >= queue.length - 1);
   $('togglePlaybackBtn').disabled = !hasTrack;
   $('togglePlaybackBtn').textContent = player.paused ? '▶' : 'Ⅱ';
   $('togglePlaybackBtn').setAttribute('aria-label', player.paused ? '播放' : '暂停');
@@ -1187,38 +1281,75 @@ function updateMiniPlayer() {
 }
 
 function nextLocalTrack() {
-  if (!localTracks.length || currentTrackIdx < 0) return;
-  if (playbackMode === 'shuffle' && localTracks.length > 1) {
-    let next = currentTrackIdx;
-    while (next === currentTrackIdx) next = Math.floor(Math.random() * localTracks.length);
-    playLocalTrack(next);
-  } else if (currentTrackIdx + 1 < localTracks.length) {
-    playLocalTrack(currentTrackIdx + 1);
+  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  const currentTrack = localTracks[currentTrackIdx];
+  const position = queue.indexOf(currentTrack);
+  if (!queue.length || position < 0) return;
+  if (playbackMode === 'shuffle' && queue.length > 1) {
+    let next = position;
+    while (next === position) next = Math.floor(Math.random() * queue.length);
+    playLocalTrack(localTracks.indexOf(queue[next]), true);
+  } else if (position + 1 < queue.length) {
+    playLocalTrack(localTracks.indexOf(queue[position + 1]), true);
   } else if (playbackMode === 'repeat-all') {
-    playLocalTrack(0);
+    playLocalTrack(localTracks.indexOf(queue[0]), true);
   }
 }
 
 function previousLocalTrack() {
   const player = $('localAudioPlayer');
   if (player.currentTime > 3) { player.currentTime = 0; return; }
-  if (playbackMode === 'shuffle' && localTracks.length > 1) {
-    let previous = currentTrackIdx;
-    while (previous === currentTrackIdx) previous = Math.floor(Math.random() * localTracks.length);
-    playLocalTrack(previous);
-  } else if (currentTrackIdx > 0) playLocalTrack(currentTrackIdx - 1);
-  else if (playbackMode === 'repeat-all' && localTracks.length) playLocalTrack(localTracks.length - 1);
+  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  const position = queue.indexOf(localTracks[currentTrackIdx]);
+  if (playbackMode === 'shuffle' && queue.length > 1) {
+    let previous = position;
+    while (previous === position) previous = Math.floor(Math.random() * queue.length);
+    playLocalTrack(localTracks.indexOf(queue[previous]), true);
+  } else if (position > 0) playLocalTrack(localTracks.indexOf(queue[position - 1]), true);
+  else if (playbackMode === 'repeat-all' && queue.length) playLocalTrack(localTracks.indexOf(queue[queue.length - 1]), true);
 }
 
 function renderQueue() {
-  $('queueTitle').textContent = `播放列表（${localTracks.length} 首）`;
-  $('queueList').innerHTML = localTracks.map((track, idx) => `
-    <div class="track-item ${idx === currentTrackIdx ? 'active' : ''}" onclick="playLocalTrack(${idx});closeQueue()">
+  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  $('queueTitle').textContent = `播放列表（${queue.length} 首）`;
+  $('queueList').innerHTML = queue.map(track => {
+    const idx = localTracks.indexOf(track);
+    return `
+    <div class="track-item ${idx === currentTrackIdx ? 'active' : ''}" onclick="playLocalTrack(${idx},true);closeQueue()">
       <img src="${escapeHTML(track.cover || DEFAULT_COVER)}" alt="">
       <div class="track-item-info"><strong>${escapeHTML(track.title)}</strong><small>${escapeHTML(track.artist)} - ${escapeHTML(track.album)}</small></div>
       <button type="button" class="track-remove" aria-label="移除 ${escapeHTML(track.title)}" onclick="event.stopPropagation();removeLocalTrack(${idx})">×</button>
-    </div>`).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">播放列表为空</div>';
+    </div>`;
+  }).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">播放列表为空</div>';
 }
+
+function openPlayAllChoice() {
+  $('playAllBackdrop').hidden = false;
+  requestAnimationFrame(() => $('playAllSheet').classList.add('open'));
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(true);
+}
+
+function closePlayAllChoice() {
+  $('playAllSheet').classList.remove('open');
+  $('playAllBackdrop').hidden = true;
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(false);
+}
+
+function startPlayAll(mode) {
+  const indices = displayedTrackIndices.length ? displayedTrackIndices.slice() : localTracks.map((_, index) => index);
+  if (!indices.length) return;
+  playbackQueue = indices.map(index => localTracks[index]).filter(Boolean);
+  playbackMode = mode;
+  const firstIndex = mode === 'shuffle' ? Math.floor(Math.random() * playbackQueue.length) : 0;
+  closePlayAllChoice();
+  syncPlayerControls();
+  playLocalTrack(localTracks.indexOf(playbackQueue[firstIndex]), true);
+}
+
+$('playAllSequentialBtn').addEventListener('click', () => startPlayAll('sequential'));
+$('playAllShuffleBtn').addEventListener('click', () => startPlayAll('shuffle'));
+$('closePlayAllBtn').addEventListener('click', closePlayAllChoice);
+$('playAllBackdrop').addEventListener('click', event => { if (event.target === $('playAllBackdrop')) closePlayAllChoice(); });
 
 function openQueue() {
   renderQueue();
@@ -1230,7 +1361,10 @@ function openQueue() {
 }
 
 function closeQueue() {
-  if ($('queueBackdrop').hidden) return;
+  if ($('queueBackdrop').hidden) {
+    if (!$('playAllBackdrop').hidden) closePlayAllChoice();
+    return;
+  }
   $('queueSheet').classList.remove('open');
   $('queueSheet').style.transform = '';
   if (window.AndroidMusic) AndroidMusic.setQueueOpen(false);
@@ -1283,6 +1417,7 @@ function clearQueue() {
     if (track.contentUri && track.androidCachedUrl && window.AndroidMusic) AndroidMusic.releaseAudio(track.contentUri);
   });
   localTracks = [];
+  playbackQueue = [];
   currentTrackIdx = -1;
   $('localAudioPlayer').removeAttribute('src');
   $('localAudioPlayer').load();
@@ -1304,11 +1439,13 @@ $('playbackModeBtn').addEventListener('click', () => {
 $('playerSongViewBtn').addEventListener('click', () => setPlayerContentView('song'));
 $('playerLyricsViewBtn').addEventListener('click', () => setPlayerContentView('lyrics'));
 function setPlayerContentView(view) {
+  androidContentView = view === 'lyrics' ? 'lyrics' : 'song';
   const lyrics = view === 'lyrics';
   $('playerSongPanel').style.display = lyrics ? 'none' : 'flex';
   $('localLyricsViewer').style.display = lyrics ? 'block' : 'none';
   $('playerSongViewBtn').classList.toggle('active', !lyrics);
   $('playerLyricsViewBtn').classList.toggle('active', lyrics);
+  persistAndroidPlayback(true);
 }
 $('favoriteTrackBtn').addEventListener('click', () => {
   const track = localTracks[currentTrackIdx];
@@ -1347,7 +1484,7 @@ $('playbackSeek').addEventListener('input', event => {
   syncPlayerControls();
 });
 ['timeupdate', 'loadedmetadata', 'durationchange', 'play', 'pause', 'ended'].forEach(type =>
-  $('localAudioPlayer').addEventListener(type, syncPlayerControls)
+  $('localAudioPlayer').addEventListener(type, () => { syncPlayerControls(); if (type !== 'timeupdate' || Math.floor($('localAudioPlayer').currentTime / 3) !== lastSavedPlaybackBucket) persistAndroidPlayback(type !== 'timeupdate'); })
 );
 
 function renderLocalLyrics(lrcText) {

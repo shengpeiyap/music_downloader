@@ -135,11 +135,25 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("queueDragHandle.addEventListener('pointermove'", page)
         self.assertIn("AndroidMusic.setQueueOpen(false)", page)
         self.assertIn("queueOpen && webView != null", activity)
-        self.assertIn("padding-bottom:calc(132px + env(safe-area-inset-bottom))", page)
+        self.assertIn("body.android-app #tab-local{flex:1", page)
         self.assertIn("data-category=\"artists\"", page)
         self.assertIn("data-category=\"albums\"", page)
         self.assertIn("data-category=\"folders\"", page)
         self.assertIn("data-category=\"favorites\"", page)
+
+    def test_android_library_keeps_controls_fixed_and_restores_filtered_playback_queue(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn("body.android-app{position:fixed", page)
+        self.assertIn("body.android-app #localTrackList{flex:1;min-height:0", page)
+        self.assertIn("let playbackQueue = []", page)
+        self.assertIn("displayedTrackIndices = filtered.map", page)
+        self.assertIn("function startPlayAll(mode)", page)
+        self.assertIn('id="playAllSequentialBtn"', page)
+        self.assertIn('id="playAllShuffleBtn"', page)
+        self.assertIn("musicdesk-playback-state", page)
+        self.assertIn("function tryRestoreSavedPlayback()", page)
+        self.assertIn("window.pendingAudioResume = saved", page)
+        self.assertIn("player.currentTime = Math.min(resume.position", page)
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
