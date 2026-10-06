@@ -14,16 +14,4 @@ android {
         versionName = "0.1.0"
     }
 
-    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/musicdeskAssets"))
-}
-
-val syncMusicDeskAssets by tasks.registering(Sync::class) {
-    from(rootProject.projectDir.parentFile) {
-        include("index.html", "default_song_img.png")
-    }
-    into(layout.buildDirectory.dir("generated/musicdeskAssets"))
-}
-
-tasks.named("preBuild").configure {
-    dependsOn(syncMusicDeskAssets)
 }

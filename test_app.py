@@ -94,7 +94,9 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("if (!window.jsmediatags)", page)
         self.assertIn("onShowFileChooser", activity)
         self.assertIn('webView.loadUrl("file:///android_asset/index.html")', activity)
-        self.assertIn('include("index.html", "default_song_img.png")', gradle)
+        self.assertIn("compileSdk = 36", gradle)
+        self.assertEqual((root / "android/app/src/main/assets/index.html").read_bytes(), (root / "index.html").read_bytes())
+        self.assertEqual((root / "android/app/src/main/assets/default_song_img.png").read_bytes(), (root / "default_song_img.png").read_bytes())
         self.assertNotIn("addJavascriptInterface", activity)
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
