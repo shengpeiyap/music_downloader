@@ -157,6 +157,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("$('queueSheet').addEventListener('touchmove'", page)
         self.assertIn("body.android-app .player-main-card{height:100%;min-height:0", page)
         self.assertIn("document.querySelectorAll('.tab-btn')[0].textContent = '在线解析'", page)
+        self.assertIn("body.android-app .tab-content:not(.active){display:none!important}", page)
         self.assertIn("function requestMusicDeskApi(path, options)", page)
         self.assertIn("此 Android 预览版尚未移植在线服务", page)
 

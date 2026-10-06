@@ -98,6 +98,7 @@
     body.android-app{position:fixed;inset:0;height:100%;overflow:hidden;overscroll-behavior:none;width:100%}
     body.android-app main{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding:10px 12px 0}
     body.android-app .header-bar{flex:none;margin-bottom:8px}
+    body.android-app .tab-content:not(.active){display:none!important}
     body.android-app #tab-local{flex:1;min-height:0;overflow:hidden;padding-bottom:calc(78px + env(safe-area-inset-bottom));display:flex;flex-direction:column}
     body.android-app .nav-tabs{display:flex;flex:1;min-width:0;max-width:100%;gap:4px;padding:4px;margin-left:10px;overflow-x:auto;white-space:nowrap}
     body.android-app .tab-btn{padding:7px 9px;font-size:12px;flex:none}
