@@ -66,6 +66,24 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("$('customCoverPreview').dataset.embeddedCover = d.cover || ''", page)
         self.assertTrue((Path(__file__).parent / "default_song_img.png").is_file())
 
+    def test_custom_packaging_and_player_have_drag_drop_zones(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="customAudioDrop"', page)
+        self.assertIn('id="playlistDropZone"', page)
+        self.assertIn('function setupDropZone(zone, onDrop)', page)
+        self.assertIn('async function getDroppedFiles(dataTransfer)', page)
+        self.assertIn('function addLocalAudioFiles(inputFiles, replace)', page)
+
+    def test_local_player_has_removal_and_custom_transport_controls(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        for control_id in (
+            "previousTrackBtn", "togglePlaybackBtn", "nextTrackBtn", "playbackSeek",
+            "currentTimeLabel", "durationLabel",
+        ):
+            self.assertIn(f'id="{control_id}"', page)
+        self.assertIn("function removeLocalTrack(idx)", page)
+        self.assertIn("URL.revokeObjectURL(removed.objectUrl)", page)
+
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
         self.assertIn("function renderPlainLyrics(container, lyricText, emptyMessage)", page)

@@ -46,6 +46,20 @@
     .lrc-line:hover{background:#17200f;color:var(--text)}
     .lrc-line.active{color:var(--green);font-size:16px;font-weight:700;background:#1f2b15;padding-left:14px}
     .plain-lyric-line{padding:6px 10px;font-size:14px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+    .drop-zone{border:1px dashed #52634f;border-radius:12px;padding:14px;text-align:center;color:var(--muted);font-size:13px;transition:all .15s ease}
+    .drop-zone.drag-over{border-color:var(--green);background:#1b2715;color:var(--green)}
+    .playlist-drop{margin:4px 0 8px;cursor:pointer}
+    .track-item{position:relative}
+    .track-remove{margin:0 0 0 auto;padding:5px 9px;background:#29332c;border:1px solid #37433a;color:var(--muted);font-size:12px;flex:none}
+    .track-remove:hover{color:#fff;background:#633b3b}
+    .player-controls{width:100%;max-width:460px;margin-bottom:16px}
+    .player-control-buttons{display:flex;justify-content:center;align-items:center;gap:12px}
+    .player-control-buttons button{width:42px;height:42px;padding:0;margin:0;border-radius:50%;background:#29332c;color:var(--text);font-size:18px}
+    .player-control-buttons button.play-toggle{width:52px;height:52px;background:var(--green);color:#17200f;font-size:21px}
+    .player-control-buttons button:disabled{opacity:.4;cursor:default}
+    .player-timeline{display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+    .player-timeline input{flex:1;min-width:0;accent-color:var(--green);padding:0}
+    .drop-zone input[type=file]{display:none}
 
     /* 本地播放器专属样式 */
     .local-layout{display:grid;grid-template-columns:320px 1fr;gap:20px}
@@ -148,8 +162,8 @@
           <div><input id="tagSearch" type="text" placeholder="例如：ヨルシカ - 八月、某、月明かり"></div>
           <button id="tagSearchBtn" type="button">搜索并填入</button>
         </div>
-        <label class="filebox" style="margin-bottom:20px">
-          第一步：选择或拖入需要修改/封装的音乐文件
+        <label class="filebox drop-zone" id="customAudioDrop" style="margin-bottom:20px">
+          第一步：点击选择或将音乐文件拖到这里
           <input id="customAudioInput" type="file" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg">
         </label>
         <div id="customEngineRow" style="display:block;margin-bottom:18px">
@@ -230,6 +244,7 @@
           <input type="file" id="dirInput" webkitdirectory directory multiple style="display:none">
         </div>
         <input type="text" id="searchLocal" placeholder="搜索本地歌名/歌手..." style="padding:8px 12px;font-size:12px;margin-bottom:8px">
+        <div id="playlistDropZone" class="drop-zone playlist-drop">拖入一首或多首音乐到此处添加</div>
         <div class="track-list" id="localTrackList">
           <div style="color:var(--muted);font-size:13px;text-align:center;padding-top:180px">尚未加载本地音乐<br>点击右上角“选择文件夹”</div>
         </div>
@@ -241,8 +256,18 @@
         <h3 id="nowTitle" style="margin:0 0 6px;font-size:20px">未选择歌曲</h3>
         <p id="nowArtist" style="margin:0 0 20px;color:var(--muted);font-size:14px">本地音乐离线播放器</p>
 
-        <div style="width:100%;max-width:460px;margin-bottom:16px">
-          <audio id="localAudioPlayer" controls style="width:100%"></audio>
+        <div class="player-controls">
+          <audio id="localAudioPlayer" preload="metadata" style="display:none"></audio>
+          <div class="player-control-buttons">
+            <button id="previousTrackBtn" type="button" aria-label="上一首" title="上一首" disabled>⏮</button>
+            <button id="togglePlaybackBtn" class="play-toggle" type="button" aria-label="播放" title="播放" disabled>▶</button>
+            <button id="nextTrackBtn" type="button" aria-label="下一首" title="下一首" disabled>⏭</button>
+          </div>
+          <div class="player-timeline">
+            <span id="currentTimeLabel">0:00</span>
+            <input id="playbackSeek" type="range" min="0" max="1000" step="0.1" value="0" aria-label="播放进度" disabled>
+            <span id="durationLabel">0:00</span>
+          </div>
         </div>
 
         <!-- 本地歌词同步视窗 -->
@@ -633,51 +658,140 @@ $('customTagForm').addEventListener('submit', async (e) => {
 });
 
 // ===== 本地离线播放器 Tab 逻辑 =====
-$('selectDirBtn').addEventListener('click', () =>$('dirInput').click());
+const AUDIO_EXTENSIONS = /\.(mp3|m4a|flac|wav|ogg)$/i;
+$('selectDirBtn').addEventListener('click', () => $('dirInput').click());
+
+function setupDropZone(zone, onDrop) {
+  ['dragenter', 'dragover'].forEach(type => zone.addEventListener(type, event => {
+    event.preventDefault();
+    zone.classList.add('drag-over');
+  }));
+  ['dragleave', 'drop'].forEach(type => zone.addEventListener(type, event => {
+    event.preventDefault();
+    zone.classList.remove('drag-over');
+  }));
+  zone.addEventListener('drop', async event => onDrop(await getDroppedFiles(event.dataTransfer)));
+}
+
+async function getDroppedFiles(dataTransfer) {
+  const entries = Array.from(dataTransfer.items || [])
+    .map(item => item.webkitGetAsEntry && item.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) return Array.from(dataTransfer.files || []);
+  const files = [];
+  async function walk(entry) {
+    if (entry.isFile) {
+      files.push(await new Promise(resolve => entry.file(resolve, () => resolve(null))));
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do {
+        batch = await new Promise(resolve => reader.readEntries(resolve, () => resolve([])));
+        await Promise.all(batch.map(walk));
+      } while (batch.length);
+    }
+  }
+  await Promise.all(entries.map(walk));
+  return files.filter(Boolean);
+}
+
+function setFileInputFiles(input, files) {
+  const transfer = new DataTransfer();
+  Array.from(files).forEach(file => transfer.items.add(file));
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', {bubbles: true}));
+}
+
+setupDropZone($('customAudioDrop'), files => {
+  const file = files.find(item => AUDIO_EXTENSIONS.test(item.name));
+  if (!file) {
+    $('customStatus').textContent = '请拖入 MP3、M4A、FLAC、WAV 或 OGG 音频文件。';
+    return;
+  }
+  if (files.filter(item => AUDIO_EXTENSIONS.test(item.name)).length > 1) {
+    $('customStatus').textContent = '封装区一次处理一个音频文件，已选取第一个文件。';
+  }
+  setFileInputFiles($('customAudioInput'), [file]);
+});
+
+setupDropZone($('playlistDropZone'), files => addLocalAudioFiles(files, false));
 
 $('dirInput').addEventListener('change', (e) => {
-  const files = Array.from(e.target.files).filter(f => /\.(mp3|m4a|flac|wav|ogg)$/i.test(f.name));
-  if (files.length === 0) return;
-
-  localTracks = files.map(f => ({
-    file: f,
-    title: f.name.replace(/\.[^/.]+$/, ""),
-    artist: "未知歌手",
-    album: "未知专辑",
-    cover: null,
-    lrc: ""
-  }));
-
-  renderLocalPlaylist();
-  // 后台异步读取每首歌的 ID3 标签
-  localTracks.forEach((track, idx) => {
-    jsmediatags.read(track.file, {
-      onSuccess: (tag) => {
-        const tags = tag.tags;
-        if (tags.title) track.title = tags.title;
-        if (tags.artist) track.artist = tags.artist;
-        if (tags.album) track.album = tags.album;
-
-        // 封面解析
-        if (tags.picture) {
-          const { data, format } = tags.picture;
-          let base64String = "";
-          for (let i = 0; i < data.length; i++) {
-            base64String += String.fromCharCode(data[i]);
-          }
-          track.cover = `data:${format};base64,${window.btoa(base64String)}`;
-        }
-
-        // 内嵌歌词解析 (USLT)
-        if (tags.lyrics && tags.lyrics.lyrics) {
-          track.lrc = tags.lyrics.lyrics;
-        }
-
-        updatePlaylistTrackItem(idx);
-      }
-    });
-  });
+  addLocalAudioFiles(Array.from(e.target.files), true);
+  e.target.value = '';
 });
+
+function addLocalAudioFiles(inputFiles, replace) {
+  const files = Array.from(inputFiles).filter(file => AUDIO_EXTENSIONS.test(file.name));
+  if (!files.length) {
+    $('playlistDropZone').textContent = '没有找到支持的音频；可拖入 MP3、M4A、FLAC、WAV 或 OGG';
+    return;
+  }
+  if (replace) {
+    $('localAudioPlayer').pause();
+    localTracks.forEach(track => track.objectUrl && URL.revokeObjectURL(track.objectUrl));
+    localTracks = [];
+    currentTrackIdx = -1;
+    $('localAudioPlayer').removeAttribute('src');
+    $('localAudioPlayer').load();
+    $('nowTitle').textContent = '未选择歌曲';
+    $('nowArtist').textContent = '本地音乐离线播放器';
+    $('nowCover').src = DEFAULT_COVER;
+    parsedLocalLyrics = [];
+    renderPlainLyrics($('localLrcContainer'), '', '歌词准备就绪');
+  }
+  const known = new Set(localTracks.map(track => `${track.file.name}:${track.file.size}:${track.file.lastModified}`));
+  const added = files.filter(file => {
+    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    if (known.has(key)) return false;
+    known.add(key);
+    return true;
+  }).map(file => ({
+    file,
+    title: file.name.replace(/\.[^/.]+$/, ''),
+    artist: '未知歌手',
+    album: '未知专辑',
+    cover: null,
+    lrc: '',
+    objectUrl: null
+  }));
+  localTracks.push(...added);
+  if (!added.length) {
+    $('playlistDropZone').textContent = '这些歌曲已在播放列表中';
+    return;
+  }
+  $('playlistDropZone').textContent = `已添加 ${added.length} 首；可继续拖入音乐`;
+  renderLocalPlaylist($('searchLocal').value);
+  added.forEach(track => readLocalTrackMetadata(track));
+  syncPlayerControls();
+}
+
+function readLocalTrackMetadata(track) {
+  jsmediatags.read(track.file, {
+    onSuccess: tag => {
+      if (!localTracks.includes(track)) return;
+      const tags = tag.tags;
+      if (tags.title) track.title = tags.title;
+      if (tags.artist) track.artist = tags.artist;
+      if (tags.album) track.album = tags.album;
+      if (tags.picture) {
+        const {data, format} = tags.picture;
+        let base64String = '';
+        for (let i = 0; i < data.length; i++) base64String += String.fromCharCode(data[i]);
+        track.cover = `data:${format};base64,${window.btoa(base64String)}`;
+      }
+      if (tags.lyrics && tags.lyrics.lyrics) track.lrc = tags.lyrics.lyrics;
+      const idx = localTracks.indexOf(track);
+      updatePlaylistTrackItem(idx);
+      if (idx === currentTrackIdx) {
+        $('nowTitle').textContent = track.title;
+        $('nowArtist').textContent = `${track.artist} - ${track.album}`;
+        $('nowCover').src = track.cover || DEFAULT_COVER;
+        renderLocalLyrics(track.lrc);
+      }
+      renderLocalPlaylist($('searchLocal').value);
+    }
+  });
+}
 
 function renderLocalPlaylist(filterText = "") {
   const container = $('localTrackList');
@@ -687,7 +801,7 @@ function renderLocalPlaylist(filterText = "") {
   );
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding-top:180px">未找到匹配的本地音乐</div>';
+    container.innerHTML = `<div style="color:var(--muted);font-size:13px;text-align:center;padding:36px 8px">${localTracks.length ? '未找到匹配的本地音乐' : '暂无歌曲；拖入音乐文件即可添加'}</div>`;
     return;
   }
 
@@ -702,6 +816,7 @@ function renderLocalPlaylist(filterText = "") {
           <strong id="track-title-${origIdx}">${escapeHTML(track.title)}</strong>
           <small id="track-artist-${origIdx}">${escapeHTML(track.artist)}</small>
         </div>
+        <button type="button" class="track-remove" aria-label="从列表移除 ${escapeHTML(track.title)}" title="从列表移除" onclick="event.stopPropagation();removeLocalTrack(${origIdx})">移除</button>
       </div>
     `;
   }).join('');
@@ -721,6 +836,11 @@ function updatePlaylistTrackItem(idx) {
 $('searchLocal').addEventListener('input', (e) => renderLocalPlaylist(e.target.value));
 
 function playLocalTrack(idx) {
+  if (idx < 0 || idx >= localTracks.length) return;
+  const player = $('localAudioPlayer');
+  const previousTrack = localTracks[currentTrackIdx];
+  if (previousTrack && previousTrack.objectUrl) URL.revokeObjectURL(previousTrack.objectUrl);
+  player.pause();
   currentTrackIdx = idx;
   const track = localTracks[idx];
 
@@ -728,13 +848,87 @@ function playLocalTrack(idx) {
   $('nowArtist').textContent = `${track.artist} - ${track.album}`;
   $('nowCover').src = track.cover || DEFAULT_COVER;
 
-  const player = $('localAudioPlayer');
-  player.src = URL.createObjectURL(track.file);
-  player.play();
+  track.objectUrl = URL.createObjectURL(track.file);
+  player.src = track.objectUrl;
+  const playRequest = player.play();
+  if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
 
   renderLocalPlaylist($('searchLocal').value);
   renderLocalLyrics(track.lrc);
+  syncPlayerControls();
 }
+
+function removeLocalTrack(idx) {
+  if (idx < 0 || idx >= localTracks.length) return;
+  const wasCurrent = idx === currentTrackIdx;
+  const [removed] = localTracks.splice(idx, 1);
+  if (removed.objectUrl) URL.revokeObjectURL(removed.objectUrl);
+  if (wasCurrent) {
+    const player = $('localAudioPlayer');
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+    currentTrackIdx = -1;
+    if (localTracks.length) playLocalTrack(Math.min(idx, localTracks.length - 1));
+    else {
+      $('nowTitle').textContent = '未选择歌曲';
+      $('nowArtist').textContent = '本地音乐离线播放器';
+      $('nowCover').src = DEFAULT_COVER;
+      parsedLocalLyrics = [];
+      renderPlainLyrics($('localLrcContainer'), '', '歌词准备就绪');
+    }
+  } else if (idx < currentTrackIdx) {
+    currentTrackIdx--;
+  }
+  renderLocalPlaylist($('searchLocal').value);
+  syncPlayerControls();
+}
+
+function formatPlayerTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const value = Math.floor(seconds);
+  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
+}
+
+function syncPlayerControls() {
+  const player = $('localAudioPlayer');
+  const hasTrack = currentTrackIdx >= 0 && currentTrackIdx < localTracks.length;
+  $('previousTrackBtn').disabled = !hasTrack || (currentTrackIdx === 0 && player.currentTime <= 3);
+  $('nextTrackBtn').disabled = !hasTrack || currentTrackIdx >= localTracks.length - 1;
+  $('togglePlaybackBtn').disabled = !hasTrack;
+  $('togglePlaybackBtn').textContent = player.paused ? '▶' : 'Ⅱ';
+  $('togglePlaybackBtn').setAttribute('aria-label', player.paused ? '播放' : '暂停');
+  $('togglePlaybackBtn').title = player.paused ? '播放' : '暂停';
+  $('currentTimeLabel').textContent = formatPlayerTime(player.currentTime);
+  $('durationLabel').textContent = formatPlayerTime(player.duration);
+  const seek = $('playbackSeek');
+  seek.disabled = !hasTrack || !Number.isFinite(player.duration) || player.duration <= 0;
+  seek.max = Number.isFinite(player.duration) ? player.duration : 0;
+  if (!seek.matches(':active')) seek.value = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+}
+
+$('togglePlaybackBtn').addEventListener('click', () => {
+  const player = $('localAudioPlayer');
+  if (player.paused) {
+    const playRequest = player.play();
+    if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
+  } else player.pause();
+});
+$('previousTrackBtn').addEventListener('click', () => {
+  const player = $('localAudioPlayer');
+  if (player.currentTime > 3) { player.currentTime = 0; return; }
+  if (currentTrackIdx > 0) playLocalTrack(currentTrackIdx - 1);
+});
+$('nextTrackBtn').addEventListener('click', () => {
+  if (currentTrackIdx + 1 < localTracks.length) playLocalTrack(currentTrackIdx + 1);
+});
+$('playbackSeek').addEventListener('input', event => {
+  $('localAudioPlayer').currentTime = Number(event.target.value);
+  syncPlayerControls();
+});
+['timeupdate', 'loadedmetadata', 'durationchange', 'play', 'pause', 'ended'].forEach(type =>
+  $('localAudioPlayer').addEventListener(type, syncPlayerControls)
+);
 
 function renderLocalLyrics(lrcText) {
   parsedLocalLyrics = parseLRC(lrcText);

@@ -8,6 +8,7 @@ A local music metadata viewer and audio format converter.
 - Convert local audio to MP3, M4A, FLAC, WAV, or OGG.
 - Read, edit, and export local audio tags, including embedded lyrics and album artwork.
 - Search public track metadata by `artist - title` or title alone in the tag editor.
+- Drag audio into the custom tag editor or local player; manage playlist entries and playback without browser-native controls.
 - Does not download copyrighted audio from streaming services. Convert only files you own or are authorized to process.
 - Uploaded audio is processed in a temporary local folder and removed after conversion.
 
