@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
+from app import build_download_query, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -49,6 +49,16 @@ class DesktopLauncherTests(unittest.TestCase):
 
 
 class LocalTagMetadataTests(unittest.TestCase):
+    def test_keyword_lookup_result_becomes_youtube_search_for_download(self):
+        self.assertEqual(
+            build_download_query("", "月明かり", "ヨルシカ", keyword_search=True),
+            "ytsearch1:ヨルシカ 月明かり",
+        )
+        self.assertEqual(
+            build_download_query("https://open.spotify.com/track/id", "Track", "Artist", keyword_search=True),
+            "https://open.spotify.com/track/id",
+        )
+
     def test_multipart_text_uses_utf8_for_chinese_form_fields(self):
         boundary = "musicdesk-boundary"
         raw = (

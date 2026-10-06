@@ -123,6 +123,16 @@ def lookup_metadata_by_keyword(query: str) -> dict:
     }
 
 
+def build_download_query(url: str, title: str, artist: str, keyword_search: bool) -> str:
+    url = (url or "").strip()
+    if url or not keyword_search:
+        return url
+    query = " ".join(part.strip() for part in (artist, title) if part and part.strip())
+    if not query:
+        raise ValueError("请先搜索一首歌曲，或提供有效的分享链接。")
+    return "ytsearch1:" + query
+
+
 def multipart_fields(content_type: str, raw: bytes) -> dict:
     message = BytesParser(policy=default).parsebytes(
         b"Content-Type: " + content_type.encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
@@ -395,6 +405,12 @@ def fetch_with_spotdl(url: str, base_dir: Path) -> tuple[Path | None, str]:
 
 def fetch_media_stream(url: str, title: str = "", artist: str = "", preferred_engine: str = "ytdlp", temp_dir: str | Path | None = None) -> tuple[Path, str]:
     base_dir = Path(temp_dir) if temp_dir else Path(tempfile.gettempdir())
+
+    if url.startswith("ytsearch1:"):
+        res_file, source_url = fetch_with_ytdlp(url, title, artist, base_dir)
+        if res_file and res_file.is_file():
+            return res_file, source_url
+        raise ValueError("没有找到可下载的匹配音频，请尝试调整关键词。")
 
     engines = {
         "ytdlp": lambda: fetch_with_ytdlp(url, title, artist, base_dir),
@@ -860,7 +876,12 @@ class Handler(SimpleHTTPRequestHandler):
                 body = self.rfile.read(min(length, 8192))
                 req_data = json.loads(body)
                 
-                url = req_data.get("url", "").strip()
+                url = build_download_query(
+                    req_data.get("url", ""),
+                    req_data.get("title", ""),
+                    req_data.get("artist", ""),
+                    bool(req_data.get("keyword_search")),
+                )
                 title = req_data.get("title", "未知标题").strip()
                 artist = req_data.get("artist", "未知艺人").strip()
                 thumbnail = req_data.get("thumbnail", "")

@@ -87,8 +87,8 @@
     <h1>音乐资料，<br>由你整理。</h1>
     <p class="intro">从分享链接查看公开曲目信息，或把你拥有使用权的音频转换成常见格式。轻量、私密，文件在本机处理。</p>
     <div class="grid">
-      <section class="card"><h2>分享链接 · 曲目信息</h2><p class="hint">支持 Spotify 单曲与 YouTube Music / YouTube 视频链接</p>
-        <form id="lookup"><label for="share">分享链接</label><input id="share" type="url" placeholder="https://open.spotify.com/track/..." required><button id="lookupBtn">读取公开信息</button></form>
+      <section class="card"><h2>曲目信息搜索</h2><p class="hint">粘贴 Spotify / YouTube 分享链接，或搜索“作者 - 标题”及单独标题</p>
+        <form id="lookup"><label for="share">分享链接或关键词</label><input id="share" type="text" placeholder="Spotify 链接，或 作者 - 标题 / 标题" required><button id="lookupBtn">读取 / 搜索曲目信息</button></form>
 
         <div class="result" id="result">
           <div class="result-header">
@@ -326,24 +326,27 @@ $('audioPlayer').addEventListener('timeupdate', () => {
 });
 
 $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('lookupBtn').disabled = true;
+  const lookupValue = $('share').value.trim();
+  const isKeywordSearch = !/^https?:\/\//i.test(lookupValue);
   $('lookupStatus').textContent = '正在读取…';
   $('sourceStatus').textContent = '';$('result').style.display = 'none';
   $('lyricsViewer').style.display = 'none';$('playerBox').style.display = 'none';
 
   try {
-    const r = await fetch('/api/metadata', {
+    const r = await fetch(isKeywordSearch ? '/api/search_metadata' : '/api/metadata', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url: $('share').value})
+      body: JSON.stringify(isKeywordSearch ? {query: lookupValue} : {url: lookupValue})
     });
     const d = await r.json();
     if(!r.ok) throw Error(d.error || '读取失败');
 
-    currentMetadata = d;
+    currentMetadata = isKeywordSearch ? {...d, provider: 'MusicBrainz 关键词搜索', url: '', keyword_search: true} : d;
     $('title').textContent = d.title;
     $('artist').textContent = d.artist;
-    $('provider').textContent = d.provider === 'spotify' ? 'Spotify' : 'YouTube Music / YouTube';$('cover').src = d.thumbnail || '';
-    $('result').style.display = 'flex';$('lookupStatus').textContent = '信息已读取。';
+    $('provider').textContent = isKeywordSearch ? '关键词搜索' : (d.provider === 'spotify' ? 'Spotify' : 'YouTube Music / YouTube');
+    $('cover').src = isKeywordSearch ? (d.cover || '') : (d.thumbnail || '');
+    $('result').style.display = 'flex';$('lookupStatus').textContent = isKeywordSearch ? '搜索完成，可继续查看歌词或下载。' : '信息已读取。';
   } catch(err) {
     $('lookupStatus').textContent = err.message;
   } finally {
