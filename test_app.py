@@ -56,6 +56,13 @@ class LocalTagMetadataTests(unittest.TestCase):
             page,
         )
 
+    def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function renderPlainLyrics(container, lyricText, emptyMessage)", page)
+        self.assertIn("renderPlainLyrics(container, lrcText, '未检索到歌词')", page)
+        self.assertIn("renderPlainLyrics(container, lrcText, '暂无内嵌歌词')", page)
+        self.assertIn("class=\"plain-lyric-line\"", page)
+
     def test_keyword_lookup_result_becomes_youtube_search_for_download(self):
         self.assertEqual(
             build_download_query("", "月明かり", "ヨルシカ", keyword_search=True),

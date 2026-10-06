@@ -44,6 +44,7 @@
     .lrc-line{padding:6px 10px;border-radius:6px;font-size:14px;color:var(--muted);cursor:pointer;transition:all .2s ease}
     .lrc-line:hover{background:#17200f;color:var(--text)}
     .lrc-line.active{color:var(--green);font-size:16px;font-weight:700;background:#1f2b15;padding-left:14px}
+    .plain-lyric-line{padding:6px 10px;font-size:14px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
 
     /* 本地播放器专属样式 */
     .local-layout{display:grid;grid-template-columns:320px 1fr;gap:20px}
@@ -299,12 +300,24 @@ function parseLRC(lrcText) {
   return result.sort((a, b) => a.time - b.time);
 }
 
+function renderPlainLyrics(container, lyricText, emptyMessage) {
+  const lines = String(lyricText || '').replace(/^\uFEFF/, '').split(/\r?\n/);
+  const visibleLines = lines.filter(line => line.trim());
+  if (!visibleLines.length) {
+    container.innerHTML = `<div style="color:var(--muted);text-align:center;padding-top:50px">${escapeHTML(emptyMessage)}</div>`;
+    return;
+  }
+  container.innerHTML = visibleLines.map(line =>
+    `<div class="plain-lyric-line">${escapeHTML(line)}</div>`
+  ).join('');
+}
+
 // ===== 在线 Tab 逻辑 =====
 function renderLyricsView(lrcText) {
   parsedLyrics = parseLRC(lrcText);
   const container = $('lrcContainer');
   if (parsedLyrics.length === 0) {
-    container.innerHTML = '<div style="color:var(--muted);text-align:center;padding-top:80px">未检索到同步 LRC 歌词</div>';
+    renderPlainLyrics(container, lrcText, '未检索到歌词');
     return;
   }
   container.innerHTML = parsedLyrics.map((item, idx) =>
@@ -723,7 +736,7 @@ function renderLocalLyrics(lrcText) {
   parsedLocalLyrics = parseLRC(lrcText);
   const container = $('localLrcContainer');
   if (parsedLocalLyrics.length === 0) {
-    container.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding-top:50px">暂无内嵌 LRC 歌词</div>';
+    renderPlainLyrics(container, lrcText, '暂无内嵌歌词');
     return;
   }
   container.innerHTML = parsedLocalLyrics.map((item, idx) =>
