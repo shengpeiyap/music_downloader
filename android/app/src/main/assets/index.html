@@ -74,6 +74,7 @@
     .android-mini-player{display:none}
     .queue-backdrop{position:fixed;inset:0;background:#0009;z-index:20;display:flex;align-items:flex-end}
     .queue-sheet{width:100%;max-height:78dvh;background:#202321;border:1px solid #3a403b;border-radius:22px 22px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;box-shadow:0 -12px 40px #0007}
+    .queue-sheet{touch-action:pan-y;overscroll-behavior:contain}
     .queue-sheet{transform:translateY(110%);transition:transform .22s ease;will-change:transform}
     .queue-sheet.open{transform:translateY(0)}
     .queue-drag-handle{height:26px;display:flex;align-items:flex-start;justify-content:center;touch-action:none;cursor:grab;user-select:none}
@@ -98,17 +99,22 @@
     body.android-app main{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding:10px 12px 0}
     body.android-app .header-bar{flex:none;margin-bottom:8px}
     body.android-app #tab-local{flex:1;min-height:0;overflow:hidden;padding-bottom:calc(78px + env(safe-area-inset-bottom));display:flex;flex-direction:column}
-    body.android-app .now-playing-cover{width:min(72vw,320px);height:min(72vw,320px);margin:8px 0 4px}
+    body.android-app .nav-tabs{display:flex;flex:1;min-width:0;max-width:100%;gap:4px;padding:4px;margin-left:10px;overflow-x:auto;white-space:nowrap}
+    body.android-app .tab-btn{padding:7px 9px;font-size:12px;flex:none}
+    body.android-app #tab-online,body.android-app #tab-custom{flex:1;min-height:0;max-height:calc(100dvh - 82px);overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+    body.android-app #tab-online>h1,body.android-app #tab-custom>h1{font-size:32px;margin:10px 0}
+    body.android-app #tab-online>.intro,body.android-app #tab-custom>.intro{margin-bottom:16px}
+    body.android-app .now-playing-cover{width:min(58vw,36dvh,280px);height:min(58vw,36dvh,280px);margin:4px 0}
     body.android-app #nowTitle{font-size:24px!important}
     body.android-app .player-main-card{padding:14px;gap:8px}
-    body.android-app .nav-tabs,body.android-app #tab-local>h1,body.android-app #tab-local>.intro{display:none!important}
+    body.android-app #tab-local>h1,body.android-app #tab-local>.intro{display:none!important}
     body.android-app .footer{display:none}
     body.android-app .library-filter-tabs{display:flex}
     body.android-app main{padding-top:10px}
     body.android-app .local-layout{display:block;flex:1;min-height:0;overflow:hidden}
     body.android-app .playlist-card,body.android-app .player-main-card{height:100%;max-height:none;min-height:0;margin-bottom:0;overflow:hidden}
     body.android-app .playlist-card{display:flex;flex-direction:column}
-    body.android-app .player-main-card{min-height:calc(100dvh - 150px);justify-content:flex-start;gap:14px}
+    body.android-app .player-main-card{height:100%;min-height:0;justify-content:flex-start;gap:8px;overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(22px + env(safe-area-inset-bottom))}
     body.android-app .playlist-header,body.android-app #searchLocal,body.android-app .library-filter-tabs,body.android-app .library-actions,body.android-app #libraryGroupBack{flex:none}
     body.android-app #localTrackList{flex:1;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain;padding-bottom:12px;scroll-padding-bottom:12px}
 
@@ -153,6 +159,7 @@
   <div id="tab-online" class="tab-content active">
     <h1>音乐资料，<br>由你整理。</h1>
     <p class="intro">从分享链接查看公开曲目信息，或把你拥有使用权的音频转换成常见格式。轻量、私密，文件在本机处理。</p>
+    <p id="androidOnlineNote" class="android-scope-note">Android 版目前尚未移植在线解析、下载与格式转换引擎。</p>
     <div class="grid">
       <section class="card"><h2>曲目信息搜索</h2><p class="hint">粘贴 Spotify / YouTube 分享链接，或搜索“作者 - 标题”及单独标题</p>
         <form id="lookup"><label for="share">分享链接或关键词</label><input id="share" type="text" placeholder="Spotify 链接，或 作者 - 标题 / 标题" required><button id="lookupBtn">读取 / 搜索曲目信息</button></form>
@@ -205,6 +212,7 @@
   <div id="tab-custom" class="tab-content">
     <h1>手动封装，<br>定制标签。</h1>
     <p class="intro">当无法自动抓包时，可上传本地音频自行补充与修正封面、标题、歌手、专辑及歌词元数据。</p>
+    <p id="androidCustomNote" class="android-scope-note">自定义封装依赖桌面版的 FFmpeg 与标签写入服务，Android 版尚未移植。</p>
 
     <div class="card">
       <form id="customTagForm">
@@ -386,6 +394,12 @@
 <script>
 const $=id=>document.getElementById(id);
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+function requestMusicDeskApi(path, options) {
+  if (window.AndroidMusic && /^\/api\//.test(path)) {
+    return Promise.reject(new Error('此 Android 预览版尚未移植在线服务，请在桌面版使用此功能。'));
+  }
+  return fetch(path, options);
+}
 const DEFAULT_COVER = 'default_song_img.png';
 document.addEventListener('error', event => {
   const image = event.target;
@@ -409,6 +423,8 @@ let queueCloseTimer = null;
 let queueDragStartY = null;
 let queueDragLastTime = 0;
 let queueDragVelocity = 0;
+let queueTouchStartY = null;
+let queueTouchDragging = false;
 let androidNoticeTimer = null;
 let androidView = 'library';
 let androidContentView = 'song';
@@ -553,7 +569,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
   $('lyricsViewer').style.display = 'none';$('playerBox').style.display = 'none';
 
   try {
-    const r = await fetch(isKeywordSearch ? '/api/search_metadata' : '/api/metadata', {
+    const r = await requestMusicDeskApi(isKeywordSearch ? '/api/search_metadata' : '/api/metadata', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(isKeywordSearch ? {query: lookupValue} : {url: lookupValue})
@@ -581,7 +597,7 @@ $('viewLrcBtn').addEventListener('click', async () => {
   viewer.style.display = 'block';
   $('lrcContainer').innerHTML = '正在检索并载入 LRC 歌词…';
   try {
-    const r = await fetch('/api/lyrics_text', {
+    const r = await requestMusicDeskApi('/api/lyrics_text', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       // Lyrics lookup only needs these fields. Keyword metadata may include a
@@ -605,7 +621,7 @@ $('downloadBtn').addEventListener('click', async () => {
 
   try {
     const payload = { ...currentMetadata, preferred_engine: preferredEngine };
-    const r = await fetch('/api/download', {
+    const r = await requestMusicDeskApi('/api/download', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -655,7 +671,7 @@ $('convert').addEventListener('submit', async e => {
     const body = new FormData();
     body.append('file', file);
     body.append('format', $('format').value);
-    const r = await fetch('/api/convert', {method: 'POST', body});
+    const r = await requestMusicDeskApi('/api/convert', {method: 'POST', body});
     if (!r.ok) { const d = await r.json(); throw Error(d.error || '转换失败'); }
     const blob = await r.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = url;
@@ -682,7 +698,7 @@ $('customAudioInput').addEventListener('change', async (e) => {
   formData.append('file', file);
 
   try {
-    const r = await fetch('/api/parse_local_tag', {
+    const r = await requestMusicDeskApi('/api/parse_local_tag', {
       method: 'POST',
       body: formData
     });
@@ -724,7 +740,7 @@ $('tagSearchBtn').addEventListener('click', async () => {
   $('tagSearchBtn').disabled = true;
   $('customStatus').textContent = '正在搜索公开曲目信息…';
   try {
-    const r = await fetch('/api/search_metadata', {
+    const r = await requestMusicDeskApi('/api/search_metadata', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({query})
@@ -793,7 +809,7 @@ $('customTagForm').addEventListener('submit', async (e) => {
       const coverBlob = await fetch(embeddedCover).then(response => response.blob());
       formData.append('cover_file', coverBlob, 'embedded-cover');
     }
-    const r = await fetch('/api/package_custom_tag', {
+    const r = await requestMusicDeskApi('/api/package_custom_tag', {
       method: 'POST',
       body: formData
     });
@@ -1367,6 +1383,7 @@ function closeQueue() {
   }
   $('queueSheet').classList.remove('open');
   $('queueSheet').style.transform = '';
+  $('queueSheet').style.transition = '';
   if (window.AndroidMusic) AndroidMusic.setQueueOpen(false);
   if (queueCloseTimer) clearTimeout(queueCloseTimer);
   queueCloseTimer = setTimeout(() => { $('queueBackdrop').hidden = true; }, 240);
@@ -1409,6 +1426,35 @@ function finishQueueDrag() {
 }
 queueDragHandle.addEventListener('pointerup', finishQueueDrag);
 queueDragHandle.addEventListener('pointercancel', finishQueueDrag);
+
+$('queueSheet').addEventListener('touchstart', event => {
+  if (!$('queueList').contains(event.target) && !$('queueDragHandle').contains(event.target) && !event.target.closest('.queue-header')) return;
+  queueTouchStartY = event.touches[0].clientY;
+  queueTouchDragging = false;
+}, {passive: true});
+$('queueSheet').addEventListener('touchmove', event => {
+  if (queueTouchStartY === null || $('queueList').scrollTop > 0) return;
+  const delta = event.touches[0].clientY - queueTouchStartY;
+  if (delta < 8) return;
+  queueTouchDragging = true;
+  event.preventDefault();
+  $('queueSheet').style.transition = 'none';
+  $('queueSheet').style.transform = `translateY(${delta}px)`;
+}, {passive: false});
+function finishQueueTouch() {
+  if (queueTouchStartY === null) return;
+  const sheet = $('queueSheet');
+  const match = /translateY\((\d+(?:\.\d+)?)px\)/.exec(sheet.style.transform);
+  const delta = match ? Number(match[1]) : 0;
+  queueTouchStartY = null;
+  if (!queueTouchDragging) return;
+  queueTouchDragging = false;
+  sheet.style.transition = '';
+  if (delta > 90) closeQueue();
+  else sheet.style.transform = '';
+}
+$('queueSheet').addEventListener('touchend', finishQueueTouch, {passive: true});
+$('queueSheet').addEventListener('touchcancel', finishQueueTouch, {passive: true});
 
 function clearQueue() {
   $('localAudioPlayer').pause();
@@ -1535,10 +1581,11 @@ $('localAudioPlayer').addEventListener('ended', () => {
 
 if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   document.body.classList.add('android-app');
-  document.querySelectorAll('.tab-btn')[0].hidden = true;
-  document.querySelectorAll('.tab-btn')[1].hidden = true;
-  $('tab-online').classList.remove('active');
-  $('tab-custom').classList.remove('active');
+  document.querySelectorAll('.tab-btn')[0].textContent = '在线解析';
+  document.querySelectorAll('.tab-btn')[1].textContent = '自定义';
+  document.querySelectorAll('.tab-btn')[2].textContent = '曲库';
+  $('androidOnlineNote').style.display = 'block';
+  $('androidCustomNote').style.display = 'block';
   $('selectDirBtn').style.display = 'inline-block';
   $('selectDirBtn').textContent = '选择文件夹';
   $('selectFilesBtn').style.display = 'inline-block';

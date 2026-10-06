@@ -154,6 +154,11 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("function tryRestoreSavedPlayback()", page)
         self.assertIn("window.pendingAudioResume = saved", page)
         self.assertIn("player.currentTime = Math.min(resume.position", page)
+        self.assertIn("$('queueSheet').addEventListener('touchmove'", page)
+        self.assertIn("body.android-app .player-main-card{height:100%;min-height:0", page)
+        self.assertIn("document.querySelectorAll('.tab-btn')[0].textContent = '在线解析'", page)
+        self.assertIn("function requestMusicDeskApi(path, options)", page)
+        self.assertIn("此 Android 预览版尚未移植在线服务", page)
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
