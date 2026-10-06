@@ -32,6 +32,8 @@ The `android` directory contains an Android Studio WebView project. Open that di
 
 The Android build requires JDK 17 and Android SDK Platform 36. The project bundles the current `index.html` and default cover during the Gradle build, so they do not need to be copied by hand. Embedded tag and lyric reading uses the existing jsmediatags CDN script and therefore needs an internet connection on first load; playback itself stays on the phone.
 
+To use online metadata lookup, downloads, format conversion, or custom tag export in Android, connect the phone and computer to the same trusted Wi-Fi network and start the desktop API with `start_lan.bat` (or run `python app.py --lan`). The desktop terminal shows its LAN address and a one-run pairing token. Enter both in the Android app's Online tab and tap **Connect**. Keep the desktop window open while using these features. The token changes each run unless you explicitly supply one with `--token`; the LAN listener only serves authenticated API requests and does not serve project files. Windows Firewall may ask to allow Python on your private network. Android saves returned files through the system folder picker. Do not expose this HTTP service to public networks.
+
 ## macOS / Linux
 
 Install Python 3.10 or newer, then run:

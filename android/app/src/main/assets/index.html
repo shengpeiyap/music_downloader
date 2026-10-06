@@ -90,6 +90,11 @@
     .library-actions{display:flex;align-items:center;justify-content:space-between;margin:2px 0 6px;color:var(--muted);font-size:12px}
     .library-actions button{margin:0;padding:7px 10px;background:transparent;color:var(--green);font-size:12px}
     .library-group-back{display:none;margin:0 0 6px;background:transparent;color:var(--green);padding:5px 0;text-align:left}
+    .android-api-connect{margin:12px 0;padding:16px}
+    .android-api-connect h2{margin:0 0 4px;font-size:18px}
+    .android-api-connect .hint{margin:0 0 12px;font-size:13px}
+    .android-api-connect input{font-size:14px}
+    .android-api-connect button{margin-top:12px}
     body.android-app .android-mini-player{position:fixed;display:flex;align-items:center;gap:10px;left:12px;right:12px;bottom:calc(8px + env(safe-area-inset-bottom));padding:9px 12px;background:#202321;border:1px solid #39413b;border-radius:14px;z-index:10;box-shadow:0 6px 24px #0008}
     body.android-app .android-mini-player img{width:42px;height:42px;object-fit:cover;border-radius:8px}
     body.android-app .android-mini-info{flex:1;overflow:hidden;text-align:left}
@@ -160,7 +165,20 @@
   <div id="tab-online" class="tab-content active">
     <h1>音乐资料，<br>由你整理。</h1>
     <p class="intro">从分享链接查看公开曲目信息，或把你拥有使用权的音频转换成常见格式。轻量、私密，文件在本机处理。</p>
-    <p id="androidOnlineNote" class="android-scope-note">Android 版目前尚未移植在线解析、下载与格式转换引擎。</p>
+    <p id="androidOnlineNote" class="android-scope-note">连接同一 Wi‑Fi 上运行的 MusicDesk 电脑，即可使用在线服务。</p>
+    <section id="androidApiConnectCard" class="card android-api-connect" style="display:none">
+      <h2>连接电脑上的 MusicDesk</h2>
+      <p class="hint">先在电脑运行 <strong>start_lan.bat</strong>，再填入终端显示的地址和一次性配对密钥。手机与电脑需在同一 Wi‑Fi。</p>
+      <label for="apiServerUrl">电脑服务地址</label>
+      <input id="apiServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.20:8765" autocomplete="url">
+      <label for="apiPairingToken" style="margin-top:12px">一次性配对密钥</label>
+      <input id="apiPairingToken" type="password" autocomplete="off" placeholder="从电脑终端复制配对密钥">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="connectApiBtn" type="button">测试并保存连接</button>
+        <button id="forgetApiBtn" class="lrc-btn" type="button">断开</button>
+      </div>
+      <p id="apiConnectionStatus" class="status" aria-live="polite">尚未连接</p>
+    </section>
     <div class="grid">
       <section class="card"><h2>曲目信息搜索</h2><p class="hint">粘贴 Spotify / YouTube 分享链接，或搜索“作者 - 标题”及单独标题</p>
         <form id="lookup"><label for="share">分享链接或关键词</label><input id="share" type="text" placeholder="Spotify 链接，或 作者 - 标题 / 标题" required><button id="lookupBtn">读取 / 搜索曲目信息</button></form>
@@ -213,7 +231,7 @@
   <div id="tab-custom" class="tab-content">
     <h1>手动封装，<br>定制标签。</h1>
     <p class="intro">当无法自动抓包时，可上传本地音频自行补充与修正封面、标题、歌手、专辑及歌词元数据。</p>
-    <p id="androidCustomNote" class="android-scope-note">自定义封装依赖桌面版的 FFmpeg 与标签写入服务，Android 版尚未移植。</p>
+    <p id="androidCustomNote" class="android-scope-note">自定义封装使用已连接电脑上的 FFmpeg 与标签写入服务。<button id="androidOpenApiSettings" type="button" style="margin:0 0 0 8px;padding:4px 8px">连接电脑</button></p>
 
     <div class="card">
       <form id="customTagForm">
@@ -395,12 +413,127 @@
 <script>
 const $=id=>document.getElementById(id);
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+let androidApiConfig = null;
+try { androidApiConfig = JSON.parse(localStorage.getItem('musicdesk-api-config') || 'null'); } catch (_) {}
 function requestMusicDeskApi(path, options) {
   if (window.AndroidMusic && /^\/api\//.test(path)) {
-    return Promise.reject(new Error('此 Android 预览版尚未移植在线服务，请在桌面版使用此功能。'));
+    if (!androidApiConfig || !androidApiConfig.url || !androidApiConfig.token) {
+      return Promise.reject(new Error('请先在“在线解析”页面连接电脑上的 MusicDesk 服务。'));
+    }
+    const headers = {...(options && options.headers || {}), Authorization: `Bearer ${androidApiConfig.token}`};
+    return fetch(`${androidApiConfig.url}${path}`, {...options, headers});
   }
   return fetch(path, options);
 }
+
+function normalizedApiConfig(url, token) {
+  const parsed = new URL(url.trim());
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname !== '/' && parsed.pathname !== '')) {
+    throw new Error('请输入电脑终端显示的 http://IP:端口 地址。');
+  }
+  const cleanToken = token.trim();
+  if (cleanToken.length < 24) throw new Error('配对密钥格式不正确，请从电脑终端完整复制。');
+  return {url: parsed.origin.replace(/\/$/, ''), token: cleanToken};
+}
+
+function updateApiConnectionMessage(connected, message = '') {
+  const saved = !!androidApiConfig;
+  $('apiConnectionStatus').textContent = message || (connected ? `已连接：${androidApiConfig.url}` : saved ? `已保存：${androidApiConfig.url}（点按钮测试连接）` : '尚未连接');
+  $('androidOnlineNote').textContent = connected
+    ? `已连接电脑服务：${androidApiConfig.url}。在线解析、下载与转换可用。`
+    : saved ? `已保存电脑地址 ${androidApiConfig.url}；请测试连接后使用在线功能。` : '连接同一 Wi‑Fi 上运行的 MusicDesk 电脑，即可使用在线服务。';
+  $('androidCustomNote').firstChild.textContent = connected
+    ? '自定义封装已连接电脑服务。'
+    : '自定义封装需要先连接运行中的电脑服务。';
+}
+
+$('connectApiBtn').addEventListener('click', async () => {
+  let config;
+  try { config = normalizedApiConfig($('apiServerUrl').value, $('apiPairingToken').value); }
+  catch (error) { updateApiConnectionMessage(false, error.message); return; }
+  $('connectApiBtn').disabled = true;
+  updateApiConnectionMessage(false, '正在测试电脑服务…');
+  try {
+    const response = await fetch(`${config.url}/api/status`, {headers: {Authorization: `Bearer ${config.token}`}});
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || '电脑服务拒绝了连接。');
+    androidApiConfig = config;
+    localStorage.setItem('musicdesk-api-config', JSON.stringify(config));
+    $('apiPairingToken').value = config.token;
+    updateApiConnectionMessage(true);
+  } catch (error) {
+    updateApiConnectionMessage(false, /Failed to fetch|NetworkError|Load failed/i.test(error.message)
+      ? '连不上电脑：检查同一 Wi‑Fi、IP/端口、配对密钥及 Windows 防火墙。'
+      : error.message);
+  } finally {
+    $('connectApiBtn').disabled = false;
+  }
+});
+
+$('forgetApiBtn').addEventListener('click', () => {
+  androidApiConfig = null;
+  localStorage.removeItem('musicdesk-api-config');
+  $('apiPairingToken').value = '';
+  updateApiConnectionMessage(false, '已断开电脑服务。');
+});
+
+$('androidOpenApiSettings').addEventListener('click', () => {
+  switchTab('online');
+  $('androidApiConnectCard').scrollIntoView({behavior: 'smooth', block: 'start'});
+});
+
+function responseFilename(response, fallback) {
+  const header = response.headers.get('Content-Disposition') || '';
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (!encoded) return fallback;
+  try { return decodeURIComponent(encoded[1]); } catch (_) { return fallback; }
+}
+
+window.onAndroidDownloadReady = error => {
+  const pending = window.androidDownloadPending;
+  window.androidDownloadPending = null;
+  if (!pending) return;
+  if (error) pending.reject(new Error(error)); else pending.resolve();
+};
+
+async function saveApiResponse(response, fallbackName) {
+  const filename = responseFilename(response, fallbackName);
+  if (window.AndroidMusic) {
+    await new Promise((resolve, reject) => {
+      window.androidDownloadPending = {resolve, reject};
+      AndroidMusic.createDownload(filename, response.headers.get('Content-Type') || 'application/octet-stream');
+    });
+    try {
+      const reader = response.body.getReader();
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        for (let offset = 0; offset < value.length; offset += 192 * 1024) {
+          const piece = value.subarray(offset, Math.min(offset + 192 * 1024, value.length));
+          let binary = '';
+          for (let i = 0; i < piece.length; i++) binary += String.fromCharCode(piece[i]);
+          const error = AndroidMusic.writeDownloadChunk(window.btoa(binary));
+          if (error) throw new Error(error);
+        }
+      }
+      const finishError = AndroidMusic.finishDownload();
+      if (finishError) throw new Error(finishError);
+      return filename;
+    } catch (error) {
+      AndroidMusic.cancelDownload();
+      throw error;
+    }
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  return filename;
+}
+
 const DEFAULT_COVER = 'default_song_img.png';
 document.addEventListener('error', event => {
   const image = event.target;
@@ -638,19 +771,21 @@ $('downloadBtn').addEventListener('click', async () => {
       const parsedSource = new URL(rawSourceUrl);
       if (['http:', 'https:'].includes(parsedSource.protocol)) sourceUrl = parsedSource.href;
     } catch (_) {}
-    const blob = await r.blob();
-    const audioUrl = URL.createObjectURL(blob);
-
-    const player = $('audioPlayer');
-    player.src = audioUrl;
-    $('playerBox').style.display = 'block';
-
-    const a = document.createElement('a');
-    a.href = audioUrl;
-    a.download = decodeURIComponent((r.headers.get('Content-Disposition')||'').split("filename*=UTF-8''")[1] || `${currentMetadata.title}.mp3`);
-    a.click();
-
-    $('lookupStatus').textContent = '下载完成！已自动装载至线上播放器试听。';
+    if (window.AndroidMusic) {
+      const filename = await saveApiResponse(r, `${currentMetadata.artist} - ${currentMetadata.title}.mp3`);
+      $('lookupStatus').textContent = `下载完成，已保存到你选择的位置：${filename}`;
+    } else {
+      const blob = await r.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const player = $('audioPlayer');
+      player.src = audioUrl;
+      $('playerBox').style.display = 'block';
+      const a = document.createElement('a');
+      a.href = audioUrl;
+      a.download = responseFilename(r, `${currentMetadata.title}.mp3`);
+      a.click();
+      $('lookupStatus').textContent = '下载完成！已自动装载至线上播放器试听。';
+    }
     if (sourceUrl) {
       $('sourceStatus').innerHTML = `音频抓取来源: <a href="${sourceUrl}" target="_blank" rel="noopener">${sourceUrl}</a>`;
     }
@@ -674,12 +809,8 @@ $('convert').addEventListener('submit', async e => {
     body.append('format', $('format').value);
     const r = await requestMusicDeskApi('/api/convert', {method: 'POST', body});
     if (!r.ok) { const d = await r.json(); throw Error(d.error || '转换失败'); }
-    const blob = await r.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
-    a.href = url;
-    a.download = decodeURIComponent((r.headers.get('Content-Disposition')||'').split("filename*=UTF-8''")[1] || 'converted.' + $('format').value);
-    a.click();
-    URL.revokeObjectURL(url);
-    $('convertStatus').textContent = '转换完成，文件已保存。';
+    const filename = await saveApiResponse(r, 'converted.' + $('format').value);
+    $('convertStatus').textContent = `转换完成，已保存为 ${filename}`;
   } catch(err) {
     $('convertStatus').textContent = err.message;
   } finally {
@@ -820,16 +951,8 @@ $('customTagForm').addEventListener('submit', async (e) => {
       throw Error(d.error || '定制封装失败');
     }
 
-    const blob = await r.blob();
-    const downloadUrl = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = downloadUrl;
-    a.download = decodeURIComponent((r.headers.get('Content-Disposition')||'').split("filename*=UTF-8''")[1] || 'custom_audio.mp3');
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-
-    $('customStatus').textContent = audioFile ? '导出成功！新封装的音频文件已保存。' : '搜索并封装成功！新音频文件已保存。';
+    const filename = await saveApiResponse(r, 'custom_audio.mp3');
+    $('customStatus').textContent = `导出成功，已保存为 ${filename}`;
   } catch (err) {
     $('customStatus').textContent = err.message;
   } finally {
@@ -1587,6 +1710,12 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   document.querySelectorAll('.tab-btn')[2].textContent = '曲库';
   $('androidOnlineNote').style.display = 'block';
   $('androidCustomNote').style.display = 'block';
+  $('androidApiConnectCard').style.display = 'block';
+  if (androidApiConfig) {
+    $('apiServerUrl').value = androidApiConfig.url || '';
+    $('apiPairingToken').value = androidApiConfig.token || '';
+  }
+  updateApiConnectionMessage(false);
   $('selectDirBtn').style.display = 'inline-block';
   $('selectDirBtn').textContent = '选择文件夹';
   $('selectFilesBtn').style.display = 'inline-block';

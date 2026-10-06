@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import base64
 import json
+import argparse
 import html as html_module
+import hmac
+import ipaddress
 import os
 import re
+import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -797,10 +802,57 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_api_cors_headers()
         self.end_headers()
         self.wfile.write(body)
 
+    def send_api_cors_headers(self):
+        if not getattr(self.server, "lan_mode", False):
+            return
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Expose-Headers", "Content-Disposition, X-Source-Url")
+        self.send_header("Vary", "Origin")
+
+    def is_api_authorized(self) -> bool:
+        token = getattr(self.server, "api_token", "")
+        if not token:
+            return True
+        supplied = self.headers.get("Authorization", "")
+        return hmac.compare_digest(supplied, f"Bearer {token}")
+
+    def do_OPTIONS(self):
+        if not self.path.startswith("/api/") or not getattr(self.server, "lan_mode", False):
+            self.send_error(404)
+            return
+        self.send_response(204)
+        self.send_api_cors_headers()
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == "/api/status":
+            if not self.is_api_authorized():
+                self.send_json(401, {"error": "配对密钥无效。"})
+                return
+            self.send_json(200, {"ok": True, "service": "MusicDesk"})
+            return
+        if getattr(self.server, "lan_mode", False):
+            # LAN mode is an API-only listener; never expose project files/source.
+            self.send_error(404)
+            return
+        super().do_GET()
+
+    def do_HEAD(self):
+        if getattr(self.server, "lan_mode", False):
+            self.send_error(404)
+            return
+        super().do_HEAD()
+
     def do_POST(self):
+        if self.path.startswith("/api/") and not self.is_api_authorized():
+            self.send_json(401, {"error": "配对密钥无效。"})
+            return
         if self.path == "/api/metadata":
             try:
                 body = self.rfile.read(min(int(self.headers.get("Content-Length", "0")), 8192))
@@ -936,6 +988,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", FORMATS.get(export_format, "audio/mpeg"))
                 self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(out_name))
                 self.send_header("Content-Length", str(len(final_bytes)))
+                self.send_api_cors_headers()
                 self.end_headers()
                 self.wfile.write(final_bytes)
 
@@ -1001,6 +1054,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", "audio/mpeg")
                 self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(download_name))
                 self.send_header("Access-Control-Expose-Headers", "X-Source-Url")
+                self.send_api_cors_headers()
                 self.send_header("X-Source-Url", urllib.parse.quote(source_url, safe="/:?=&_"))
                 self.send_header("Content-Length", str(len(converted)))
                 self.end_headers()
@@ -1044,6 +1098,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", FORMATS[fmt])
                 self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(download_name))
                 self.send_header("Content-Length", str(len(converted)))
+                self.send_api_cors_headers()
                 self.end_headers()
                 self.wfile.write(converted)
             except (ValueError, TimeoutError, OSError) as exc:
@@ -1052,9 +1107,65 @@ class Handler(SimpleHTTPRequestHandler):
 
         self.send_json(404, {"error": "找不到该接口。"})
 
+def create_musicdesk_server(host: str = "127.0.0.1", port: int = 8765, api_token: str = ""):
+    server = ThreadingHTTPServer((host, port), Handler)
+    server.lan_mode = bool(api_token)
+    server.api_token = api_token
+    return server
+
+
+def is_api_authorized(authorization: str, token: str) -> bool:
+    return not token or hmac.compare_digest(authorization, f"Bearer {token}")
+
+
+def get_private_ipv4_addresses() -> list[str]:
+    addresses = set()
+    for result in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+        address = result[4][0]
+        parsed = ipaddress.ip_address(address)
+        if parsed.is_private and not parsed.is_loopback and not parsed.is_link_local:
+            addresses.add(address)
+    return sorted(addresses)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="MusicDesk local audio and metadata service")
+    parser.add_argument("--lan", action="store_true", help="Expose the API on the local network with a one-run pairing token")
+    parser.add_argument("--host", default=None, help="Bind address (defaults to localhost, or all interfaces with --lan)")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--token", default=None, help="Override the generated LAN pairing token")
+    args = parser.parse_args(argv)
+    if args.token and not args.lan:
+        parser.error("--token requires --lan")
+    if args.token and len(args.token) < 24:
+        parser.error("--token must contain at least 24 characters")
+    if args.lan and args.host not in (None, "0.0.0.0"):
+        parser.error("--lan only supports binding to 0.0.0.0")
+    if args.host == "0.0.0.0" and not args.lan:
+        parser.error("Binding beyond localhost requires --lan and its token protection")
+    if args.host and args.host not in ("127.0.0.1", "localhost") and not args.lan:
+        parser.error("Binding beyond localhost requires --lan and its token protection")
+
+    host = args.host or ("0.0.0.0" if args.lan else "127.0.0.1")
+    token = (args.token or secrets.token_urlsafe(24)) if args.lan else ""
+    server = create_musicdesk_server(host, args.port, token)
+    if args.lan:
+        print(f"MusicDesk LAN API listening on port {server.server_port}")
+        addresses = get_private_ipv4_addresses()
+        for address in addresses:
+            print(f"Phone server address: http://{address}:{server.server_port}")
+        print(f"One-run pairing token: {token}")
+        print("Only share this token with your phone on a trusted private Wi-Fi network.")
+    else:
+        print(f"MusicDesk is ready at http://127.0.0.1:{server.server_port}")
+    sys.stdout.flush()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nMusicDesk stopped.")
+    finally:
+        server.server_close()
+
 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
-    print("MusicDesk is ready at http://127.0.0.1:8765")
-    sys.stdout.flush()
-    server.serve_forever()
+    main()

@@ -17,6 +17,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
+import android.widget.Toast;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import org.json.JSONArray;
@@ -28,6 +29,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.UUID;
 import java.util.HashSet;
 import java.util.Set;
@@ -35,11 +37,14 @@ import java.util.Set;
 public final class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 4102;
     private static final int FOLDER_CHOOSER_REQUEST = 4103;
+    private static final int DOWNLOAD_DESTINATION_REQUEST = 4104;
     private static final String PREFS_NAME = "musicdesk-library";
     private static final String PREF_SAVED_FOLDERS = "saved-folder-uris";
 
     private WebView webView;
     private ValueCallback<Uri[]> fileSelectionCallback;
+    private OutputStream downloadOutput;
+    private Uri downloadUri;
     private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
 
@@ -114,6 +119,21 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == DOWNLOAD_DESTINATION_REQUEST) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                notifyDownloadReady("已取消保存文件。");
+                return;
+            }
+            try {
+                downloadOutput = getContentResolver().openOutputStream(data.getData(), "wt");
+                if (downloadOutput == null) throw new IOException("无法创建目标文件");
+                downloadUri = data.getData();
+                notifyDownloadReady("");
+            } catch (IOException | SecurityException error) {
+                notifyDownloadReady("无法创建目标文件：" + error.getMessage());
+            }
+            return;
+        }
         if (requestCode == FILE_CHOOSER_REQUEST) {
             if (fileSelectionCallback != null) {
                 fileSelectionCallback.onReceiveValue(
@@ -139,6 +159,11 @@ public final class MainActivity extends Activity {
             return;
         }
         super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private void notifyDownloadReady(String error) {
+        if (webView == null) return;
+        webView.evaluateJavascript("window.onAndroidDownloadReady && window.onAndroidDownloadReady(" + JSONObject.quote(error) + ")", null);
     }
 
     private JSONArray scanTree(Uri tree) {
@@ -321,6 +346,70 @@ public final class MainActivity extends Activity {
                 if (file.getName().startsWith(cacheKey(contentUri))) file.delete();
             }
         }
+
+        @JavascriptInterface
+        public void createDownload(String filename, String mimeType) {
+            runOnUiThread(() -> {
+                if (downloadOutput != null) cancelDownload();
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                String contentType = mimeType == null ? "" : mimeType.split(";", 2)[0].trim();
+                intent.setType(contentType.isEmpty() ? "application/octet-stream" : contentType);
+                intent.putExtra(Intent.EXTRA_TITLE, safeDownloadFilename(filename));
+                try {
+                    startActivityForResult(intent, DOWNLOAD_DESTINATION_REQUEST);
+                } catch (RuntimeException error) {
+                    notifyDownloadReady("无法打开保存位置选择器。");
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public synchronized String writeDownloadChunk(String base64Data) {
+            if (downloadOutput == null) return "保存目标已关闭。";
+            try {
+                byte[] bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
+                downloadOutput.write(bytes);
+                return "";
+            } catch (IOException | IllegalArgumentException error) {
+                return "写入下载文件失败：" + error.getMessage();
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized String finishDownload() {
+            try {
+                if (downloadOutput != null) downloadOutput.close();
+                downloadOutput = null;
+                downloadUri = null;
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "文件已保存", Toast.LENGTH_SHORT).show());
+                return "";
+            } catch (IOException error) {
+                cancelDownload();
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "保存文件失败", Toast.LENGTH_LONG).show());
+                return "保存文件失败：" + error.getMessage();
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized void cancelDownload() {
+            try {
+                if (downloadOutput != null) downloadOutput.close();
+            } catch (IOException ignored) {
+                // The canceled or failed download is already unusable.
+            }
+            downloadOutput = null;
+            if (downloadUri != null) {
+                try { DocumentsContract.deleteDocument(getContentResolver(), downloadUri); }
+                catch (Exception ignored) { /* Some document providers do not support deletion. */ }
+                downloadUri = null;
+            }
+        }
+    }
+
+    private String safeDownloadFilename(String filename) {
+        String clean = filename == null ? "MusicDesk-download" : filename.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        return clean.isEmpty() ? "MusicDesk-download" : clean;
     }
 
     private String cacheKey(String contentUri) {
@@ -360,6 +449,15 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         folderExecutor.shutdownNow();
+        if (downloadOutput != null) {
+            try { downloadOutput.close(); } catch (IOException ignored) {}
+            downloadOutput = null;
+        }
+        if (downloadUri != null) {
+            try { DocumentsContract.deleteDocument(getContentResolver(), downloadUri); }
+            catch (Exception ignored) { /* Some document providers do not support deletion. */ }
+            downloadUri = null;
+        }
         File audioCache = new File(getCacheDir(), "musicdesk-audio");
         File[] cachedFiles = audioCache.listFiles();
         if (cachedFiles != null) for (File file : cachedFiles) file.delete();
