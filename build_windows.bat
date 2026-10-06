@@ -13,7 +13,7 @@ if errorlevel 1 goto :error
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onedir --windowed ^
   --name MusicDesk --icon icon.ico --add-data "index.html;." --add-data "icon.ico;." ^
   --collect-all imageio_ffmpeg --collect-all PIL --collect-all mutagen ^
-  --collect-all musicbrainzngs --collect-all webview launcher.py
+  --collect-all musicbrainzngs --collect-all music_tag --collect-all webview launcher.py
 if errorlevel 1 goto :error
 
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --console ^
@@ -28,7 +28,7 @@ copy /y "dist\yt-dlp.exe" "dist\MusicDesk\yt-dlp.exe" >nul
 copy /y "dist\spotdl.exe" "dist\MusicDesk\spotdl.exe" >nul
 if errorlevel 1 goto :error
 
-powershell -NoProfile -Command "Compress-Archive -Path 'dist\MusicDesk\*' -DestinationPath 'dist\MusicDesk-portable.zip' -CompressionLevel Fastest -Force"
+".venv\Scripts\python.exe" package_portable.py
 if errorlevel 1 goto :error
 
 echo.

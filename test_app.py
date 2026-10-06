@@ -1,14 +1,18 @@
 import unittest
 import sys
+import io
+import wave
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from PIL import Image
 
-from app import fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, lookup_metadata, parse_share_url, process_and_export_media
+from app import fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, load_music_tag, lookup_metadata, parse_share_url, process_and_export_media, read_music_metadata
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
 from io import StringIO
 from launcher import enable_file_downloads
+from package_portable import create_portable_archive
 
 
 class FfmpegResolutionTests(unittest.TestCase):
@@ -28,6 +32,81 @@ class DesktopLauncherTests(unittest.TestCase):
         webview_module = SimpleNamespace(settings={})
         enable_file_downloads(webview_module)
         self.assertTrue(webview_module.settings["ALLOW_DOWNLOADS"])
+
+    def test_portable_archive_keeps_app_relative_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "MusicDesk"
+            (package / "_internal").mkdir(parents=True)
+            (package / "MusicDesk.exe").write_bytes(b"app")
+            (package / "_internal" / "music_tag.py").write_bytes(b"dependency")
+            archive_path = create_portable_archive(package, root / "package.zip")
+
+            import zipfile
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertEqual(set(archive.namelist()), {"MusicDesk.exe", "_internal/music_tag.py"})
+                self.assertIsNone(archive.testzip())
+
+
+class LocalTagMetadataTests(unittest.TestCase):
+    def test_load_music_tag_is_imported_on_demand(self):
+        fake_audio = object()
+        fake_module = SimpleNamespace(load_file=lambda path: (path, fake_audio))
+        with patch.dict(sys.modules, {"music_tag": fake_module}):
+            self.assertEqual(load_music_tag("song.mp3"), ("song.mp3", fake_audio))
+
+    def test_reads_tags_and_first_of_multiple_embedded_covers(self):
+        class Values:
+            def __init__(self, value="", values=None, first=None):
+                self.value = value
+                self.values = values if values is not None else ([value] if value else [])
+                self.first = first
+
+            def __bool__(self):
+                return bool(self.values)
+
+            def __str__(self):
+                return str(self.value)
+
+        cover = SimpleNamespace(mime="image/png", data=b"png-cover")
+        tags = {
+            "title": Values("Track"), "artist": Values("Artist"), "album": Values(),
+            "albumartist": Values(), "year": Values("2024"), "lyrics": Values(),
+            "artwork": Values(values=[cover, cover], first=cover),
+        }
+        class Audio:
+            def __getitem__(self, key):
+                return tags[key]
+        with patch("app.load_music_tag", return_value=Audio()):
+            result = read_music_metadata("song.mp3", "song.mp3")
+
+        self.assertEqual(result["title"], "Track")
+        self.assertEqual(result["artist"], "Artist")
+        self.assertEqual(result["album"], "")
+        self.assertEqual(result["cover"], "data:image/png;base64,cG5nLWNvdmVy")
+
+    def test_music_tag_round_trips_wav_tags_and_artwork(self):
+        import music_tag
+
+        with tempfile.TemporaryDirectory() as directory:
+            audio_path = Path(directory) / "tagged.wav"
+            with wave.open(str(audio_path), "wb") as audio_file:
+                audio_file.setnchannels(1)
+                audio_file.setsampwidth(2)
+                audio_file.setframerate(8000)
+                audio_file.writeframes(b"\0\0" * 800)
+
+            image_buffer = io.BytesIO()
+            Image.new("RGB", (2, 2), "red").save(image_buffer, format="PNG")
+            tags = music_tag.load_file(str(audio_path))
+            tags["title"] = "Tag test"
+            tags["artwork"] = image_buffer.getvalue()
+            tags.save()
+
+            result = read_music_metadata(str(audio_path), audio_path.name)
+
+        self.assertEqual(result["title"], "Tag test")
+        self.assertTrue(result["cover"].startswith("data:image/png;base64,"))
 
 
 class ShareUrlTests(unittest.TestCase):

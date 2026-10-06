@@ -1,6 +1,7 @@
-"""Local music metadata lookup and personal-audio converter with Player & Lyrics View integration."""
+"""Local music metadata lookup and personal-audio converter with Player, Lyrics View & Custom Tag Editor integration."""
 from __future__ import annotations
 
+import base64
 import json
 import html as html_module
 import os
@@ -42,6 +43,37 @@ def get_env_with_utf8() -> dict[str, str]:
     except Exception:
         pass
     return env
+
+
+def load_music_tag(path: str):
+    """Load metadata support on demand so the web app still starts on lean installs."""
+    try:
+        import music_tag
+    except ImportError as exc:
+        raise RuntimeError("音频标签功能缺少 music-tag 依赖，请重新安装 requirements.txt 中的依赖。") from exc
+    return music_tag.load_file(path)
+
+
+def read_music_metadata(path: str, filename: str) -> dict:
+    audio = load_music_tag(path)
+    get_tag = lambda name: str(audio[name]) if audio[name] else ""
+
+    cover = None
+    artwork = audio["artwork"]
+    if artwork and artwork.values:
+        image = artwork.first
+        cover = f"data:{image.mime or 'image/jpeg'};base64," + base64.b64encode(image.data).decode("ascii")
+
+    return {
+        "filename": filename,
+        "title": get_tag("title"),
+        "artist": get_tag("artist"),
+        "album": get_tag("album"),
+        "albumartist": get_tag("albumartist"),
+        "year": get_tag("year"),
+        "lyrics": get_tag("lyrics"),
+        "cover": cover,
+    }
 
 
 def find_ffmpeg_exe() -> str | None:
@@ -637,6 +669,113 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(200, {"lyrics": lrc})
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
+            return
+
+        if self.path == "/api/parse_local_tag":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 1 or length > MAX_UPLOAD:
+                    raise ValueError("文件不能为空或超过 150 MB。")
+                raw = self.rfile.read(length)
+                message = BytesParser(policy=default).parsebytes(
+                    b"Content-Type: " + self.headers.get("Content-Type", "").encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
+                )
+                fields = {part.get_param("name", header="content-disposition"): part for part in message.iter_parts()}
+                file_part = fields.get("file")
+                if not file_part or not file_part.get_filename():
+                    raise ValueError("请选择有效的音乐文件。")
+
+                filename = Path(file_part.get_filename()).name
+                file_data = file_part.get_payload(decode=True) or b""
+
+                with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix, delete=False) as tmp:
+                    tmp.write(file_data)
+                    tmp_path = Path(tmp.name)
+
+                try:
+                    result = read_music_metadata(str(tmp_path), filename)
+                    self.send_json(200, result)
+                finally:
+                    tmp_path.unlink(missing_ok=True)
+
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc) or "解析本地音频标签失败。"})
+            return
+
+        if self.path == "/api/package_custom_tag":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 1 or length > MAX_UPLOAD:
+                    raise ValueError("数据超出大小限制。")
+                raw = self.rfile.read(length)
+                message = BytesParser(policy=default).parsebytes(
+                    b"Content-Type: " + self.headers.get("Content-Type", "").encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
+                )
+                fields = {part.get_param("name", header="content-disposition"): part for part in message.iter_parts()}
+
+                audio_part = fields.get("audio_file")
+                cover_part = fields.get("cover_file")
+                if not audio_part or not audio_part.get_filename():
+                    raise ValueError("请提供原始音频文件。")
+
+                title = fields.get("title").get_content() if fields.get("title") else ""
+                artist = fields.get("artist").get_content() if fields.get("artist") else ""
+                album = fields.get("album").get_content() if fields.get("album") else ""
+                albumartist = fields.get("albumartist").get_content() if fields.get("albumartist") else ""
+                year = fields.get("year").get_content() if fields.get("year") else ""
+                lyrics = fields.get("lyrics").get_content() if fields.get("lyrics") else ""
+                export_format = fields.get("format").get_content().lower() if fields.get("format") else "mp3"
+
+                if export_format not in FORMATS:
+                    export_format = "mp3"
+
+                audio_bytes = audio_part.get_payload(decode=True) or b""
+                orig_filename = Path(audio_part.get_filename()).name
+
+                ffmpeg = find_ffmpeg_exe()
+                if not ffmpeg:
+                    raise ValueError("系统中未检测到 FFmpeg 转换工具。")
+
+                with tempfile.TemporaryDirectory(prefix="musicdesk-tag-") as work:
+                    work_dir = Path(work)
+                    in_audio = work_dir / f"input{Path(orig_filename).suffix}"
+                    in_audio.write_bytes(audio_bytes)
+
+                    staged_audio = work_dir / f"staged.{export_format}"
+                    proc = subprocess.run(
+                        [ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(in_audio), "-map", "0:a:0", "-vn", str(staged_audio)],
+                        capture_output=True, timeout=300, env=get_env_with_utf8()
+                    )
+                    if proc.returncode or not staged_audio.is_file():
+                        raise ValueError("音频重编码/封装失败，请确保上载的是有效音频。")
+
+                    f = load_music_tag(str(staged_audio))
+                    if title: f['title'] = title
+                    if artist: f['artist'] = artist
+                    if album: f['album'] = album
+                    if albumartist: f['albumartist'] = albumartist
+                    if year and year.isdigit(): f['year'] = int(year)
+                    if lyrics: f['lyrics'] = lyrics
+
+                    if cover_part and cover_part.get_payload(decode=True):
+                        c_bytes = cover_part.get_payload(decode=True)
+                        f['artwork'] = c_bytes
+
+                    f.save()
+                    final_bytes = staged_audio.read_bytes()
+
+                out_name = f"{artist} - {title}.{export_format}" if (artist and title) else f"custom_{orig_filename.rsplit('.', 1)[0]}.{export_format}"
+                out_name = SAFE_NAME.sub("_", out_name).strip(" .")
+
+                self.send_response(200)
+                self.send_header("Content-Type", FORMATS.get(export_format, "audio/mpeg"))
+                self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(out_name))
+                self.send_header("Content-Length", str(len(final_bytes)))
+                self.end_headers()
+                self.wfile.write(final_bytes)
+
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc) or "自定义音频封装保存失败。"})
             return
 
         if self.path == "/api/download":
