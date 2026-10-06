@@ -141,6 +141,11 @@
 
     <div class="card">
       <form id="customTagForm">
+        <label for="tagSearch">联网补全曲目信息（作者 - 标题，或只输入标题）</label>
+        <div class="row" style="margin-bottom:20px">
+          <div><input id="tagSearch" type="text" placeholder="例如：ヨルシカ - 八月、某、月明かり"></div>
+          <button id="tagSearchBtn" type="button">搜索并填入</button>
+        </div>
         <label class="filebox" style="margin-bottom:20px">
           第一步：选择或拖入需要修改/封装的音乐文件
           <input id="customAudioInput" type="file" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" required>
@@ -464,6 +469,7 @@ $('customAudioInput').addEventListener('change', async (e) => {
     $('tagAlbumArtist').value = d.albumartist || '';
     $('tagYear').value = d.year || '';
     $('tagLyrics').value = d.lyrics || '';
+    $('tagSearch').value = d.artist && d.artist !== '未知艺人' ? `${d.artist} - ${d.title}` : d.title || '';
     $('customCoverPreview').dataset.embeddedCover = d.cover || '';
 
     if (d.cover) {
@@ -475,6 +481,42 @@ $('customAudioInput').addEventListener('change', async (e) => {
     $('customStatus').textContent = '已读取内部资料。您可以更改上述内容后点击导出。';
   } catch (err) {
     $('customStatus').textContent = err.message;
+  }
+});
+
+$('tagSearchBtn').addEventListener('click', async () => {
+  const query = $('tagSearch').value.trim();
+  if (!query) {
+    $('customStatus').textContent = '请输入“作者 - 标题”或歌曲标题。';
+    return;
+  }
+
+  $('tagSearchBtn').disabled = true;
+  $('customStatus').textContent = '正在搜索公开曲目信息…';
+  try {
+    const r = await fetch('/api/search_metadata', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query})
+    });
+    const d = await r.json();
+    if (!r.ok) throw Error(d.error || '搜索曲目信息失败');
+
+    $('tagTitle').value = d.title || '';
+    $('tagArtist').value = d.artist || '';
+    $('tagAlbum').value = d.album || '';
+    $('tagAlbumArtist').value = d.albumartist || d.artist || '';
+    $('tagYear').value = d.year || '';
+    $('tagLyrics').value = d.lyrics || '';
+    if (d.cover) {
+      $('customCoverPreview').src = d.cover;
+      $('customCoverPreview').dataset.embeddedCover = d.cover;
+    }
+    $('customStatus').textContent = '已根据关键词补全信息，请检查后导出。';
+  } catch (err) {
+    $('customStatus').textContent = err.message;
+  } finally {
+    $('tagSearchBtn').disabled = false;
   }
 });
 

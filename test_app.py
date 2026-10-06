@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, load_music_tag, lookup_metadata, parse_share_url, process_and_export_media, read_music_metadata
+from app import fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -49,6 +49,46 @@ class DesktopLauncherTests(unittest.TestCase):
 
 
 class LocalTagMetadataTests(unittest.TestCase):
+    def test_multipart_text_uses_utf8_for_chinese_form_fields(self):
+        boundary = "musicdesk-boundary"
+        raw = (
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n"
+            "月明かり\r\n"
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"artist\"\r\n"
+            "Content-Type: text/plain; charset=UTF-8\r\n\r\nヨルシカ\r\n"
+            f"--{boundary}--\r\n"
+        ).encode("utf-8")
+        fields = multipart_fields(f"multipart/form-data; boundary={boundary}", raw)
+
+        self.assertEqual(multipart_text(fields, "title"), "月明かり")
+        self.assertEqual(multipart_text(fields, "artist"), "ヨルシカ")
+
+    def test_tag_export_filename_uses_artist_and_title(self):
+        self.assertEqual(
+            make_tag_export_filename("ヨルシカ", "月明かり", "source.wav", "mp3"),
+            "ヨルシカ - 月明かり.mp3",
+        )
+        self.assertEqual(
+            make_tag_export_filename("", "", "source track.wav", "mp3"),
+            "未知艺人 - source track.mp3",
+        )
+
+    def test_keyword_query_accepts_artist_title_or_title(self):
+        self.assertEqual(parse_metadata_search_query("  ヨルシカ - 月明かり  "), ("ヨルシカ", "月明かり"))
+        self.assertEqual(parse_metadata_search_query("月明かり"), ("未知艺人", "月明かり"))
+
+    def test_keyword_search_uses_metadata_and_lyrics_sources(self):
+        with patch("app.lookup_musicbrainz_metadata", return_value={
+            "artist": "Artist", "album": "Album", "year": "2020", "cover_url": None
+        }) as musicbrainz, patch("app.fetch_lrc_lyrics", return_value="[00:01.00]Lyric") as lyrics:
+            result = lookup_metadata_by_keyword("Artist - Track")
+
+        musicbrainz.assert_called_once_with("Track", "Artist")
+        lyrics.assert_called_once_with("Track", "Artist")
+        self.assertEqual(result["title"], "Track")
+        self.assertEqual(result["album"], "Album")
+        self.assertEqual(result["lyrics"], "[00:01.00]Lyric")
+
     def test_load_music_tag_is_imported_on_demand(self):
         fake_audio = object()
         fake_module = SimpleNamespace(load_file=lambda path: (path, fake_audio))

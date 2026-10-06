@@ -76,6 +76,77 @@ def read_music_metadata(path: str, filename: str) -> dict:
     }
 
 
+def parse_metadata_search_query(query: str) -> tuple[str, str]:
+    """Accept either an artist-title pair or a title-only MusicBrainz query."""
+    query = " ".join(query.split())
+    match = re.match(r"^(.+?)\s+[-–—]\s+(.+)$", query)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    return "未知艺人", query
+
+
+def lookup_metadata_by_keyword(query: str) -> dict:
+    artist, title = parse_metadata_search_query(query)
+    if not title:
+        raise ValueError("请输入“作者 - 标题”或歌曲标题。")
+
+    metadata = lookup_musicbrainz_metadata(title, artist)
+    found_artist = metadata.get("artist") or artist
+    if not any(metadata.get(field) for field in ("album", "year", "cover_url")):
+        raise ValueError("没有找到匹配的曲目信息，请换一种关键词试试。")
+    if artist == "未知艺人" and found_artist in {"未知艺人", title}:
+        raise ValueError("没有找到匹配的曲目信息，请换一种关键词试试。")
+
+    cover = None
+    cover_url = metadata.get("cover_url")
+    if cover_url:
+        parsed = urllib.parse.urlparse(cover_url)
+        if parsed.scheme == "https" and parsed.hostname == "coverartarchive.org":
+            try:
+                request = urllib.request.Request(cover_url, headers={"User-Agent": "MusicDesk/1.0"})
+                with urllib.request.urlopen(request, timeout=6) as response:
+                    image_data = response.read(8 * 1024 * 1024 + 1)
+                    content_type = response.headers.get_content_type()
+                if len(image_data) <= 8 * 1024 * 1024 and content_type.startswith("image/"):
+                    cover = f"data:{content_type};base64," + base64.b64encode(image_data).decode("ascii")
+            except Exception:
+                pass
+
+    return {
+        "title": title,
+        "artist": found_artist,
+        "album": metadata.get("album", ""),
+        "albumartist": found_artist,
+        "year": metadata.get("year", ""),
+        "lyrics": fetch_lrc_lyrics(title, found_artist),
+        "cover": cover,
+    }
+
+
+def multipart_fields(content_type: str, raw: bytes) -> dict:
+    message = BytesParser(policy=default).parsebytes(
+        b"Content-Type: " + content_type.encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
+    )
+    return {part.get_param("name", header="content-disposition"): part for part in message.iter_parts()}
+
+
+def multipart_text(fields: dict, name: str) -> str:
+    part = fields.get(name)
+    if not part:
+        return ""
+    payload = part.get_payload(decode=True)
+    if payload is None:
+        return ""
+    return payload.decode(part.get_content_charset() or "utf-8", errors="replace").strip()
+
+
+def make_tag_export_filename(artist: str, title: str, original_filename: str, export_format: str) -> str:
+    artist = artist.strip() or "未知艺人"
+    title = title.strip() or Path(original_filename).stem or "未知标题"
+    name = SAFE_NAME.sub("_", f"{artist} - {title}.{export_format}").strip(" .")
+    return name or f"未知艺人 - 未知标题.{export_format}"
+
+
 def find_ffmpeg_exe() -> str | None:
     try:
         import imageio_ffmpeg
@@ -671,16 +742,25 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"error": str(exc)})
             return
 
+        if self.path == "/api/search_metadata":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 1 or length > 8192:
+                    raise ValueError("搜索内容无效或过长。")
+                req_data = json.loads(self.rfile.read(length))
+                result = lookup_metadata_by_keyword(str(req_data.get("query", "")))
+                self.send_json(200, result)
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc) or "搜索曲目信息失败。"})
+            return
+
         if self.path == "/api/parse_local_tag":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length < 1 or length > MAX_UPLOAD:
                     raise ValueError("文件不能为空或超过 150 MB。")
                 raw = self.rfile.read(length)
-                message = BytesParser(policy=default).parsebytes(
-                    b"Content-Type: " + self.headers.get("Content-Type", "").encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
-                )
-                fields = {part.get_param("name", header="content-disposition"): part for part in message.iter_parts()}
+                fields = multipart_fields(self.headers.get("Content-Type", ""), raw)
                 file_part = fields.get("file")
                 if not file_part or not file_part.get_filename():
                     raise ValueError("请选择有效的音乐文件。")
@@ -708,23 +788,20 @@ class Handler(SimpleHTTPRequestHandler):
                 if length < 1 or length > MAX_UPLOAD:
                     raise ValueError("数据超出大小限制。")
                 raw = self.rfile.read(length)
-                message = BytesParser(policy=default).parsebytes(
-                    b"Content-Type: " + self.headers.get("Content-Type", "").encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
-                )
-                fields = {part.get_param("name", header="content-disposition"): part for part in message.iter_parts()}
+                fields = multipart_fields(self.headers.get("Content-Type", ""), raw)
 
                 audio_part = fields.get("audio_file")
                 cover_part = fields.get("cover_file")
                 if not audio_part or not audio_part.get_filename():
                     raise ValueError("请提供原始音频文件。")
 
-                title = fields.get("title").get_content() if fields.get("title") else ""
-                artist = fields.get("artist").get_content() if fields.get("artist") else ""
-                album = fields.get("album").get_content() if fields.get("album") else ""
-                albumartist = fields.get("albumartist").get_content() if fields.get("albumartist") else ""
-                year = fields.get("year").get_content() if fields.get("year") else ""
-                lyrics = fields.get("lyrics").get_content() if fields.get("lyrics") else ""
-                export_format = fields.get("format").get_content().lower() if fields.get("format") else "mp3"
+                title = multipart_text(fields, "title")
+                artist = multipart_text(fields, "artist")
+                album = multipart_text(fields, "album")
+                albumartist = multipart_text(fields, "albumartist")
+                year = multipart_text(fields, "year")
+                lyrics = multipart_text(fields, "lyrics")
+                export_format = multipart_text(fields, "format").lower() or "mp3"
 
                 if export_format not in FORMATS:
                     export_format = "mp3"
@@ -764,8 +841,7 @@ class Handler(SimpleHTTPRequestHandler):
                     f.save()
                     final_bytes = staged_audio.read_bytes()
 
-                out_name = f"{artist} - {title}.{export_format}" if (artist and title) else f"custom_{orig_filename.rsplit('.', 1)[0]}.{export_format}"
-                out_name = SAFE_NAME.sub("_", out_name).strip(" .")
+                out_name = make_tag_export_filename(artist, title, orig_filename, export_format)
 
                 self.send_response(200)
                 self.send_header("Content-Type", FORMATS.get(export_format, "audio/mpeg"))
