@@ -21,6 +21,8 @@ To build a desktop package, run `build_windows.bat` after the first `start.bat` 
 
 `icon.ico` is also used as the website favicon. The app still needs an internet connection for public music metadata and lyrics.
 
+In the native desktop window, downloading or converting a file opens the Windows Save As dialog. It starts in the Downloads folder, and you can choose another location. If the app falls back to your browser, the browser controls the download location.
+
 ## macOS / Linux
 
 Install Python 3.10 or newer, then run:

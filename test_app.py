@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
 from io import StringIO
+from launcher import enable_file_downloads
 
 
 class FfmpegResolutionTests(unittest.TestCase):
@@ -20,6 +21,13 @@ class FfmpegResolutionTests(unittest.TestCase):
         with patch.dict(sys.modules, {"imageio_ffmpeg": None}):
             with patch("app.shutil.which", return_value="system-ffmpeg"):
                 self.assertEqual(find_ffmpeg(), "system-ffmpeg")
+
+
+class DesktopLauncherTests(unittest.TestCase):
+    def test_enables_native_file_downloads(self):
+        webview_module = SimpleNamespace(settings={})
+        enable_file_downloads(webview_module)
+        self.assertTrue(webview_module.settings["ALLOW_DOWNLOADS"])
 
 
 class ShareUrlTests(unittest.TestCase):

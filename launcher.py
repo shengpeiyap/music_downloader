@@ -11,6 +11,10 @@ from pathlib import Path
 from app import Handler, ROOT
 
 
+def enable_file_downloads(webview_module) -> None:
+    webview_module.settings["ALLOW_DOWNLOADS"] = True
+
+
 def main() -> None:
     if getattr(sys, "frozen", False):
         sys.stdout = open(os.devnull, "w", encoding="utf-8")
@@ -22,6 +26,7 @@ def main() -> None:
     try:
         import webview
 
+        enable_file_downloads(webview)
         webview.create_window(
             "MusicDesk", url, width=1200, height=860, min_size=(800, 600)
         )
