@@ -26,6 +26,12 @@ To build a desktop package, run `build_windows.bat` after the first `start.bat` 
 
 In the native desktop window, downloading or converting a file opens the Windows Save As dialog. It starts in the Downloads folder, and you can choose another location. If the app falls back to your browser, the browser controls the download location.
 
+## Android preview
+
+The `android` directory contains an Android Studio WebView project. Open that directory in Android Studio and build the `app` debug variant. The preview currently supports the local music library, Android audio-file selection, playback controls, and embedded lyrics. Online metadata lookup, downloading, tag export, and format conversion still depend on the desktop Python backend and are not enabled in the Android preview.
+
+The Android build requires JDK 17 and Android SDK Platform 36. The project bundles the current `index.html` and default cover during the Gradle build, so they do not need to be copied by hand. Embedded tag and lyric reading uses the existing jsmediatags CDN script and therefore needs an internet connection on first load; playback itself stays on the phone.
+
 ## macOS / Linux
 
 Install Python 3.10 or newer, then run:

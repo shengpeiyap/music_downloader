@@ -61,8 +61,8 @@ class LocalTagMetadataTests(unittest.TestCase):
 
     def test_default_cover_is_display_only_and_never_used_as_embedded_cover(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
-        self.assertIn("const DEFAULT_COVER = '/default_song_img.png'", page)
-        self.assertIn('img[src$="/default_song_img.png"]{background:#f3f6f1;padding:12px}', page)
+        self.assertIn("const DEFAULT_COVER = 'default_song_img.png'", page)
+        self.assertIn('img[src$="default_song_img.png"]{background:#f3f6f1;padding:12px}', page)
         self.assertIn("$('customCoverPreview').dataset.embeddedCover = d.cover || ''", page)
         self.assertTrue((Path(__file__).parent / "default_song_img.png").is_file())
 
@@ -83,6 +83,19 @@ class LocalTagMetadataTests(unittest.TestCase):
             self.assertIn(f'id="{control_id}"', page)
         self.assertIn("function removeLocalTrack(idx)", page)
         self.assertIn("URL.revokeObjectURL(removed.objectUrl)", page)
+
+    def test_android_webview_mvp_has_mobile_audio_picker_and_bundled_web_assets(self):
+        root = Path(__file__).parent
+        page = (root / "index.html").read_text(encoding="utf-8")
+        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        gradle = (root / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+        self.assertIn('id="audioFilesInput"', page)
+        self.assertIn("MusicDeskAndroid", page)
+        self.assertIn("if (!window.jsmediatags)", page)
+        self.assertIn("onShowFileChooser", activity)
+        self.assertIn('webView.loadUrl("file:///android_asset/index.html")', activity)
+        self.assertIn('include("index.html", "default_song_img.png")', gradle)
+        self.assertNotIn("addJavascriptInterface", activity)
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")

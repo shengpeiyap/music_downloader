@@ -41,7 +41,7 @@
     audio{width:100%;height:38px;border-radius:8px;outline:none}
 
     .lyrics-viewer{display:none;margin-top:12px;background:#0d110e;border:1px solid #29332c;border-radius:12px;padding:16px;height:220px;overflow-y:auto;scroll-behavior:smooth}
-    img[src$="/default_song_img.png"]{background:#f3f6f1;padding:12px}
+    img[src$="default_song_img.png"]{background:#f3f6f1;padding:12px}
     .lrc-line{padding:6px 10px;border-radius:6px;font-size:14px;color:var(--muted);cursor:pointer;transition:all .2s ease}
     .lrc-line:hover{background:#17200f;color:var(--text)}
     .lrc-line.active{color:var(--green);font-size:16px;font-weight:700;background:#1f2b15;padding-left:14px}
@@ -60,6 +60,7 @@
     .player-timeline{display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
     .player-timeline input{flex:1;min-width:0;accent-color:var(--green);padding:0}
     .drop-zone input[type=file]{display:none}
+    .android-scope-note{display:none;margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:12px}
 
     /* 本地播放器专属样式 */
     .local-layout{display:grid;grid-template-columns:320px 1fr;gap:20px}
@@ -85,7 +86,7 @@
     .source-info{font-size:12px;color:var(--green);word-break:break-all;margin-top:6px}
     .source-info a{color:var(--green);text-decoration:underline}
     .filebox{display:block;border:1px dashed #465449;border-radius:12px;padding:18px;background:#0d110e}.filebox input{width:100%;margin-top:10px;color:var(--muted)}.status{font-size:13px;margin:12px 0 0;min-height:20px}.legal{font-size:12px;color:#87938a;margin-top:24px}.footer{border-top:1px solid var(--line);margin-top:28px;padding-top:16px;font-size:12px;color:#77847a}
-    @media(max-width:768px){.local-layout,.tag-layout{grid-template-columns:1fr}.playlist-card,.player-main-card{height:auto}.grid{grid-template-columns:1fr}}
+    @media(max-width:768px){main{padding:18px 14px 48px}.header-bar{align-items:flex-start}.nav-tabs{max-width:100%;overflow-x:auto}.tab-btn{white-space:nowrap;padding:8px 11px}.card{padding:18px}.local-layout,.tag-layout,.grid{grid-template-columns:1fr}.local-layout{gap:12px}.playlist-card{height:auto;max-height:440px;padding:14px}.track-list{min-height:80px;max-height:300px}.player-main-card{height:auto;min-height:420px;padding:20px 14px}.now-playing-cover{width:min(48vw,180px);height:min(48vw,180px)}.row{align-items:stretch;flex-direction:column;gap:8px}.result-header{align-items:flex-start;flex-wrap:wrap}.engine-box{align-items:flex-start}.player-controls{max-width:100%}.track-remove{padding:5px 7px}.playlist-header h2{font-size:16px!important}}
   </style>
 </head>
 <body><main>
@@ -109,7 +110,7 @@
         <div class="result" id="result">
           <div class="result-header">
             <div class="result-info">
-              <img id="cover" src="/default_song_img.png" alt="封面">
+              <img id="cover" src="default_song_img.png" alt="封面">
               <div>
                 <strong id="title"></strong>
                 <small id="artist"></small><br>
@@ -176,7 +177,7 @@
           <!-- 左侧：封面选择与预览 -->
           <div class="tag-cover-box">
             <label style="margin:0;font-weight:600">专辑封面预览</label>
-            <img id="customCoverPreview" class="tag-cover-preview" src="/default_song_img.png" alt="封面">
+            <img id="customCoverPreview" class="tag-cover-preview" src="default_song_img.png" alt="封面">
             <label style="width:100%;text-align:center;margin:0;cursor:pointer;font-size:12px;color:var(--green)">
               上传/更换封面
               <input id="customCoverInput" type="file" accept="image/*" style="display:none">
@@ -240,8 +241,12 @@
       <div class="playlist-card">
         <div class="playlist-header">
           <h2 style="margin:0;font-size:18px">本地播放列表</h2>
-          <button id="selectDirBtn" style="margin:0;padding:8px 12px;font-size:12px">选择文件夹</button>
+          <div style="display:flex;gap:6px">
+            <button id="selectDirBtn" style="margin:0;padding:8px 12px;font-size:12px">选择文件夹</button>
+            <button id="selectFilesBtn" style="display:none;margin:0;padding:8px 12px;font-size:12px">选择歌曲</button>
+          </div>
           <input type="file" id="dirInput" webkitdirectory directory multiple style="display:none">
+          <input type="file" id="audioFilesInput" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple style="display:none">
         </div>
         <input type="text" id="searchLocal" placeholder="搜索本地歌名/歌手..." style="padding:8px 12px;font-size:12px;margin-bottom:8px">
         <div id="playlistDropZone" class="drop-zone playlist-drop">拖入一首或多首音乐到此处添加</div>
@@ -252,7 +257,8 @@
 
       <!-- 主播放控制面板 -->
       <div class="player-main-card">
-        <img id="nowCover" class="now-playing-cover" src="/default_song_img.png" alt="封面">
+        <p id="androidScopeNote" class="android-scope-note">MusicDesk Android 预览版：支持本地音乐播放和歌词显示；联网下载与格式转换正在移植中。</p>
+        <img id="nowCover" class="now-playing-cover" src="default_song_img.png" alt="封面">
         <h3 id="nowTitle" style="margin:0 0 6px;font-size:20px">未选择歌曲</h3>
         <p id="nowArtist" style="margin:0 0 20px;color:var(--muted);font-size:14px">本地音乐离线播放器</p>
 
@@ -284,7 +290,7 @@
 <script>
 const $=id=>document.getElementById(id);
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const DEFAULT_COVER = '/default_song_img.png';
+const DEFAULT_COVER = 'default_song_img.png';
 document.addEventListener('error', event => {
   const image = event.target;
   if (image instanceof HTMLImageElement && !image.src.endsWith(DEFAULT_COVER)) image.src = DEFAULT_COVER;
@@ -660,6 +666,11 @@ $('customTagForm').addEventListener('submit', async (e) => {
 // ===== 本地离线播放器 Tab 逻辑 =====
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|flac|wav|ogg)$/i;
 $('selectDirBtn').addEventListener('click', () => $('dirInput').click());
+$('selectFilesBtn').addEventListener('click', () => $('audioFilesInput').click());
+$('audioFilesInput').addEventListener('change', event => {
+  addLocalAudioFiles(Array.from(event.target.files), false);
+  event.target.value = '';
+});
 
 function setupDropZone(zone, onDrop) {
   ['dragenter', 'dragover'].forEach(type => zone.addEventListener(type, event => {
@@ -761,6 +772,11 @@ function addLocalAudioFiles(inputFiles, replace) {
   }
   $('playlistDropZone').textContent = `已添加 ${added.length} 首；可继续拖入音乐`;
   renderLocalPlaylist($('searchLocal').value);
+  if (!window.jsmediatags) {
+    $('playlistDropZone').textContent = '歌曲已添加；标签解析库未加载，播放仍可用，但无法读取封面和内嵌歌词。';
+    syncPlayerControls();
+    return;
+  }
   added.forEach(track => readLocalTrackMetadata(track));
   syncPlayerControls();
 }
@@ -974,4 +990,16 @@ $('localAudioPlayer').addEventListener('ended', () => {
     playLocalTrack(currentTrackIdx + 1);
   }
 });
+
+if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
+  document.querySelectorAll('.tab-btn')[0].hidden = true;
+  document.querySelectorAll('.tab-btn')[1].hidden = true;
+  $('tab-online').classList.remove('active');
+  $('tab-custom').classList.remove('active');
+  $('selectDirBtn').style.display = 'none';
+  $('selectFilesBtn').style.display = 'inline-block';
+  $('playlistDropZone').style.display = 'none';
+  $('androidScopeNote').style.display = 'block';
+  switchTab('local');
+}
 </script></body></html>
