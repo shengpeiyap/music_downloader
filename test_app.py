@@ -62,6 +62,7 @@ class LocalTagMetadataTests(unittest.TestCase):
     def test_default_cover_is_display_only_and_never_used_as_embedded_cover(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
         self.assertIn("const DEFAULT_COVER = '/default_song_img.png'", page)
+        self.assertIn('img[src$="/default_song_img.png"]{background:#f3f6f1;padding:12px}', page)
         self.assertIn("$('customCoverPreview').dataset.embeddedCover = d.cover || ''", page)
         self.assertTrue((Path(__file__).parent / "default_song_img.png").is_file())
 
