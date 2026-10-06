@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import acquire_custom_audio_source, build_download_query, create_musicdesk_server, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, is_api_authorized, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
+from app import acquire_custom_audio_source, build_download_query, create_musicdesk_server, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -447,15 +447,25 @@ class LanApiTests(unittest.TestCase):
         self.assertFalse(is_api_authorized("Bearer wrong", "secret"))
         self.assertFalse(is_api_authorized("", "secret"))
 
+    def test_loopback_is_local_but_private_lan_ip_is_remote(self):
+        self.assertTrue(is_loopback_address("127.0.0.1"))
+        self.assertTrue(is_loopback_address("::1"))
+        self.assertFalse(is_loopback_address("192.168.1.7"))
+
     def test_lan_server_auth_cors_and_api_only_surface(self):
         server = create_musicdesk_server("127.0.0.1", 0, "pairing-secret")
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         try:
             connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+            connection.request("GET", "/")
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+
             connection.request("GET", "/api/status")
             response = connection.getresponse()
-            self.assertEqual(response.status, 401)
+            self.assertEqual(response.status, 200)
             self.assertEqual(response.getheader("Access-Control-Allow-Origin"), "*")
             response.read()
 
@@ -469,10 +479,6 @@ class LanApiTests(unittest.TestCase):
             self.assertEqual(response.status, 204)
             self.assertIn("Authorization", response.getheader("Access-Control-Allow-Headers"))
 
-            connection.request("GET", "/app.py")
-            response = connection.getresponse()
-            self.assertEqual(response.status, 404)
-            response.read()
             connection.close()
         finally:
             server.shutdown()

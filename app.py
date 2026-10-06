@@ -816,6 +816,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Vary", "Origin")
 
     def is_api_authorized(self) -> bool:
+        if is_loopback_address(self.client_address[0]):
+            return True
         token = getattr(self.server, "api_token", "")
         if not token:
             return True
@@ -837,14 +839,14 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self.send_json(200, {"ok": True, "service": "MusicDesk"})
             return
-        if getattr(self.server, "lan_mode", False):
-            # LAN mode is an API-only listener; never expose project files/source.
+        if getattr(self.server, "lan_mode", False) and not is_loopback_address(self.client_address[0]):
+            # Remote LAN clients get the API only; keep the browser UI local to this computer.
             self.send_error(404)
             return
         super().do_GET()
 
     def do_HEAD(self):
-        if getattr(self.server, "lan_mode", False):
+        if getattr(self.server, "lan_mode", False) and not is_loopback_address(self.client_address[0]):
             self.send_error(404)
             return
         super().do_HEAD()
@@ -1116,6 +1118,13 @@ def create_musicdesk_server(host: str = "127.0.0.1", port: int = 8765, api_token
 
 def is_api_authorized(authorization: str, token: str) -> bool:
     return not token or hmac.compare_digest(authorization, f"Bearer {token}")
+
+
+def is_loopback_address(address: str) -> bool:
+    try:
+        return ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        return False
 
 
 def get_private_ipv4_addresses() -> list[str]:
