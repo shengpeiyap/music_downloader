@@ -91,8 +91,11 @@ def lookup_metadata_by_keyword(query: str) -> dict:
         raise ValueError("请输入“作者 - 标题”或歌曲标题。")
 
     metadata = lookup_musicbrainz_metadata(title, artist)
+    lyric_track = search_lrc_track(title, artist)
     found_artist = metadata.get("artist") or artist
-    if not any(metadata.get(field) for field in ("album", "year", "cover_url")):
+    if found_artist in {"未知艺人", "Unknown Artist", title} and lyric_track:
+        found_artist = lyric_track.get("artistName") or found_artist
+    if not any(metadata.get(field) for field in ("album", "year", "cover_url")) and not lyric_track:
         raise ValueError("没有找到匹配的曲目信息，请换一种关键词试试。")
     if artist == "未知艺人" and found_artist in {"未知艺人", title}:
         raise ValueError("没有找到匹配的曲目信息，请换一种关键词试试。")
@@ -115,10 +118,11 @@ def lookup_metadata_by_keyword(query: str) -> dict:
     return {
         "title": title,
         "artist": found_artist,
-        "album": metadata.get("album", ""),
+        "album": metadata.get("album") or (lyric_track or {}).get("albumName", ""),
         "albumartist": found_artist,
         "year": metadata.get("year", ""),
-        "lyrics": fetch_lrc_lyrics(title, found_artist),
+        "lyrics": ((lyric_track or {}).get("syncedLyrics") or (lyric_track or {}).get("plainLyrics")
+                   or fetch_lrc_lyrics(title, found_artist)),
         "cover": cover,
     }
 
@@ -127,10 +131,12 @@ def build_download_query(url: str, title: str, artist: str, keyword_search: bool
     url = (url or "").strip()
     if url or not keyword_search:
         return url
-    query = " ".join(part.strip() for part in (artist, title) if part and part.strip())
+    artist = (artist or "").strip()
+    title = (title or "").strip()
+    query = f"{artist} - {title}" if artist else title
     if not query:
         raise ValueError("请先搜索一首歌曲，或提供有效的分享链接。")
-    return "ytsearch1:" + query
+    return "musicdesk-query:" + query
 
 
 def multipart_fields(content_type: str, raw: bytes) -> dict:
@@ -150,11 +156,38 @@ def multipart_text(fields: dict, name: str) -> str:
     return payload.decode(part.get_content_charset() or "utf-8", errors="replace").strip()
 
 
-def make_tag_export_filename(artist: str, title: str, original_filename: str, export_format: str) -> str:
+def make_tag_export_filename(
+    artist: str,
+    title: str,
+    original_filename: str,
+    export_format: str,
+    append_text: str = "",
+) -> str:
     artist = artist.strip() or "未知艺人"
     title = title.strip() or Path(original_filename).stem or "未知标题"
-    name = SAFE_NAME.sub("_", f"{artist} - {title}.{export_format}").strip(" .")
+    suffix = SAFE_NAME.sub("_", append_text).strip(" ._-()")
+    base_name = f"{artist} - {title}" + (f" - {suffix}" if suffix else "")
+    name = SAFE_NAME.sub("_", f"{base_name}.{export_format}").strip(" .")
     return name or f"未知艺人 - 未知标题.{export_format}"
+
+
+def acquire_custom_audio_source(
+    audio_bytes: bytes | None,
+    original_filename: str,
+    title: str,
+    artist: str,
+    preferred_engine: str,
+    work_dir: Path,
+) -> tuple[Path, str]:
+    if audio_bytes is not None:
+        input_path = work_dir / f"input{Path(original_filename).suffix}"
+        input_path.write_bytes(audio_bytes)
+        return input_path, original_filename
+    if not title.strip():
+        raise ValueError("请提供本地音频，或先搜索并填写歌曲标题。")
+    search_url = build_download_query("", title, artist, True)
+    downloaded, _ = fetch_media_stream(search_url, title, artist, preferred_engine, work_dir)
+    return downloaded, make_tag_export_filename(artist, title, "", "mp3")
 
 
 def find_ffmpeg_exe() -> str | None:
@@ -246,19 +279,45 @@ def fetch_lrc_lyrics(title: str, artist: str) -> str:
             if plain:
                 return plain
     except Exception:
-        try:
-            search_url = f"https://lrclib.net/api/search?q={urllib.parse.quote(f'{artist} {title}')}"
-            req = urllib.request.Request(search_url, headers={"User-Agent": "MusicDesk/1.0"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                results = json.loads(resp.read().decode("utf-8"))
-                if isinstance(results, list) and len(results) > 0:
-                    for item in results:
-                        if item.get("syncedLyrics"):
-                            print(f"[MusicDesk 歌词成功] 通过模糊检索找到 LRC 同步歌词")
-                            return item["syncedLyrics"]
-        except Exception:
-            pass
+        pass
+
+    result = search_lrc_track(title, artist)
+    if result:
+        lyrics = result.get("syncedLyrics") or result.get("plainLyrics") or ""
+        if lyrics:
+            print("[MusicDesk 歌词成功] 通过曲名检索找到歌词")
+        return lyrics
     return ""
+
+
+def search_lrc_track(title: str, artist: str) -> dict | None:
+    if not title:
+        return None
+    clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} or artist.strip() == title.strip() else artist.strip()
+    query = " ".join(part for part in (clean_artist, title.strip()) if part)
+    search_url = "https://lrclib.net/api/search?" + urllib.parse.urlencode({"q": query})
+    request = urllib.request.Request(search_url, headers={"User-Agent": "MusicDesk/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=6) as response:
+            results = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    if not isinstance(results, list):
+        return None
+    normalize = lambda value: re.sub(r"[^\w]", "", str(value or "").casefold())
+    wanted_title = normalize(title)
+    wanted_artist = normalize(clean_artist)
+    candidates = [item for item in results if normalize(item.get("trackName")) == wanted_title]
+    if not candidates:
+        candidates = [item for item in results if wanted_title and wanted_title in normalize(item.get("trackName"))]
+    if not candidates:
+        return None
+    if wanted_artist:
+        artist_matches = [item for item in candidates if wanted_artist in normalize(item.get("artistName"))]
+        if artist_matches:
+            candidates = artist_matches
+    return max(candidates, key=lambda item: (bool(item.get("syncedLyrics")), bool(item.get("plainLyrics")), bool(item.get("albumName"))))
 
 
 def find_executable(name: str) -> list[str]:
@@ -346,7 +405,7 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> tuple
         encoding="utf-8",
         errors="replace",
         env=get_env_with_utf8(),
-        shell=(os.name == 'nt')
+        shell=False
     )
     
     source_url = ""
@@ -387,7 +446,7 @@ def fetch_with_spotdl(url: str, base_dir: Path) -> tuple[Path | None, str]:
         encoding="utf-8",
         errors="replace",
         env=get_env_with_utf8(),
-        shell=(os.name == 'nt')
+        shell=False
     )
     
     if proc.returncode == 0:
@@ -406,10 +465,19 @@ def fetch_with_spotdl(url: str, base_dir: Path) -> tuple[Path | None, str]:
 def fetch_media_stream(url: str, title: str = "", artist: str = "", preferred_engine: str = "ytdlp", temp_dir: str | Path | None = None) -> tuple[Path, str]:
     base_dir = Path(temp_dir) if temp_dir else Path(tempfile.gettempdir())
 
-    if url.startswith("ytsearch1:"):
-        res_file, source_url = fetch_with_ytdlp(url, title, artist, base_dir)
-        if res_file and res_file.is_file():
-            return res_file, source_url
+    if url.startswith("musicdesk-query:"):
+        query = url.removeprefix("musicdesk-query:").strip()
+        if not query:
+            raise ValueError("搜索词不能为空。")
+        search_engines = {
+            "ytdlp": lambda: fetch_with_ytdlp("ytsearch1:" + query, title, artist, base_dir),
+            "spotdl": lambda: fetch_with_spotdl(query, base_dir),
+        }
+        first_engine = preferred_engine if preferred_engine in search_engines else "ytdlp"
+        for engine in (first_engine, "spotdl" if first_engine == "ytdlp" else "ytdlp"):
+            res_file, source_url = search_engines[engine]()
+            if res_file and res_file.is_file():
+                return res_file, "" if source_url == query else source_url
         raise ValueError("没有找到可下载的匹配音频，请尝试调整关键词。")
 
     engines = {
@@ -808,8 +876,7 @@ class Handler(SimpleHTTPRequestHandler):
 
                 audio_part = fields.get("audio_file")
                 cover_part = fields.get("cover_file")
-                if not audio_part or not audio_part.get_filename():
-                    raise ValueError("请提供原始音频文件。")
+                has_audio_file = bool(audio_part and audio_part.get_filename())
 
                 title = multipart_text(fields, "title")
                 artist = multipart_text(fields, "artist")
@@ -818,12 +885,16 @@ class Handler(SimpleHTTPRequestHandler):
                 year = multipart_text(fields, "year")
                 lyrics = multipart_text(fields, "lyrics")
                 export_format = multipart_text(fields, "format").lower() or "mp3"
+                preferred_engine = multipart_text(fields, "preferred_engine") or "ytdlp"
+                filename_append = multipart_text(fields, "filename_append") if multipart_text(fields, "filename_append_enabled") == "1" else ""
 
                 if export_format not in FORMATS:
                     export_format = "mp3"
+                if not has_audio_file and not title:
+                    raise ValueError("请提供本地音频，或先搜索并填写歌曲标题。")
 
-                audio_bytes = audio_part.get_payload(decode=True) or b""
-                orig_filename = Path(audio_part.get_filename()).name
+                audio_bytes = (audio_part.get_payload(decode=True) or b"") if has_audio_file else None
+                orig_filename = Path(audio_part.get_filename()).name if has_audio_file else ""
 
                 ffmpeg = find_ffmpeg_exe()
                 if not ffmpeg:
@@ -831,8 +902,9 @@ class Handler(SimpleHTTPRequestHandler):
 
                 with tempfile.TemporaryDirectory(prefix="musicdesk-tag-") as work:
                     work_dir = Path(work)
-                    in_audio = work_dir / f"input{Path(orig_filename).suffix}"
-                    in_audio.write_bytes(audio_bytes)
+                    in_audio, orig_filename = acquire_custom_audio_source(
+                        audio_bytes, orig_filename, title, artist, preferred_engine, work_dir
+                    )
 
                     staged_audio = work_dir / f"staged.{export_format}"
                     proc = subprocess.run(
@@ -848,6 +920,7 @@ class Handler(SimpleHTTPRequestHandler):
                     if album: f['album'] = album
                     if albumartist: f['albumartist'] = albumartist
                     if year and year.isdigit(): f['year'] = int(year)
+                    lyrics = lyrics or fetch_lrc_lyrics(title, artist)
                     if lyrics: f['lyrics'] = lyrics
 
                     if cover_part and cover_part.get_payload(decode=True):
@@ -857,7 +930,7 @@ class Handler(SimpleHTTPRequestHandler):
                     f.save()
                     final_bytes = staged_audio.read_bytes()
 
-                out_name = make_tag_export_filename(artist, title, orig_filename, export_format)
+                out_name = make_tag_export_filename(artist, title, orig_filename, export_format, filename_append)
 
                 self.send_response(200)
                 self.send_header("Content-Type", FORMATS.get(export_format, "audio/mpeg"))

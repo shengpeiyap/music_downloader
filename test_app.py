@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import build_download_query, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
+from app import acquire_custom_audio_source, build_download_query, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -52,7 +52,7 @@ class LocalTagMetadataTests(unittest.TestCase):
     def test_keyword_lookup_result_becomes_youtube_search_for_download(self):
         self.assertEqual(
             build_download_query("", "月明かり", "ヨルシカ", keyword_search=True),
-            "ytsearch1:ヨルシカ 月明かり",
+            "musicdesk-query:ヨルシカ - 月明かり",
         )
         self.assertEqual(
             build_download_query("https://open.spotify.com/track/id", "Track", "Artist", keyword_search=True),
@@ -82,6 +82,10 @@ class LocalTagMetadataTests(unittest.TestCase):
             make_tag_export_filename("", "", "source track.wav", "mp3"),
             "未知艺人 - source track.mp3",
         )
+        self.assertEqual(
+            make_tag_export_filename("Artist", "Track", "source.wav", "mp3", "Live"),
+            "Artist - Track - Live.mp3",
+        )
 
     def test_keyword_query_accepts_artist_title_or_title(self):
         self.assertEqual(parse_metadata_search_query("  ヨルシカ - 月明かり  "), ("ヨルシカ", "月明かり"))
@@ -90,7 +94,8 @@ class LocalTagMetadataTests(unittest.TestCase):
     def test_keyword_search_uses_metadata_and_lyrics_sources(self):
         with patch("app.lookup_musicbrainz_metadata", return_value={
             "artist": "Artist", "album": "Album", "year": "2020", "cover_url": None
-        }) as musicbrainz, patch("app.fetch_lrc_lyrics", return_value="[00:01.00]Lyric") as lyrics:
+        }) as musicbrainz, patch("app.search_lrc_track", return_value=None), \
+             patch("app.fetch_lrc_lyrics", return_value="[00:01.00]Lyric") as lyrics:
             result = lookup_metadata_by_keyword("Artist - Track")
 
         musicbrainz.assert_called_once_with("Track", "Artist")
@@ -98,6 +103,33 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertEqual(result["title"], "Track")
         self.assertEqual(result["album"], "Album")
         self.assertEqual(result["lyrics"], "[00:01.00]Lyric")
+
+    def test_keyword_lookup_can_use_lyrics_database_when_musicbrainz_has_no_release(self):
+        lyric_track = {
+            "trackName": "Elma", "artistName": "Yorushika", "albumName": "Elma",
+            "syncedLyrics": "[00:01.00]Lyric", "plainLyrics": "",
+        }
+        with patch("app.lookup_musicbrainz_metadata", return_value={
+            "artist": "未知艺人", "album": "", "year": "", "cover_url": None
+        }), patch("app.search_lrc_track", return_value=lyric_track):
+            result = lookup_metadata_by_keyword("Elma")
+
+        self.assertEqual(result["artist"], "Yorushika")
+        self.assertEqual(result["album"], "Elma")
+        self.assertEqual(result["lyrics"], "[00:01.00]Lyric")
+
+    def test_custom_export_can_fetch_source_when_no_local_audio_was_selected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "downloaded.mp3"
+            source.write_bytes(b"audio")
+            with patch("app.fetch_media_stream", return_value=(source, "")) as fetch:
+                result, filename = acquire_custom_audio_source(
+                    None, "", "Track", "Artist", "spotdl", Path(directory)
+                )
+
+        fetch.assert_called_once_with("musicdesk-query:Artist - Track", "Track", "Artist", "spotdl", Path(directory))
+        self.assertEqual(result, source)
+        self.assertEqual(filename, "Artist - Track.mp3")
 
     def test_load_music_tag_is_imported_on_demand(self):
         fake_audio = object()
@@ -222,6 +254,21 @@ class LyricsLookupTests(unittest.TestCase):
             lyrics = fetch_lrc_lyrics("Song", "Artist")
         self.assertEqual(lyrics, "[00:01.00]Hello")
 
+    def test_lyrics_search_fallback_does_not_search_unknown_artist(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'[{"trackName":"Elma","artistName":"Yorushika","syncedLyrics":"[00:01.00]Hello"}]'
+
+        def mock_open(request, **kwargs):
+            if "/api/get?" in request.full_url:
+                raise OSError("no exact result")
+            self.assertIn("q=Elma", request.full_url)
+            self.assertNotIn("%E6%9C%AA%E7%9F%A5", request.full_url)
+            return response
+
+        with patch("app.urllib.request.urlopen", side_effect=mock_open), redirect_stdout(StringIO()):
+            self.assertEqual(fetch_lrc_lyrics("Elma", "未知艺人"), "[00:01.00]Hello")
+
     def test_skips_lookup_without_a_track_title(self):
         with patch("app.urllib.request.urlopen") as open_url:
             self.assertEqual(fetch_lrc_lyrics("未知标题", "Artist"), "")
@@ -242,6 +289,21 @@ class FetchMediaStreamTests(unittest.TestCase):
             self.assertTrue(path.exists())
             self.assertEqual(path.read_bytes(), b"media")
             self.assertEqual(source_url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+    def test_keyword_download_uses_the_selected_search_engine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            downloaded = Path(directory) / "result.mp3"
+            downloaded.write_bytes(b"audio")
+            with patch("app.fetch_with_spotdl", return_value=(downloaded, "Artist - Track")) as spotdl, \
+                 patch("app.fetch_with_ytdlp") as ytdlp:
+                result, source_url = fetch_media_stream(
+                    "musicdesk-query:Artist - Track", "Track", "Artist", "spotdl", directory
+                )
+
+        spotdl.assert_called_once()
+        ytdlp.assert_not_called()
+        self.assertEqual(result, downloaded)
+        self.assertEqual(source_url, "")
 
 
 class ProcessAndExportTests(unittest.TestCase):

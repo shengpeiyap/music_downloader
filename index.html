@@ -148,8 +148,13 @@
         </div>
         <label class="filebox" style="margin-bottom:20px">
           第一步：选择或拖入需要修改/封装的音乐文件
-          <input id="customAudioInput" type="file" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" required>
+          <input id="customAudioInput" type="file" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg">
         </label>
+        <div id="customEngineRow" style="display:block;margin-bottom:18px">
+          <label for="customEngine">未选择本地音频时的下载工具</label>
+          <select id="customEngine"><option value="ytdlp">yt-dlp</option><option value="spotdl">SpotDL</option></select>
+          <p class="hint" style="margin:6px 0 0">会按上方曲名和作者搜索音源，再写入标签并导出 MP3 或所选格式。</p>
+        </div>
 
         <div class="tag-layout">
           <!-- 左侧：封面选择与预览 -->
@@ -191,6 +196,14 @@
             <div style="margin-bottom:12px">
               <label for="tagLyrics">内嵌歌词 (LRC/Plain Lyrics)</label>
               <textarea id="tagLyrics" placeholder="可以粘贴 LRC 格式或纯文本歌词..."></textarea>
+            </div>
+
+            <div style="margin-bottom:12px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input id="filenameAppendEnabled" type="checkbox" style="width:auto;margin:0">允许追加文件名
+              </label>
+              <input id="filenameAppend" type="text" placeholder="追加内容，例如：Live" disabled>
+              <p class="hint" style="margin:6px 0 0">关闭时使用“作者 - 标题.格式”；开启后会把内容追加到文件名末尾。</p>
             </div>
 
             <button id="saveTagBtn" type="submit" style="width:100%">保存并打包导出文件</button>
@@ -451,6 +464,7 @@ $('convert').addEventListener('submit', async e => {
 // ===== 自定义 Tab 标签编辑与封装逻辑 =====
 $('customAudioInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
+  $('customEngineRow').style.display = file ? 'none' : 'block';
   if (!file) return;
   $('customCoverPreview').dataset.embeddedCover = '';
 
@@ -485,6 +499,10 @@ $('customAudioInput').addEventListener('change', async (e) => {
   } catch (err) {
     $('customStatus').textContent = err.message;
   }
+});
+
+$('filenameAppendEnabled').addEventListener('change', (e) => {
+  $('filenameAppend').disabled = !e.target.checked;
 });
 
 $('tagSearchBtn').addEventListener('click', async () => {
@@ -535,16 +553,16 @@ $('customCoverInput').addEventListener('change', (e) => {
 $('customTagForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const audioFile = $('customAudioInput').files[0];
-  if (!audioFile) {
-    $('customStatus').textContent = '请先选择需要封装的音频文件。';
+  if (!audioFile && !$('tagTitle').value.trim()) {
+    $('customStatus').textContent = '请先选择音频，或搜索并填写曲名后直接封装。';
     return;
   }
 
   $('saveTagBtn').disabled = true;
-  $('customStatus').textContent = '正在打包并写回标签元数据，请稍候...';
+  $('customStatus').textContent = audioFile ? '正在打包并写回标签元数据，请稍候...' : '正在搜索音源并封装标签，请稍候...';
 
   const formData = new FormData();
-  formData.append('audio_file', audioFile);
+  if (audioFile) formData.append('audio_file', audioFile);
 
   const coverFile = $('customCoverInput').files[0];
   if (coverFile) {
@@ -558,6 +576,9 @@ $('customTagForm').addEventListener('submit', async (e) => {
   formData.append('year', $('tagYear').value);
   formData.append('lyrics', $('tagLyrics').value);
   formData.append('format', $('tagFormat').value);
+  formData.append('preferred_engine', $('customEngine').value);
+  formData.append('filename_append_enabled', $('filenameAppendEnabled').checked ? '1' : '0');
+  formData.append('filename_append', $('filenameAppend').value);
 
   try {
     const embeddedCover = $('customCoverPreview').dataset.embeddedCover;
@@ -584,7 +605,7 @@ $('customTagForm').addEventListener('submit', async (e) => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
 
-    $('customStatus').textContent = '导出成功！新封装的音频文件已保存。';
+    $('customStatus').textContent = audioFile ? '导出成功！新封装的音频文件已保存。' : '搜索并封装成功！新音频文件已保存。';
   } catch (err) {
     $('customStatus').textContent = err.message;
   } finally {
