@@ -1,54 +1,176 @@
 # MusicDesk
 
-A local music metadata viewer and audio format converter.
+> 一站式本地音乐播放器 + 元数据检索 + 音频格式转换 + 自定义标签封装工具
+>
+> 纯本地服务（Python 后端 + Web 前端），支持 Windows 原生窗口和 Android 移动端。
 
-## Features
+[![Release](https://img.shields.io/github/v/release/shengpeiyap/music_downloader?label=最新%20Release)](https://github.com/shengpeiyap/music_downloader/releases)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-42%20passed-brightgreen)](#tests)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%20%7C%20macOS%2FLinux-lightgrey)](#)
 
-- Read public title, publisher, and thumbnail metadata from Spotify track and YouTube Music / YouTube video share links.
-- Convert local audio to MP3, M4A, FLAC, WAV, or OGG.
-- Read, edit, and export local audio tags, including embedded lyrics and album artwork.
-- Search public track metadata by `artist - title` or title alone in the tag editor.
-- Drag audio into the custom tag editor or local player; manage playlist entries and playback without browser-native controls.
-- Does not download copyrighted audio from streaming services. Convert only files you own or are authorized to process.
-- Uploaded audio is processed in a temporary local folder and removed after conversion.
+---
 
-## Windows quick start
+## ✨ 功能亮点
 
-Install Python 3.10 or newer, then double-click `start.bat`. On first launch it creates a project-local Python environment and installs the audio conversion package. That package includes an FFmpeg executable, so you do not need to find an FFmpeg download or edit PATH. First-time setup needs an internet connection. Later launches reuse the installed files.
+### 🎧 本地播放器
+- 拖拽导入、文件选择两种方式添加本地音频到播放列表
+- 自定义播放控件：上一首 / 播放暂停 / 下一首 / 进度条 / 时间显示
+- 顺序播放、单曲循环、列表循环、**随机播放**四种模式
+- 播放队列可拖拽排序，支持单独删除或清空
+- 内嵌 LRC 同步歌词 + 纯文本歌词两种渲染模式，支持显示内嵌封面
 
-The app opens at <http://127.0.0.1:8765>. Metadata lookup needs an internet connection; audio conversion runs locally.
+### 🔎 在线元数据检索
+- 粘贴 **Spotify 单曲**或 **YouTube / YouTube Music** 分享链接，自动读取
+  - 歌曲标题、艺人、专辑、年份、缩略图封面
+  - （Spotify 通过 oEmbed + Embed 双源互补解析；YouTube 通过 yt-dlp 读 rich metadata）
+- 关键词搜索：只需输入 `艺人 - 标题` 或仅标题，通过
+  - **MusicBrainz** 公库获取专辑 / 年份 / Cover Art Archive 封面
+  - **LRCLIB** 公库检索同步 LRC 歌词
+  - 歌词库信息回填 MusicBrainz 检索不到的艺人/专辑
 
-## Portable Windows app
+### ⬇️ 双引擎下载（可选功能）
+- 支持 yt-dlp（YouTube 搜索/直链）和 SpotDL（Spotify 曲库）双引擎，自动降级重试
+- 链接下载：粘贴 Spotify / YouTube 分享 URL
+- 关键词下载：在搜索栏填 `艺人 - 标题` → 直接转成关键词搜索下载
+- 自动下载 YouTube 缩略图并**智能裁剪四周黑色/白色 padding** 作为最终封面
+- 输出统一为带 ID3 标签的 MP3（内嵌标题/艺人/专辑/年份/LRC 歌词/封面）
 
-To build a desktop package, run `build_windows.bat` after the first `start.bat` setup. It creates `dist\MusicDesk-portable.zip`; extract it and open `MusicDesk.exe`. The executable opens a native window when the Microsoft Edge WebView2 runtime is available, and falls back to the default browser otherwise. The package includes the app icon, yt-dlp, SpotDL, and FFmpeg. Building requires an internet connection to install the packaging tools.
+### 🔄 音频格式转换
+- 拖拽上传本地音频，选择目标格式一键转换
+- 支持：`MP3` / `WAV` / `FLAC` / `OGG` / `M4A`
+- 自动调用 imageio-ffmpeg 自带的 FFmpeg，无需系统安装
 
-`icon.ico` is also used as the website favicon. The app still needs an internet connection for public music metadata and lyrics.
+### 🏷️ 自定义标签编辑器 & 封装导出
+- 读取本地音频现有标签（标题/艺人/专辑/年份/歌词/多封面）
+- 或通过关键词搜索一键回填 MusicBrainz + LRCLIB 信息
+- 支持自定义封面图上传、内嵌歌词编辑
+- **无本地音频时自动调用下载引擎先获取音频**，再写入所选标签并输出
+- 输出文件名自动按 `艺人 - 标题 [附加文本].格式` 规范化
 
-In the native desktop window, downloading or converting a file opens the Windows Save As dialog. It starts in the Downloads folder, and you can choose another location. If the app falls back to your browser, the browser controls the download location.
+### 📱 Android 移动端 (WebView App)
+- 构建见 [android/](android/) 目录，minSdk 23 / targetSdk 35 / compileSdk 36
+- 支持：本地音频多选 / **文件夹递归导入**（保存权限后自动重扫）
+- Library / Now Playing 双视图，按 **歌曲/艺人/专辑/文件夹/收藏** 过滤
+- 可拖拽队列 Sheet + Mini Player，顺序/单曲循环/列表循环/随机播放
+- 大文件夹智能分批扫描（chunk 100）、封面按需解码缩放，内存友好
+- **远程连接桌面 MusicDesk LAN API**：输入电脑 LAN IP + 一次性配对密钥 →
+  在 Android 中即可调用桌面的在线元数据、歌词、下载、格式转换、自定义标签封装
 
-## Android preview
+> Android 端音频播放完全本机；**涉及网络检索、下载、格式转换的功能需要桌面上的 MusicDesk 服务在同一信任 Wi-Fi 下打开。**
 
-The `android` directory contains an Android Studio WebView project. Open that directory in Android Studio and build the `app` debug variant. The Android preview supports selecting individual audio files or recursively importing a folder, with Library and Now Playing views, song/artist/album/folder/favorites filters, a draggable queue sheet, a mini-player, and sequential/repeat-one/repeat-all/shuffle playback. Selected folder permissions and URIs are persisted, so the app rescans the saved folders on launch. Folder scans send lightweight tag data to the WebView; embedded artwork is decoded and resized only for the track being played to keep large libraries within memory limits. Folder import reads title, artist, album, and embedded cover where Android can decode them; embedded lyrics remain available for files selected through the file picker. Folder-imported audio is copied to the app cache only when played; removing a track does not remove the user's original file. Metadata lookup, network lyrics, downloads, format conversion, and custom tag export still require the desktop Python API. In Android they remain locked until the saved API connection is verified, and are re-locked if the connection or pairing token stops working.
+---
 
-The Android build requires JDK 17 and Android SDK Platform 36. The project bundles the current `index.html` and default cover during the Gradle build, so they do not need to be copied by hand. Embedded tag and lyric reading uses the existing jsmediatags CDN script and therefore needs an internet connection on first load; playback itself stays on the phone.
+## ⚠️ 版权与合规声明
 
-To use online metadata lookup, downloads, format conversion, or custom tag export in Android, connect the phone and computer to the same trusted Wi-Fi network and start the desktop API with `start_lan.bat` (or run `python app.py --lan`). The desktop terminal shows its LAN address and a one-run pairing token. Enter the computer's LAN address (not `127.0.0.1`, which points to the phone itself) and token in the Android app's Online tab, then tap **Connect**. The LAN-mode app page remains available at `http://127.0.0.1:8765` on the computer itself; remote devices only receive authenticated API access. Keep the desktop window open while using these features. The token changes each run unless you explicitly supply one with `--token`. Windows Firewall may ask to allow Python on your private network. Android saves returned files through the system folder picker. Do not expose this HTTP service to public networks.
+- MusicDesk **仅**提供以下两种合法用途的辅助：
+  1. 处理**您自己拥有版权或被授权处理**的本地音频文件
+  2. 检索公开元数据数据库（MusicBrainz / LRCLIB / Spotify oEmbed / YouTube oEmbed）中的
+     **公开描述信息**（不含流媒体传输）
+- 通过 yt-dlp / SpotDL 等第三方工具下载音频时，**请确保您拥有对应的使用权利**，并遵守
+  各平台的服务条款与所在地区的版权法。
+- 所有上传到本工具的音频仅在本机临时目录处理，下载/转换完成后临时文件自动删除。
 
-## macOS / Linux
+---
 
-Install Python 3.10 or newer, then run:
+## 📥 快速开始
 
+### 方式一：下载发行版（推荐，开箱即用）
+
+前往 [GitHub Releases](https://github.com/shengpeiyap/music_downloader/releases) 下载：
+
+| 平台 | 文件名 | 说明 |
+|---|---|---|
+| 🪟 Windows | `MusicDesk-v0.1.0-windows-portable.zip` | 解压后双击 `MusicDesk.exe`，包含 FFmpeg / yt-dlp / SpotDL |
+| 🤖 Android | `MusicDesk-v0.1.0-android-release.apk` | 安装到手机，需允许"从未知来源安装"；如需连接桌面功能请在桌面端用 LAN 模式启动 |
+
+### 方式二：Windows 从源码启动
+1. 安装 Python **3.10 或更新版本**（建议 3.12+）
+2. 双击 `start.bat`
+   - 首次运行自动创建 `.venv` 并安装全部依赖（含 imageio-ffmpeg，自带 FFmpeg 二进制，无需手动配置 PATH）
+   - 需要联网
+3. 浏览器或原生窗口自动打开 <http://127.0.0.1:8765>
+
+### 方式三：macOS / Linux 从源码启动
 ```sh
-python -m venv .venv
-. .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
 python app.py
 ```
+然后访问 <http://127.0.0.1:8765>。
 
-The bundled FFmpeg package is selected automatically on supported platforms. An FFmpeg executable already on PATH is used as a fallback.
+### 🖥️ 构建原生 Windows 便携包
+```cmd
+start.bat                 :: 先完成一次普通启动（安装运行时依赖）
+build_windows.bat         :: 构建 dist\MusicDesk-portable.zip
+```
+产物：
+- `dist\MusicDesk\MusicDesk.exe` → 原生窗口优先（Edge WebView2 运行时，没有则回退到默认浏览器）
+- `dist\MusicDesk\yt-dlp.exe`、`dist\MusicDesk\spotdl.exe` → 打包的下载引擎可执行文件
+- `dist\MusicDesk-portable.zip` → 完整便携压缩包（可直接分发，**约 144 MB**）
 
-## Tests
+### 📱 构建 Android APK
+前置：JDK 17、Android SDK Platform 36。
+```sh
+cd android
+./gradlew assembleRelease       # Windows 用 gradlew.bat
+```
+输出：`android/app/build/outputs/apk/release/app-release-unsigned.apk`
+> 当前 `android/app/build.gradle.kts` 配置的是 **unsigned release**。要上架应用商店请自行用正式 Keystore 做 `jarsigner` / `apksigner` 签名。
+
+---
+
+## 🌐 手机连接桌面 LAN API（Android 在线功能解锁）
+
+1. 桌面端：双击 `start_lan.bat`（或命令行 `python app.py --lan`）
+   - 终端会显示本机在局域网中的 IP（如 `http://192.168.1.7:8765`）和一个**一次性配对密钥**
+2. Windows 防火墙提示时，**允许专用网络访问**
+3. 手机与电脑连接**同一信任 Wi-Fi**
+4. 打开 Android App → 在线解析 Tab → 填入电脑的 LAN IP + 配对密钥 → 点连接
+5. 成功后：元数据检索 / 歌词 / 下载 / 格式转换 / 自定义标签封装全部解锁
+
+> 🔐 **安全提醒**：`--lan` 模式下远端仅能调用带 `Authorization: Bearer <token>` 的 JSON API，无法访问桌面浏览器 UI 页面。令牌每次启动随机生成，可在专用私有 Wi-Fi 下安全使用。请勿暴露到公网。
+
+---
+
+## 🧪 测试
 
 ```sh
-python -m unittest -v
+python -m unittest discover -v
+# 或指定文件
+python -m unittest test_app -v
 ```
+
+当前状态：**42 passed ✅**
+覆盖模块：FFmpeg 查找、桌面启动器、便携打包、本地标签元数据、HTML 前端完整性、Android asset 同步、关键词与链接元数据、Spotify/YouTube URL 解析、歌词库检索、媒体下载调度、LAN API 鉴权与 CORS、智能封面 padding 裁剪、导出处理。
+
+---
+
+## 🗂️ 目录结构速览
+
+```
+music_downloader/
+├── app.py                      # Python 后端：HTTP 服务、元数据/歌词检索、下载/转换/标签
+├── launcher.py                 # 桌面原生窗口入口（pywebview + 浏览器回退）
+├── index.html                  # 整个前端页面（播放器 / 检索 / 转换 / 标签 / Android UI）
+├── test_app.py                 # 42 个单元测试
+├── spotdl_launcher.py / yt_dlp_launcher.py  # 打包为独立 exe 时的入口
+├── package_portable.py         # PyInstaller onedir → portable.zip
+├── build_windows.bat           # Windows 一键构建脚本
+├── start.bat / start_lan.bat   # 普通启动 / LAN 模式启动
+├── requirements.txt / requirements-build.txt
+├── default_song_img.png / icon.ico
+├── LICENSE                     # MIT License
+└── android/                    # Android WebView 工程（Gradle）
+    └── app/src/main/
+        ├── java/com/musicdesk/android/MainActivity.java
+        ├── AndroidManifest.xml
+        └── assets/index.html  ← 与根目录 index.html 保持同步（构建测试会校验）
+```
+
+---
+
+## 📄 License
+
+[MIT License](LICENSE) · Copyright (c) 2026 shengpeiyap
