@@ -246,12 +246,12 @@ def crop_yt_padding_smart(img_bytes: bytes) -> bytes:
                 break
 
         for x in range(sq_w // 2):
-            if not all(is_similar(pixels[x, y], bg_color) for x in range(0, sq_h, 5)):
+            if not all(is_similar(pixels[x, y], bg_color) for y in range(0, sq_h, 5)):
                 left_b = x
                 break
 
         for x in range(sq_w - 1, sq_w // 2, -1):
-            if not all(is_similar(pixels[x, y], bg_color) for x in range(0, sq_h, 5)):
+            if not all(is_similar(pixels[x, y], bg_color) for y in range(0, sq_h, 5)):
                 right_b = x + 1
                 break
 

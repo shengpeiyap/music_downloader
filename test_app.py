@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_download_query, create_musicdesk_server, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -495,6 +495,41 @@ class LanApiTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             worker.join(timeout=3)
+
+
+class SmartPaddingCropTests(unittest.TestCase):
+    def test_crops_uniform_padding_from_all_sides(self):
+        canvas = Image.new("RGB", (200, 200), (240, 240, 240))
+        content = Image.new("RGB", (100, 100), (20, 80, 160))
+        canvas.paste(content, (50, 50))
+        buf = io.BytesIO()
+        canvas.save(buf, format="JPEG")
+
+        cropped = crop_yt_padding_smart(buf.getvalue())
+        result = Image.open(io.BytesIO(cropped)).convert("RGB")
+        rw, rh = result.size
+        corner = result.getpixel((min(5, rw - 1), min(5, rh - 1)))
+        center = result.getpixel((rw // 2, rh // 2))
+        self.assertLess(abs(corner[0] - 20), 40)
+        self.assertLess(abs(center[0] - 20), 40)
+        self.assertGreaterEqual(rw, 50)
+        self.assertGreaterEqual(rh, 50)
+        self.assertLessEqual(rw, 150)
+        self.assertLessEqual(rh, 150)
+
+    def test_returns_original_when_cropped_region_would_be_too_small(self):
+        plain = Image.new("RGB", (120, 120), (240, 240, 240))
+        tiny = Image.new("RGB", (10, 10), (20, 20, 20))
+        plain.paste(tiny, (55, 55))
+        buf = io.BytesIO()
+        plain.save(buf, format="JPEG")
+
+        cropped = crop_yt_padding_smart(buf.getvalue())
+        result = Image.open(io.BytesIO(cropped)).convert("RGB")
+        self.assertEqual(result.size, (120, 120))
+
+    def test_handles_empty_bytes_gracefully(self):
+        self.assertEqual(crop_yt_padding_smart(b""), b"")
 
 
 class ProcessAndExportTests(unittest.TestCase):
