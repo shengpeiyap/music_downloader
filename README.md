@@ -81,7 +81,7 @@
 
 | 平台 | 文件名 | 说明 |
 |---|---|---|
-| 🪟 Windows | `MusicDesk-v0.1.0-windows-portable.zip` | 解压后双击 `MusicDesk.exe`，包含 FFmpeg / yt-dlp / SpotDL |
+| 🪟 Windows | `MusicDesk-v0.1.0-windows-portable.zip` | 解压后双击 `MusicDesk.exe` 以**原生桌面窗口**启动（Edge WebView2）；如无 WebView2 可使用 `MusicDesk.exe --browser` 在系统默认浏览器打开。已内封 FFmpeg / yt-dlp / SpotDL |
 | 🤖 Android | `MusicDesk-v0.1.0-android-release.apk` | 安装到手机，需允许"从未知来源安装"；如需连接桌面功能请在桌面端用 LAN 模式启动 |
 
 ### 方式二：Windows 从源码启动
@@ -106,9 +106,13 @@ start.bat                 :: 先完成一次普通启动（安装运行时依赖
 build_windows.bat         :: 构建 dist\MusicDesk-portable.zip
 ```
 产物：
-- `dist\MusicDesk\MusicDesk.exe` → 原生窗口优先（Edge WebView2 运行时，没有则回退到默认浏览器）
+- `dist\MusicDesk\MusicDesk.exe` → **强制以 Microsoft Edge WebView2 原生窗口启动**（不再自动回退浏览器；如缺少 WebView2 运行时会弹出安装指引对话框并退出，或手动加 `--browser` 参数改为系统浏览器打开）
 - `dist\MusicDesk\yt-dlp.exe`、`dist\MusicDesk\spotdl.exe` → 打包的下载引擎可执行文件
 - `dist\MusicDesk-portable.zip` → 完整便携压缩包（可直接分发，**约 144 MB**）
+> 命令行额外参数：
+> - `MusicDesk.exe --browser`  不使用原生窗口，改用系统默认浏览器打开（类似 start.bat 体验）
+> - `MusicDesk.exe --lan --token 自定义密钥`  允许同局域网其他设备访问（与 start_lan.bat 一致）
+> - `MusicDesk.exe --port 8765`  手动指定 HTTP 端口
 
 ### 📱 构建 Android APK
 前置：JDK 17、Android SDK Platform 36。

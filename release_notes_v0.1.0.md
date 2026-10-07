@@ -48,8 +48,10 @@ MusicDesk 是一套三端一体的音乐元数据与音频工具箱：
 
 ### 🪟 Windows 桌面应用
 - 通过 PyInstaller 封装为 onedir：`MusicDesk.exe`
-- 优先以 Microsoft Edge WebView2 原生窗口启动（观感更接近原生 App）
-- 本机无 WebView2 时自动回退默认浏览器
+- **默认强制以 Microsoft Edge WebView2 原生窗口启动**（不再自动回退到外部浏览器）
+- 若本机未安装 WebView2 运行时，会弹出带下载链接的错误对话框，并提供 `MusicDesk.exe --browser` 作为备选启动方式
+- 支持命令行参数：`--browser`（改用系统默认浏览器）、`--lan` / `--token` / `--port`（局域网模式/自定义密钥/自定义端口）
+- 窗口标题栏与任务栏图标已使用 `icon.ico`，并设置窗口最小尺寸 (800x600) 与暗色背景
 - 内封 yt-dlp.exe、spotdl.exe、FFmpeg，全部开箱即用
 - 下载/转换通过系统"另存为"对话框选择保存位置
 
