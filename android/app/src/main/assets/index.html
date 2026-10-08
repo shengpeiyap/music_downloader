@@ -582,6 +582,7 @@ let parsedLyrics = [];
 let localTracks = []; // [{file, title, artist, album, cover, lrc}, ...]
 let currentTrackIdx = -1;
 let playbackQueue = [];
+let playbackOrder = [];
 let displayedTrackIndices = [];
 let parsedLocalLyrics = [];
 const PLAYBACK_MODES = ['sequential', 'repeat-one', 'repeat-all', 'shuffle'];
@@ -643,6 +644,7 @@ function tryRestoreSavedPlayback() {
   playbackQueue = savedQueue.map(uri => localTracks.find(track => track.contentUri === uri)).filter(Boolean);
   if (!playbackQueue.length) playbackQueue = displayedTrackIndices.map(index => localTracks[index]).filter(Boolean);
   if (!playbackQueue.includes(localTracks[idx])) playbackQueue.unshift(localTracks[idx]);
+  updatePlaybackOrder(localTracks[idx]);
   pendingSavedPlayback = null;
   const saved = {uri: state.uri, position: Number(state.position) || 0, wasPlaying: !!state.wasPlaying};
   window.pendingAudioResume = saved;
@@ -1356,6 +1358,9 @@ function playLocalTrack(idx, keepQueue = false) {
   if (!playbackQueue.includes(localTracks[idx])) {
     const visible = displayedTrackIndices.map(index => localTracks[index]).filter(Boolean);
     playbackQueue = visible.includes(localTracks[idx]) ? visible : [localTracks[idx]];
+    updatePlaybackOrder(localTracks[idx]);
+  } else if (!keepQueue && playbackMode === 'shuffle') {
+    updatePlaybackOrder(localTracks[idx]);
   }
   const player = $('localAudioPlayer');
   const previousTrack = localTracks[currentTrackIdx];
@@ -1400,6 +1405,7 @@ function removeLocalTrack(idx) {
   const wasCurrent = idx === currentTrackIdx;
   const [removed] = localTracks.splice(idx, 1);
   playbackQueue = playbackQueue.filter(track => track !== removed);
+  playbackOrder = playbackOrder.filter(track => track !== removed);
   if (removed.objectUrl) URL.revokeObjectURL(removed.objectUrl);
   if (removed.contentUri && removed.androidCachedUrl && window.AndroidMusic) AndroidMusic.releaseAudio(removed.contentUri);
   if (wasCurrent) {
@@ -1434,7 +1440,7 @@ function formatPlayerTime(seconds) {
 function syncPlayerControls() {
   const player = $('localAudioPlayer');
   const hasTrack = currentTrackIdx >= 0 && currentTrackIdx < localTracks.length;
-  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  const queue = getPlaybackOrder();
   const position = queue.indexOf(localTracks[currentTrackIdx]);
   $('previousTrackBtn').disabled = !hasTrack || (playbackMode !== 'shuffle' && position <= 0 && player.currentTime <= 3);
   $('nextTrackBtn').disabled = !hasTrack || (playbackMode === 'sequential' && position >= queue.length - 1);
@@ -1490,7 +1496,7 @@ function updateMiniPlayer() {
 }
 
 function nextLocalTrack() {
-  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  const queue = getPlaybackOrder();
   const currentTrack = localTracks[currentTrackIdx];
   const position = queue.indexOf(currentTrack);
   if (!queue.length || position < 0) return;
@@ -1504,7 +1510,7 @@ function nextLocalTrack() {
 function previousLocalTrack() {
   const player = $('localAudioPlayer');
   if (player.currentTime > 3) { player.currentTime = 0; return; }
-  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  const queue = getPlaybackOrder();
   const position = queue.indexOf(localTracks[currentTrackIdx]);
   if (position > 0) playLocalTrack(localTracks.indexOf(queue[position - 1]), true);
   else if (playbackMode === 'repeat-all' && queue.length) playLocalTrack(localTracks.indexOf(queue[queue.length - 1]), true);
@@ -1545,16 +1551,37 @@ function startPlayAll(mode) {
   if (!indices.length) return;
   playbackQueue = indices.map(index => localTracks[index]).filter(Boolean);
   playbackMode = mode;
-  if (mode === 'shuffle') shuffleQueue();
+  updatePlaybackOrder(playbackQueue[0]);
   closePlayAllChoice();
   syncPlayerControls();
   playLocalTrack(localTracks.indexOf(playbackQueue[0]), true);
 }
 
-function shuffleQueue() {
-  for (let i = playbackQueue.length - 1; i > 0; i--) {
+function getPlaybackOrder() {
+  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  if (playbackMode !== 'shuffle') return queue;
+  playbackOrder = playbackOrder.filter(track => queue.includes(track));
+  const missing = queue.filter(track => !playbackOrder.includes(track));
+  playbackOrder.push(...missing);
+  return playbackOrder;
+}
+
+function updatePlaybackOrder(firstTrack = null) {
+  const queue = playbackQueue.length ? playbackQueue : localTracks;
+  if (playbackMode !== 'shuffle') {
+    playbackOrder = queue.slice();
+    return;
+  }
+  const first = firstTrack && queue.includes(firstTrack) ? firstTrack : queue[0];
+  const remaining = queue.filter(track => track !== first);
+  shuffleTracks(remaining);
+  playbackOrder = first ? [first, ...remaining] : remaining;
+}
+
+function shuffleTracks(tracks) {
+  for (let i = tracks.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [playbackQueue[i], playbackQueue[j]] = [playbackQueue[j], playbackQueue[i]];
+    [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
   }
 }
 
@@ -1688,6 +1715,7 @@ function clearQueue() {
   });
   localTracks = [];
   playbackQueue = [];
+  playbackOrder = [];
   currentTrackIdx = -1;
   $('localAudioPlayer').removeAttribute('src');
   $('localAudioPlayer').load();
@@ -1704,13 +1732,7 @@ function clearQueue() {
 
 $('playbackModeBtn').addEventListener('click', () => {
   playbackMode = PLAYBACK_MODES[(PLAYBACK_MODES.indexOf(playbackMode) + 1) % PLAYBACK_MODES.length];
-  if (playbackMode === 'shuffle' && playbackQueue.length > 1) {
-    const current = localTracks[currentTrackIdx];
-    playbackQueue = playbackQueue.filter(track => track !== current);
-    shuffleQueue();
-    if (current) playbackQueue.unshift(current);
-    renderQueue();
-  }
+  updatePlaybackOrder(localTracks[currentTrackIdx] || playbackQueue[0]);
   syncPlayerControls();
   persistAndroidPlayback(true);
 });
@@ -1851,7 +1873,9 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   switchTab('local');
   renderLocalPlaylist('');
   renderQueue();
-  syncPlayerControls();
   AndroidMusic.restoreFolders();
 }
+// Initialize the playback mode control immediately on every platform so it
+// renders the selected mode icon before the first user interaction.
+syncPlayerControls();
 </script></body></html>

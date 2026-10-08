@@ -77,13 +77,22 @@ class DesktopLauncherTests(unittest.TestCase):
 
 
 class LocalTagMetadataTests(unittest.TestCase):
-    def test_android_player_preserves_queue_order_and_shuffles_the_queue(self):
+    def test_android_player_keeps_display_queue_stable_while_shuffling_play_order(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
         self.assertIn('if (!playbackQueue.includes(localTracks[idx]))', page)
-        self.assertIn('function shuffleQueue()', page)
-        self.assertIn('[playbackQueue[i], playbackQueue[j]] = [playbackQueue[j], playbackQueue[i]]', page)
+        self.assertIn('let playbackOrder = [];', page)
+        self.assertIn('function updatePlaybackOrder(firstTrack = null)', page)
+        self.assertIn('shuffleTracks(remaining)', page)
+        self.assertIn('playbackOrder = first ? [first, ...remaining] : remaining;', page)
+        self.assertIn('playbackQueue = indices.map(index => localTracks[index]).filter(Boolean);', page)
+        self.assertIn('updatePlaybackOrder(playbackQueue[0]);', page)
+        self.assertIn('function renderQueue()', page)
+        queue_renderer = page.split('function renderQueue()', 1)[1].split('function openPlayAllChoice()', 1)[0]
+        self.assertIn('const queue = playbackQueue.length ? playbackQueue : localTracks;', queue_renderer)
+        self.assertIn('// Initialize the playback mode control immediately on every platform', page)
+        self.assertTrue(page.rstrip().endswith('syncPlayerControls();\n</script></body></html>'))
         self.assertIn('PLAYBACK_MODE_ICONS', page)
-        self.assertIn("if (mode === 'shuffle') shuffleQueue()", page)
+        self.assertNotIn('playbackQueue = playbackQueue.filter(track => track !== current)', page)
 
     def test_android_library_cache_zoom_sheet_and_media_session_hooks_exist(self):
         root = Path(__file__).parent
