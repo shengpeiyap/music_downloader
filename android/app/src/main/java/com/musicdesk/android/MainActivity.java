@@ -571,6 +571,14 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        if (webView != null) {
+            webView.evaluateJavascript("window.persistAndroidPlayback && window.persistAndroidPlayback(true)", null);
+        }
+        super.onPause();
+    }
+
+    @Override
     protected void onDestroy() {
         folderExecutor.shutdownNow();
         audioExecutor.shutdownNow();

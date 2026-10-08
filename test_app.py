@@ -86,6 +86,12 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('playbackOrder = first ? [first, ...remaining] : remaining;', page)
         self.assertIn('playbackQueue = indices.map(index => localTracks[index]).filter(Boolean);', page)
         self.assertIn('updatePlaybackOrder(playbackQueue[0]);', page)
+        play_all_handler = page.split("$('playAllBtn').addEventListener('click'", 1)[1].split("});", 1)[0]
+        self.assertNotIn('displayedTrackIndices.length) return', play_all_handler)
+        self.assertIn('if (!localTracks.length) return;', play_all_handler)
+        persistence = page.split('function persistAndroidPlayback(force = false)', 1)[1].split('function tryRestoreSavedPlayback()', 1)[0]
+        self.assertNotIn('currentTrackIdx < 0', persistence)
+        self.assertIn('wasPlaying: !!track && !player.paused', persistence)
         self.assertIn('function renderQueue()', page)
         queue_renderer = page.split('function renderQueue()', 1)[1].split('function openPlayAllChoice()', 1)[0]
         self.assertIn('const queue = playbackQueue.length ? playbackQueue : localTracks;', queue_renderer)
@@ -111,6 +117,10 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('playbackActive = false', activity)
         self.assertIn('window.onAndroidMediaCommand', page)
         self.assertIn('finishPlayAllTouch', page)
+        self.assertIn('const restoredQueue = savedQueue.map(uri => localTracks.find(track => track.contentUri === uri)).filter(Boolean);', page)
+        self.assertIn('playbackQueue = Array.isArray(state.queue)', page)
+        self.assertIn('protected void onPause()', activity)
+        self.assertIn('window.persistAndroidPlayback && window.persistAndroidPlayback(true)', activity)
 
     def test_lyrics_reader_sends_only_fields_needed_for_lookup(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")

@@ -613,15 +613,15 @@ let lastSavedPlaybackBucket = -1;
 try { pendingSavedPlayback = JSON.parse(localStorage.getItem('musicdesk-playback-state') || 'null'); } catch (_) {}
 
 function persistAndroidPlayback(force = false) {
-  if (!window.AndroidMusic || restoringSavedPlayback || currentTrackIdx < 0) return;
+  if (!window.AndroidMusic || restoringSavedPlayback) return;
   const player = $('localAudioPlayer');
-  const seconds = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+  const track = localTracks[currentTrackIdx] || null;
+  const seconds = track && Number.isFinite(player.currentTime) ? player.currentTime : 0;
   const bucket = Math.floor(seconds / 3);
   if (!force && bucket === lastSavedPlaybackBucket) return;
   lastSavedPlaybackBucket = bucket;
-  const track = localTracks[currentTrackIdx];
   const state = {
-    uri: track && track.contentUri || '', position: seconds, wasPlaying: !player.paused,
+    uri: track && track.contentUri || '', position: seconds, wasPlaying: !!track && !player.paused,
     queue: playbackQueue.map(item => item.contentUri).filter(Boolean),
     view: androidView, contentView: androidContentView, category: libraryCategory,
     group: libraryGroup, search: $('searchLocal').value, mode: playbackMode
@@ -631,24 +631,30 @@ function persistAndroidPlayback(force = false) {
 
 function tryRestoreSavedPlayback() {
   const state = pendingSavedPlayback;
-  if (!state || !state.uri || restoringSavedPlayback) return;
-  const idx = localTracks.findIndex(track => track.contentUri === state.uri);
-  if (idx < 0) return;
+  if (!state || restoringSavedPlayback) return;
+  const idx = state.uri ? localTracks.findIndex(track => track.contentUri === state.uri) : -1;
+  const savedQueue = Array.isArray(state.queue) ? state.queue : [];
+  const restoredQueue = savedQueue.map(uri => localTracks.find(track => track.contentUri === uri)).filter(Boolean);
   restoringSavedPlayback = true;
   libraryCategory = ['songs', 'artists', 'albums', 'folders', 'favorites'].includes(state.category) ? state.category : 'songs';
   libraryGroup = state.group || '';
   $('searchLocal').value = state.search || '';
   playbackMode = PLAYBACK_MODES.includes(state.mode) ? state.mode : 'sequential';
   renderLocalPlaylist($('searchLocal').value);
-  const savedQueue = Array.isArray(state.queue) ? state.queue : [];
-  playbackQueue = savedQueue.map(uri => localTracks.find(track => track.contentUri === uri)).filter(Boolean);
-  if (!playbackQueue.length) playbackQueue = displayedTrackIndices.map(index => localTracks[index]).filter(Boolean);
-  if (!playbackQueue.includes(localTracks[idx])) playbackQueue.unshift(localTracks[idx]);
-  updatePlaybackOrder(localTracks[idx]);
+  playbackQueue = Array.isArray(state.queue)
+    ? restoredQueue
+    : displayedTrackIndices.map(index => localTracks[index]).filter(Boolean);
+  if (idx >= 0 && !playbackQueue.includes(localTracks[idx])) playbackQueue.unshift(localTracks[idx]);
+  updatePlaybackOrder(idx >= 0 ? localTracks[idx] : playbackQueue[0]);
   pendingSavedPlayback = null;
-  const saved = {uri: state.uri, position: Number(state.position) || 0, wasPlaying: !!state.wasPlaying};
-  window.pendingAudioResume = saved;
-  playLocalTrack(idx, true);
+  if (idx >= 0) {
+    const saved = {uri: state.uri, position: Number(state.position) || 0, wasPlaying: !!state.wasPlaying};
+    window.pendingAudioResume = saved;
+    playLocalTrack(idx, true);
+  } else {
+    renderQueue();
+    syncPlayerControls();
+  }
   setPlayerContentView(state.contentView === 'lyrics' ? 'lyrics' : 'song');
   showAndroidLocalTab(state.view === 'player' ? 'player' : 'library');
   restoringSavedPlayback = false;
@@ -1336,7 +1342,7 @@ $('libraryGroupBack').addEventListener('click', () => {
   persistAndroidPlayback(true);
 });
 $('playAllBtn').addEventListener('click', () => {
-  if (!displayedTrackIndices.length) return;
+  if (!localTracks.length) return;
   openPlayAllChoice();
 });
 
@@ -1429,6 +1435,7 @@ function removeLocalTrack(idx) {
   renderQueue();
   syncPlayerControls();
   updateMiniPlayer();
+  persistAndroidPlayback(true);
 }
 
 function formatPlayerTime(seconds) {
@@ -1728,6 +1735,7 @@ function clearQueue() {
   updateMiniPlayer();
   syncPlayerControls();
   closeQueue();
+  persistAndroidPlayback(true);
 }
 
 $('playbackModeBtn').addEventListener('click', () => {
