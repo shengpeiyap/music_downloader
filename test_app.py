@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
 from io import StringIO
-from launcher import enable_file_downloads
+from launcher import create_native_window, enable_file_downloads
 from package_portable import create_portable_archive
 
 
@@ -35,6 +35,21 @@ class DesktopLauncherTests(unittest.TestCase):
         enable_file_downloads(webview_module)
         self.assertTrue(webview_module.settings["ALLOW_DOWNLOADS"])
 
+    def test_native_window_uses_supported_pywebview_arguments(self):
+        captured = {}
+
+        def create_window(title, url, width, height, min_size, background_color):
+            captured.update(locals())
+            return "window"
+
+        webview_module = SimpleNamespace(create_window=create_window)
+        result = create_native_window(webview_module, "http://127.0.0.1:8765")
+
+        self.assertEqual(result, "window")
+        self.assertEqual(captured["title"], "MusicDesk")
+        self.assertEqual(captured["url"], "http://127.0.0.1:8765")
+        self.assertEqual(captured["min_size"], (800, 600))
+
     def test_portable_archive_keeps_app_relative_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -55,7 +70,8 @@ class DesktopLauncherTests(unittest.TestCase):
     def test_portable_executable_defaults_to_native_webview_window(self):
         launcher = (Path(__file__).parent / "launcher.py").read_text(encoding="utf-8")
         self.assertIn('"--browser",\n        action="store_true"', launcher)
-        self.assertIn('webview.create_window(', launcher)
+        self.assertIn('webview_module.create_window(', launcher)
+        self.assertNotIn('icon=icon', launcher)
         browser_branch = launcher.split('if args.browser:', 1)[1].split('try:\n        import webview', 1)[0]
         self.assertIn('_show_browser_mode(url, shutdown)', browser_branch)
 

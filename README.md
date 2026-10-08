@@ -6,7 +6,7 @@
 
 [![Release](https://img.shields.io/github/v/release/shengpeiyap/music_downloader?label=最新%20Release)](https://github.com/shengpeiyap/music_downloader/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-42%20passed-brightgreen)](#tests)
+[![Tests](https://img.shields.io/badge/tests-46%20passed-brightgreen)](#tests)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%20%7C%20macOS%2FLinux-lightgrey)](#)
 
 ---
@@ -146,7 +146,7 @@ python -m unittest discover -v
 python -m unittest test_app -v
 ```
 
-当前状态：**45 passed ✅**
+当前状态：**46 passed ✅**
 覆盖模块：FFmpeg 查找、桌面启动器、便携打包、本地标签元数据、HTML 前端完整性、Android asset 同步、关键词与链接元数据、Spotify/YouTube URL 解析、歌词库检索、媒体下载调度、LAN API 鉴权与 CORS、智能封面 padding 裁剪、导出处理。
 
 ---

@@ -20,6 +20,18 @@ def enable_file_downloads(webview_module) -> None:
     webview_module.settings["ALLOW_DOWNLOADS"] = True
 
 
+def create_native_window(webview_module, url: str):
+    """Create the app window using the pywebview API supported by the bundle."""
+    return webview_module.create_window(
+        title="MusicDesk",
+        url=url,
+        width=1200,
+        height=860,
+        min_size=(800, 600),
+        background_color="#121218",
+    )
+
+
 def _find_icon() -> str | None:
     p = ROOT / "icon.ico"
     if p.is_file():
@@ -168,24 +180,14 @@ def main() -> None:
 
     try:
         enable_file_downloads(webview)
-        icon = _find_icon()
-        webview.create_window(
-            title="MusicDesk",
-            url=url,
-            width=1200,
-            height=860,
-            min_size=(800, 600),
-            icon=icon,
-            background_color="#121218",
-        )
+        create_native_window(webview, url)
         webview.start(debug=False, func=None)
     except Exception as e:
         body = (
-            "无法启动 MusicDesk 原生窗口（Edge WebView2 运行时缺失或损坏）。\n\n"
-            "解决方法：\n"
-            "  1. 安装 Microsoft Edge WebView2 Runtime（官方免费）：\n"
-            "     https://developer.microsoft.com/microsoft-edge/webview2/\n"
-            "  2. 或使用命令行启动：MusicDesk.exe --browser  在系统默认浏览器打开\n\n"
+            "无法启动 MusicDesk 原生窗口。请确认便携版文件完整；若错误提示 WebView2 缺失，"
+            "请安装 Microsoft Edge WebView2 Runtime：\n"
+            "https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
+            "临时方案：使用命令行参数 MusicDesk.exe --browser 在默认浏览器打开。\n\n"
             f"详细错误：{e}"
         )
         _show_error_dialog("MusicDesk 原生窗口启动失败", body)
