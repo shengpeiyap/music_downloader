@@ -146,7 +146,7 @@ python -m unittest discover -v
 python -m unittest test_app -v
 ```
 
-当前状态：**42 passed ✅**
+当前状态：**45 passed ✅**
 覆盖模块：FFmpeg 查找、桌面启动器、便携打包、本地标签元数据、HTML 前端完整性、Android asset 同步、关键词与链接元数据、Spotify/YouTube URL 解析、歌词库检索、媒体下载调度、LAN API 鉴权与 CORS、智能封面 padding 裁剪、导出处理。
 
 ---
@@ -156,9 +156,9 @@ python -m unittest test_app -v
 ```
 music_downloader/
 ├── app.py                      # Python 后端：HTTP 服务、元数据/歌词检索、下载/转换/标签
-├── launcher.py                 # 桌面原生窗口入口（pywebview + 浏览器回退）
+├── launcher.py                 # 桌面原生窗口入口（pywebview；仅显式 --browser 使用外部浏览器）
 ├── index.html                  # 整个前端页面（播放器 / 检索 / 转换 / 标签 / Android UI）
-├── test_app.py                 # 42 个单元测试
+├── test_app.py                 # 前后端与 Android 静态回归测试
 ├── spotdl_launcher.py / yt_dlp_launcher.py  # 打包为独立 exe 时的入口
 ├── package_portable.py         # PyInstaller onedir → portable.zip
 ├── build_windows.bat           # Windows 一键构建脚本

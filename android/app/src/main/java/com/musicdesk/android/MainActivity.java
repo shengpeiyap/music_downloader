@@ -2,7 +2,12 @@ package com.musicdesk.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.media.MediaMetadataRetriever;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -33,6 +38,8 @@ import java.io.OutputStream;
 import java.util.UUID;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 
 public final class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 4102;
@@ -40,6 +47,7 @@ public final class MainActivity extends Activity {
     private static final int DOWNLOAD_DESTINATION_REQUEST = 4104;
     private static final String PREFS_NAME = "musicdesk-library";
     private static final String PREF_SAVED_FOLDERS = "saved-folder-uris";
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 4105;
 
     private WebView webView;
     private ValueCallback<Uri[]> fileSelectionCallback;
@@ -47,6 +55,18 @@ public final class MainActivity extends Activity {
     private Uri downloadUri;
     private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor();
+    private final Map<String, JSONObject> cachedTracks = new HashMap<>();
+    private boolean mediaReceiverRegistered;
+    private volatile boolean playbackActive;
+    private final BroadcastReceiver mediaCommandReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            String command = intent.getStringExtra(MusicPlaybackService.EXTRA_COMMAND);
+            if (webView != null && command != null) {
+                webView.evaluateJavascript("window.onAndroidMediaCommand && window.onAndroidMediaCommand(" + JSONObject.quote(command) + ")", null);
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +81,9 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
         WebSettings settings = webView.getSettings();
+        settings.setSupportZoom(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(true);
@@ -114,6 +137,10 @@ public final class MainActivity extends Activity {
         });
 
         setContentView(webView);
+        IntentFilter mediaFilter = new IntentFilter(MusicPlaybackService.ACTION_MEDIA_COMMAND);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(mediaCommandReceiver, mediaFilter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(mediaCommandReceiver, mediaFilter);
+        mediaReceiverRegistered = true;
         webView.loadUrl("file:///android_asset/index.html");
     }
 
@@ -180,6 +207,13 @@ public final class MainActivity extends Activity {
     private void scanFolderAsync(Uri tree) {
         folderExecutor.execute(() -> {
             JSONArray tracks = scanTree(tree);
+            mergeCachedTracks(tracks);
+            saveTrackCache();
+            publishTrackChunks(tracks, true);
+        });
+    }
+
+    private void publishTrackChunks(JSONArray tracks, boolean finalChunk) {
             int chunkSize = 100;
             int total = tracks.length();
             if (total == 0) {
@@ -192,14 +226,56 @@ public final class MainActivity extends Activity {
                 int end = Math.min(start + chunkSize, total);
                 for (int index = start; index < end; index++) batch.put(tracks.optJSONObject(index));
                 String payload = JSONObject.quote(batch.toString());
-                boolean finished = end == total;
+                boolean finished = finalChunk && end == total;
                 boolean capped = total >= 5000;
                 String script = "window.onAndroidFolderPicked && window.onAndroidFolderPicked(" + payload + "," + finished + "," + capped + ")";
                 runOnUiThread(() -> {
                     if (webView != null) webView.evaluateJavascript(script, null);
                 });
             }
-        });
+    }
+
+    private File trackCacheFile() { return new File(getFilesDir(), "musicdesk-library-index.json"); }
+
+    private JSONArray readTrackCache() {
+        File file = trackCacheFile();
+        if (!file.isFile()) return new JSONArray();
+        try (InputStream input = new java.io.FileInputStream(file); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            JSONArray records = new JSONArray(output.toString("UTF-8"));
+            cachedTracks.clear();
+            for (int i = 0; i < records.length(); i++) {
+                JSONObject record = records.optJSONObject(i);
+                if (record != null && record.optString("uri", "").length() > 0) cachedTracks.put(record.optString("uri"), record);
+            }
+            return records;
+        } catch (Exception ignored) {
+            return new JSONArray();
+        }
+    }
+
+    private void mergeCachedTracks(JSONArray records) {
+        for (int i = 0; i < records.length(); i++) {
+            JSONObject record = records.optJSONObject(i);
+            if (record != null && record.optString("uri", "").length() > 0) cachedTracks.put(record.optString("uri"), record);
+        }
+    }
+
+    private void saveTrackCache() {
+        JSONArray records = new JSONArray();
+        for (JSONObject record : cachedTracks.values()) records.put(record);
+        File destination = trackCacheFile();
+        File temporary = new File(destination.getParentFile(), destination.getName() + ".tmp");
+        try (FileOutputStream output = new FileOutputStream(temporary)) {
+            output.write(records.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            output.getFD().sync();
+            if (!temporary.renameTo(destination)) {
+                try (FileOutputStream retry = new FileOutputStream(destination)) { retry.write(records.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
+                temporary.delete();
+            }
+        } catch (IOException ignored) { temporary.delete(); }
     }
 
     private void rememberFolder(Uri tree) {
@@ -213,23 +289,32 @@ public final class MainActivity extends Activity {
         if (depth > 32 || results.length() >= 5000) return;
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
         String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE};
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED};
         try (Cursor cursor = getContentResolver().query(children, columns, null, null, null)) {
             if (cursor == null) return;
             while (cursor.moveToNext() && results.length() < 5000) {
                 String id = cursor.getString(0);
                 String name = cursor.getString(1);
                 String mime = cursor.getString(2);
+                long modified = cursor.getColumnCount() > 3 && !cursor.isNull(3) ? cursor.getLong(3) : 0L;
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
                     String childPath = folderPath.isEmpty() ? name : folderPath + "/" + name;
                     scanDocumentTree(tree, id, results, depth + 1, childPath);
                 } else if (isAudio(name, mime)) {
                     Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(tree, id);
+                    JSONObject cached = cachedTracks.get(fileUri.toString());
+                    if (cached != null && cached.optLong("modified", -1L) == modified
+                            && name.equals(cached.optString("name"))) {
+                        results.put(cached);
+                        continue;
+                    }
                     JSONObject track = new JSONObject();
                     try {
                         track.put("uri", fileUri.toString());
                         track.put("name", name);
                         track.put("folderPath", folderPath);
+                        track.put("modified", modified);
                         track.put("title", name.replaceFirst("(?i)\\.[^.]+$", ""));
                         track.put("artist", "未知歌手");
                         track.put("album", "未知专辑");
@@ -286,7 +371,46 @@ public final class MainActivity extends Activity {
                 if (webView != null) webView.evaluateJavascript(
                         "document.getElementById('androidScopeNote').textContent='正在恢复上次的曲库…';document.getElementById('androidScopeNote').style.display='block'", null);
             });
-            for (String value : saved) scanFolderAsync(Uri.parse(value));
+            folderExecutor.execute(() -> {
+                JSONArray cached = readTrackCache();
+                if (cached.length() > 0) runOnUiThread(() -> publishTrackChunks(cached, true));
+                JSONArray refreshed = new JSONArray();
+                for (String value : saved) {
+                    JSONArray fresh = scanTree(Uri.parse(value));
+                    mergeCachedTracks(fresh);
+                    saveTrackCache();
+                    for (int i = 0; i < fresh.length(); i++) refreshed.put(fresh.optJSONObject(i));
+                }
+                if (refreshed.length() > 0) runOnUiThread(() -> publishTrackChunks(refreshed, true));
+            });
+        }
+
+        @JavascriptInterface
+        public void updatePlayback(String payload) {
+            try {
+                JSONObject state = new JSONObject(payload);
+                playbackActive = state.optBoolean("playing");
+                if (state.optBoolean("playing") && Build.VERSION.SDK_INT >= 33
+                        && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    runOnUiThread(() -> requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST));
+                }
+                Intent intent = new Intent(MainActivity.this, MusicPlaybackService.class)
+                        .setAction(MusicPlaybackService.ACTION_UPDATE)
+                        .putExtra(MusicPlaybackService.EXTRA_TITLE, state.optString("title"))
+                        .putExtra(MusicPlaybackService.EXTRA_ARTIST, state.optString("artist"))
+                        .putExtra(MusicPlaybackService.EXTRA_ALBUM, state.optString("album"))
+                        .putExtra(MusicPlaybackService.EXTRA_PLAYING, state.optBoolean("playing"))
+                        .putExtra(MusicPlaybackService.EXTRA_POSITION, state.optDouble("position", 0))
+                        .putExtra(MusicPlaybackService.EXTRA_DURATION, state.optDouble("duration", 0))
+                        .putExtra(MusicPlaybackService.EXTRA_ARTWORK, state.optString("artwork"));
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
+            } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface
+        public void stopPlayback() {
+            playbackActive = false;
+            stopService(new Intent(MainActivity.this, MusicPlaybackService.class));
         }
 
         @JavascriptInterface
@@ -296,7 +420,7 @@ public final class MainActivity extends Activity {
 
         @JavascriptInterface
         public void loadAudio(String contentUri, int index) {
-            folderExecutor.execute(() -> {
+            audioExecutor.execute(() -> {
                 String localUri = null;
                 String artworkData = "";
                 String error = "";
@@ -449,6 +573,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         folderExecutor.shutdownNow();
+        audioExecutor.shutdownNow();
         if (downloadOutput != null) {
             try { downloadOutput.close(); } catch (IOException ignored) {}
             downloadOutput = null;
@@ -471,6 +596,11 @@ public final class MainActivity extends Activity {
             webView.destroy();
             webView = null;
         }
+        stopService(new Intent(this, MusicPlaybackService.class));
+        if (mediaReceiverRegistered) {
+            try { unregisterReceiver(mediaCommandReceiver); } catch (IllegalArgumentException ignored) { }
+            mediaReceiverRegistered = false;
+        }
         super.onDestroy();
     }
 
@@ -484,6 +614,10 @@ public final class MainActivity extends Activity {
         }
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
+            return;
+        }
+        if (playbackActive) {
+            moveTaskToBack(true);
             return;
         }
         super.onBackPressed();

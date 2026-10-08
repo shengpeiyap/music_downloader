@@ -52,8 +52,41 @@ class DesktopLauncherTests(unittest.TestCase):
                 })
                 self.assertIsNone(archive.testzip())
 
+    def test_portable_executable_defaults_to_native_webview_window(self):
+        launcher = (Path(__file__).parent / "launcher.py").read_text(encoding="utf-8")
+        self.assertIn('"--browser",\n        action="store_true"', launcher)
+        self.assertIn('webview.create_window(', launcher)
+        browser_branch = launcher.split('if args.browser:', 1)[1].split('try:\n        import webview', 1)[0]
+        self.assertIn('_show_browser_mode(url, shutdown)', browser_branch)
+
 
 class LocalTagMetadataTests(unittest.TestCase):
+    def test_android_player_preserves_queue_order_and_shuffles_the_queue(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn('if (!playbackQueue.includes(localTracks[idx]))', page)
+        self.assertIn('function shuffleQueue()', page)
+        self.assertIn('[playbackQueue[i], playbackQueue[j]] = [playbackQueue[j], playbackQueue[i]]', page)
+        self.assertIn('PLAYBACK_MODE_ICONS', page)
+        self.assertIn("if (mode === 'shuffle') shuffleQueue()", page)
+
+    def test_android_library_cache_zoom_sheet_and_media_session_hooks_exist(self):
+        root = Path(__file__).parent
+        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        service = (root / "android/app/src/main/java/com/musicdesk/android/MusicPlaybackService.java").read_text(encoding="utf-8")
+        manifest = (root / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        page = (root / "index.html").read_text(encoding="utf-8")
+        self.assertIn('settings.setSupportZoom(false)', activity)
+        self.assertIn('musicdesk-library-index.json', activity)
+        self.assertIn('COLUMN_LAST_MODIFIED', activity)
+        self.assertIn('audioExecutor.execute', activity)
+        self.assertIn('android:foregroundServiceType="mediaPlayback"', manifest)
+        self.assertIn('android.permission.POST_NOTIFICATIONS', manifest)
+        self.assertIn('setMediaSession(mediaSession.getSessionToken())', service)
+        self.assertIn('onSkipToNext()', service)
+        self.assertIn('playbackActive = false', activity)
+        self.assertIn('window.onAndroidMediaCommand', page)
+        self.assertIn('finishPlayAllTouch', page)
+
     def test_lyrics_reader_sends_only_fields_needed_for_lookup(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
         self.assertIn(
@@ -132,7 +165,8 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("rememberFolder(tree)", activity)
         self.assertIn("preferences.getStringSet(PREF_SAVED_FOLDERS", activity)
         self.assertIn("AndroidMusic.restoreFolders()", page)
-        self.assertIn("scanFolderAsync(Uri.parse(value))", activity)
+        self.assertIn("JSONArray refreshed = new JSONArray()", activity)
+        self.assertIn("publishTrackChunks(cached, true)", activity)
         self.assertIn("id=\"queueDragHandle\"", page)
         self.assertIn("queueDragHandle.addEventListener('pointermove'", page)
         self.assertIn("AndroidMusic.setQueueOpen(false)", page)
