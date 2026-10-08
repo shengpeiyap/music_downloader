@@ -98,6 +98,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('// Initialize the playback mode control immediately on every platform', page)
         self.assertTrue(page.rstrip().endswith('syncPlayerControls();\n</script></body></html>'))
         self.assertIn('PLAYBACK_MODE_ICONS', page)
+        self.assertIn('let lastMediaSessionUpdate = 0;', page)
         self.assertNotIn('playbackQueue = playbackQueue.filter(track => track !== current)', page)
 
     def test_android_library_cache_zoom_sheet_and_media_session_hooks_exist(self):

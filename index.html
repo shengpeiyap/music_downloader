@@ -610,6 +610,7 @@ let androidContentView = 'song';
 let pendingSavedPlayback = null;
 let restoringSavedPlayback = false;
 let lastSavedPlaybackBucket = -1;
+let lastMediaSessionUpdate = 0;
 try { pendingSavedPlayback = JSON.parse(localStorage.getItem('musicdesk-playback-state') || 'null'); } catch (_) {}
 
 function persistAndroidPlayback(force = false) {
