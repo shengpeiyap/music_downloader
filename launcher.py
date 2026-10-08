@@ -14,15 +14,16 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from app import Handler, ROOT
+from desktop_media import DesktopMediaBridge
 
 
 def enable_file_downloads(webview_module) -> None:
     webview_module.settings["ALLOW_DOWNLOADS"] = True
 
 
-def create_native_window(webview_module, url: str):
+def create_native_window(webview_module, url: str, js_api=None):
     """Create the app window using the pywebview API supported by the bundle."""
-    return webview_module.create_window(
+    options = dict(
         title="MusicDesk",
         url=url,
         width=1200,
@@ -30,6 +31,9 @@ def create_native_window(webview_module, url: str):
         min_size=(800, 600),
         background_color="#121218",
     )
+    if js_api is not None:
+        options["js_api"] = js_api
+    return webview_module.create_window(**options)
 
 
 def _find_icon() -> str | None:
@@ -180,7 +184,9 @@ def main() -> None:
 
     try:
         enable_file_downloads(webview)
-        create_native_window(webview, url)
+        desktop_api = DesktopMediaBridge(server)
+        window = create_native_window(webview, url, desktop_api)
+        desktop_api.window = window
         webview.start(debug=False, func=None)
     except Exception as e:
         body = (

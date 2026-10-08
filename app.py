@@ -26,6 +26,7 @@ from io import BytesIO
 
 from PIL import Image
 import musicbrainzngs
+from desktop_media import resolve_selected_audio, serve_local_audio
 
 musicbrainzngs.set_useragent("MusicDesk", "1.0", "https://github.com/musicdesk")
 
@@ -853,11 +854,27 @@ class Handler(SimpleHTTPRequestHandler):
             # Remote LAN clients get the API only; keep the browser UI local to this computer.
             self.send_error(404)
             return
+        local_audio_prefix = "/api/local-audio/"
+        request_path = urllib.parse.urlsplit(self.path).path
+        if request_path.startswith(local_audio_prefix):
+            if not is_loopback_address(self.client_address[0]):
+                self.send_error(404)
+                return
+            serve_local_audio(self, request_path[len(local_audio_prefix):])
+            return
         super().do_GET()
 
     def do_HEAD(self):
         if getattr(self.server, "lan_mode", False) and not is_loopback_address(self.client_address[0]):
             self.send_error(404)
+            return
+        local_audio_prefix = "/api/local-audio/"
+        request_path = urllib.parse.urlsplit(self.path).path
+        if request_path.startswith(local_audio_prefix):
+            if not is_loopback_address(self.client_address[0]):
+                self.send_error(404)
+                return
+            serve_local_audio(self, request_path[len(local_audio_prefix):])
             return
         super().do_HEAD()
 
@@ -908,23 +925,31 @@ class Handler(SimpleHTTPRequestHandler):
                 if length < 1 or length > MAX_UPLOAD:
                     raise ValueError("文件不能为空或超过 150 MB。")
                 raw = self.rfile.read(length)
-                fields = multipart_fields(self.headers.get("Content-Type", ""), raw)
-                file_part = fields.get("file")
-                if not file_part or not file_part.get_filename():
-                    raise ValueError("请选择有效的音乐文件。")
-
-                filename = Path(file_part.get_filename()).name
-                file_data = file_part.get_payload(decode=True) or b""
-
-                with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix, delete=False) as tmp:
-                    tmp.write(file_data)
-                    tmp_path = Path(tmp.name)
-
-                try:
-                    result = read_music_metadata(str(tmp_path), filename)
+                if self.headers.get("Content-Type", "").startswith("application/json"):
+                    request_data = json.loads(raw)
+                    source = resolve_selected_audio(self.server, str(request_data.get("local_audio_id", "")))
+                    if source is None or not is_loopback_address(self.client_address[0]):
+                        raise ValueError("所选音乐文件已失效，请重新选择。")
+                    result = read_music_metadata(str(source), source.name)
                     self.send_json(200, result)
-                finally:
-                    tmp_path.unlink(missing_ok=True)
+                else:
+                    fields = multipart_fields(self.headers.get("Content-Type", ""), raw)
+                    file_part = fields.get("file")
+                    if not file_part or not file_part.get_filename():
+                        raise ValueError("请选择有效的音乐文件。")
+
+                    filename = Path(file_part.get_filename()).name
+                    file_data = file_part.get_payload(decode=True) or b""
+
+                    with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix, delete=False) as tmp:
+                        tmp.write(file_data)
+                        tmp_path = Path(tmp.name)
+
+                    try:
+                        result = read_music_metadata(str(tmp_path), filename)
+                        self.send_json(200, result)
+                    finally:
+                        tmp_path.unlink(missing_ok=True)
 
             except Exception as exc:
                 self.send_json(400, {"error": str(exc) or "解析本地音频标签失败。"})
@@ -941,6 +966,12 @@ class Handler(SimpleHTTPRequestHandler):
                 audio_part = fields.get("audio_file")
                 cover_part = fields.get("cover_file")
                 has_audio_file = bool(audio_part and audio_part.get_filename())
+                local_audio_id = multipart_text(fields, "local_audio_id")
+                local_audio_path = resolve_selected_audio(self.server, local_audio_id) if local_audio_id else None
+                if local_audio_path is not None and not is_loopback_address(self.client_address[0]):
+                    local_audio_path = None
+                if local_audio_id and local_audio_path is None:
+                    raise ValueError("所选音乐文件已失效，请重新选择。")
 
                 title = multipart_text(fields, "title")
                 artist = multipart_text(fields, "artist")
@@ -954,11 +985,11 @@ class Handler(SimpleHTTPRequestHandler):
 
                 if export_format not in FORMATS:
                     export_format = "mp3"
-                if not has_audio_file and not title:
+                if not has_audio_file and local_audio_path is None and not title:
                     raise ValueError("请提供本地音频，或先搜索并填写歌曲标题。")
 
                 audio_bytes = (audio_part.get_payload(decode=True) or b"") if has_audio_file else None
-                orig_filename = Path(audio_part.get_filename()).name if has_audio_file else ""
+                orig_filename = Path(audio_part.get_filename()).name if has_audio_file else (local_audio_path.name if local_audio_path else "")
 
                 ffmpeg = find_ffmpeg_exe()
                 if not ffmpeg:
@@ -966,9 +997,12 @@ class Handler(SimpleHTTPRequestHandler):
 
                 with tempfile.TemporaryDirectory(prefix="musicdesk-tag-") as work:
                     work_dir = Path(work)
-                    in_audio, orig_filename = acquire_custom_audio_source(
-                        audio_bytes, orig_filename, title, artist, preferred_engine, work_dir
-                    )
+                    if local_audio_path is not None:
+                        in_audio = local_audio_path
+                    else:
+                        in_audio, orig_filename = acquire_custom_audio_source(
+                            audio_bytes, orig_filename, title, artist, preferred_engine, work_dir
+                        )
 
                     staged_audio = work_dir / f"staged.{export_format}"
                     proc = subprocess.run(
@@ -1091,15 +1125,24 @@ class Handler(SimpleHTTPRequestHandler):
                 )
                 fields = {part.get_param("name", header="content-disposition"): part for part in message.iter_parts()}
                 file_part = fields.get("file")
+                local_audio_id = str(fields["local_audio_id"].get_content()).strip() if fields.get("local_audio_id") else ""
+                local_audio_path = resolve_selected_audio(self.server, local_audio_id) if local_audio_id else None
+                if local_audio_path is not None and not is_loopback_address(self.client_address[0]):
+                    local_audio_path = None
+                if local_audio_id and local_audio_path is None:
+                    raise ValueError("所选音乐文件已失效，请重新选择。")
                 fmt = str(fields["format"].get_content()).strip().lower() if fields.get("format") else ""
-                if not file_part or not file_part.get_filename() or fmt not in FORMATS:
+                has_file = bool(file_part and file_part.get_filename())
+                if (not has_file and local_audio_path is None) or fmt not in FORMATS:
                     raise ValueError("请选择音频文件和有效的导出格式。")
-                
-                source_name = SAFE_NAME.sub("_", Path(file_part.get_filename()).name).strip(" .") or "audio"
+
+                selected_name = file_part.get_filename() if has_file else local_audio_path.name
+                source_name = SAFE_NAME.sub("_", Path(selected_name).name).strip(" .") or "audio"
                 with tempfile.TemporaryDirectory(prefix="musicdesk-") as work:
-                    source = Path(work) / ("input" + Path(source_name).suffix[:12])
+                    source = local_audio_path or Path(work) / ("input" + Path(source_name).suffix[:12])
                     target = Path(work) / ("converted." + fmt)
-                    source.write_bytes(file_part.get_payload(decode=True) or b"")
+                    if has_file:
+                        source.write_bytes(file_part.get_payload(decode=True) or b"")
                     proc = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", str(source), "-y", str(target)], capture_output=True, timeout=300, env=get_env_with_utf8())
                     if proc.returncode or not target.exists():
                         raise ValueError("转换失败。请确认上传的是可读取的音频文件。")

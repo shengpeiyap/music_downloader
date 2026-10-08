@@ -221,7 +221,7 @@
       </section>
 
       <section class="card"><h2>转换本地音频</h2><p class="hint">转换引擎由 MusicDesk 自动准备；选择你拥有或有权处理的音频文件</p>
-        <form id="convert"><label class="filebox">选择音频文件<input id="audio" type="file" accept="audio/*,.m4a,.flac,.ogg,.wav,.mp3"></label>
+        <form id="convert"><label class="filebox">选择音频文件<span id="audioSelection"></span><input id="audio" type="file" accept="audio/*,.m4a,.flac,.ogg,.wav,.mp3"></label>
           <div class="row" style="margin-top:16px"><div><label for="format">导出格式</label><select id="format"><option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="flac">FLAC</option><option value="wav">WAV</option><option value="ogg">OGG</option></select></div><button id="convertBtn">转换并保存</button></div>
         </form><p class="status" id="convertStatus" aria-live="polite"></p>
       </section>
@@ -243,6 +243,7 @@
         </div>
         <label class="filebox drop-zone" id="customAudioDrop" style="margin-bottom:20px">
           第一步：点击选择或将音乐文件拖到这里
+          <span id="customAudioSelection"></span>
           <input id="customAudioInput" type="file" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg">
         </label>
         <div id="customEngineRow" style="display:block;margin-bottom:18px">
@@ -611,10 +612,75 @@ let pendingSavedPlayback = null;
 let restoringSavedPlayback = false;
 let lastSavedPlaybackBucket = -1;
 let lastMediaSessionUpdate = 0;
+const browserFileSources = new WeakMap();
+const FILE_HANDLE_DB = 'musicdesk-file-access';
 try { pendingSavedPlayback = JSON.parse(localStorage.getItem('musicdesk-playback-state') || 'null'); } catch (_) {}
 
+function openFileHandleDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(FILE_HANDLE_DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('handles', {keyPath: 'key'});
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveFileHandle(key, handle) {
+  const db = await openFileHandleDb();
+  await new Promise((resolve, reject) => {
+    const request = db.transaction('handles', 'readwrite').objectStore('handles').put({key, handle});
+    request.onsuccess = resolve;
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+}
+
+async function clearIndividualFileHandles() {
+  const db = await openFileHandleDb();
+  await new Promise((resolve, reject) => {
+    const store = db.transaction('handles', 'readwrite').objectStore('handles');
+    const request = store.getAllKeys();
+    request.onsuccess = () => {
+      request.result.filter(key => String(key).startsWith('file:')).forEach(key => store.delete(key));
+      resolve();
+    };
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+}
+
+async function loadFileHandles() {
+  const db = await openFileHandleDb();
+  const records = await new Promise((resolve, reject) => {
+    const request = db.transaction('handles', 'readonly').objectStore('handles').getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return records;
+}
+
+async function hasReadPermission(handle) {
+  if (!handle || !handle.queryPermission) return false;
+  try { return await handle.queryPermission({mode: 'read'}) === 'granted'; } catch (_) { return false; }
+}
+
+async function collectDirectoryAudio(handle, prefix = '') {
+  const files = [];
+  for await (const [name, entry] of handle.entries()) {
+    const relativePath = prefix ? `${prefix}/${name}` : name;
+    if (entry.kind === 'directory') files.push(...await collectDirectoryAudio(entry, relativePath));
+    else if (AUDIO_EXTENSIONS.test(name)) {
+      const file = await entry.getFile();
+      browserFileSources.set(file, {key: `directory:${relativePath}`, handle: entry, folderPath: relativePath.split('/').slice(0, -1).join('/')});
+      files.push(file);
+    }
+  }
+  return files;
+}
+
 function persistAndroidPlayback(force = false) {
-  if (!window.AndroidMusic || restoringSavedPlayback) return;
+  if (restoringSavedPlayback) return;
   const player = $('localAudioPlayer');
   const track = localTracks[currentTrackIdx] || null;
   const seconds = track && Number.isFinite(player.currentTime) ? player.currentTime : 0;
@@ -622,20 +688,24 @@ function persistAndroidPlayback(force = false) {
   if (!force && bucket === lastSavedPlaybackBucket) return;
   lastSavedPlaybackBucket = bucket;
   const state = {
-    uri: track && track.contentUri || '', position: seconds, wasPlaying: !!track && !player.paused,
-    queue: playbackQueue.map(item => item.contentUri).filter(Boolean),
+    uri: track ? localTrackKey(track) : '', position: seconds, wasPlaying: !!track && !player.paused,
+    queue: playbackQueue.map(localTrackKey),
+    desktopFiles: localTracks.map(item => item.desktopPath).filter(Boolean),
     view: androidView, contentView: androidContentView, category: libraryCategory,
     group: libraryGroup, search: $('searchLocal').value, mode: playbackMode
   };
   try { localStorage.setItem('musicdesk-playback-state', JSON.stringify(state)); } catch (_) {}
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.save_playback_state) {
+    window.pywebview.api.save_playback_state(JSON.stringify(state)).catch(() => {});
+  }
 }
 
 function tryRestoreSavedPlayback() {
   const state = pendingSavedPlayback;
   if (!state || restoringSavedPlayback) return;
-  const idx = state.uri ? localTracks.findIndex(track => track.contentUri === state.uri) : -1;
+  const idx = state.uri ? localTracks.findIndex(track => localTrackKey(track) === state.uri) : -1;
   const savedQueue = Array.isArray(state.queue) ? state.queue : [];
-  const restoredQueue = savedQueue.map(uri => localTracks.find(track => track.contentUri === uri)).filter(Boolean);
+  const restoredQueue = savedQueue.map(key => localTracks.find(track => localTrackKey(track) === key)).filter(Boolean);
   restoringSavedPlayback = true;
   libraryCategory = ['songs', 'artists', 'albums', 'folders', 'favorites'].includes(state.category) ? state.category : 'songs';
   libraryGroup = state.group || '';
@@ -650,14 +720,15 @@ function tryRestoreSavedPlayback() {
   pendingSavedPlayback = null;
   if (idx >= 0) {
     const saved = {uri: state.uri, position: Number(state.position) || 0, wasPlaying: !!state.wasPlaying};
-    window.pendingAudioResume = saved;
+    if (localTracks[idx].contentUri && window.AndroidMusic) window.pendingAudioResume = saved;
+    else window.pendingLocalAudioResume = saved;
     playLocalTrack(idx, true);
   } else {
     renderQueue();
     syncPlayerControls();
   }
   setPlayerContentView(state.contentView === 'lyrics' ? 'lyrics' : 'song');
-  showAndroidLocalTab(state.view === 'player' ? 'player' : 'library');
+  if (window.AndroidMusic) showAndroidLocalTab(state.view === 'player' ? 'player' : 'library');
   restoringSavedPlayback = false;
   lastSavedPlaybackBucket = -1;
 }
@@ -855,13 +926,15 @@ $('downloadBtn').addEventListener('click', async () => {
 $('convert').addEventListener('submit', async e => {
   e.preventDefault();
   const file = $('audio').files[0];
-  if (!file) return;
-  if (file.size > 150 * 1024 * 1024) { $('convertStatus').textContent = '文件不能超过 150 MB。'; return; }
+  const desktopAudio = selectedDesktopConvertAudio;
+  if (!file && !desktopAudio) return;
+  if (file && file.size > 150 * 1024 * 1024) { $('convertStatus').textContent = '文件不能超过 150 MB。'; return; }
   $('convertBtn').disabled = true;
   $('convertStatus').textContent = '正在本机转换…';
   try {
     const body = new FormData();
-    body.append('file', file);
+    if (file) body.append('file', file);
+    if (desktopAudio) body.append('local_audio_id', desktopAudio.url.split('/').pop());
     body.append('format', $('format').value);
     const r = await requestMusicDeskApi('/api/convert', {method: 'POST', body});
     if (!r.ok) { const d = await r.json(); throw Error(d.error || '转换失败'); }
@@ -874,9 +947,59 @@ $('convert').addEventListener('submit', async e => {
   }
 });
 
+let selectedDesktopConvertAudio = null;
+$('audio').addEventListener('click', event => {
+  if (!window.pywebview || !window.pywebview.api) return;
+  event.preventDefault();
+  window.pywebview.api.select_audio_files().then(records => {
+    const record = Array.isArray(records) ? records[0] : null;
+    if (!record) return;
+    selectedDesktopConvertAudio = record;
+    $('audio').value = '';
+    $('audioSelection').textContent = `已选择：${record.name}`;
+  }).catch(error => { $('convertStatus').textContent = error.message || '选择音乐文件失败。'; });
+});
+$('audio').addEventListener('change', () => {
+  selectedDesktopConvertAudio = null;
+  $('audioSelection').textContent = '';
+});
+
 // ===== 自定义 Tab 标签编辑与封装逻辑 =====
+let selectedDesktopCustomAudio = null;
+$('customAudioInput').addEventListener('click', event => {
+  if (!window.pywebview || !window.pywebview.api) return;
+  event.preventDefault();
+  window.pywebview.api.select_audio_files().then(async records => {
+    const record = Array.isArray(records) ? records[0] : null;
+    if (!record) return;
+    selectedDesktopCustomAudio = record;
+    $('customAudioInput').value = '';
+    $('customAudioSelection').textContent = `已选择：${record.name}`;
+    $('customEngineRow').style.display = 'none';
+    $('customCoverPreview').dataset.embeddedCover = '';
+    $('customStatus').textContent = '正在读取并解析音频标签元数据...';
+    const response = await requestMusicDeskApi('/api/parse_local_tag', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({local_audio_id: record.url.split('/').pop()})
+    });
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error || '解析元数据失败');
+    $('tagTitle').value = data.title || '';
+    $('tagArtist').value = data.artist || '';
+    $('tagAlbum').value = data.album || '';
+    $('tagAlbumArtist').value = data.albumartist || '';
+    $('tagYear').value = data.year || '';
+    $('tagLyrics').value = data.lyrics || '';
+    $('tagSearch').value = data.artist && data.artist !== '未知艺人' ? `${data.artist} - ${data.title}` : data.title || '';
+    $('customCoverPreview').dataset.embeddedCover = data.cover || '';
+    $('customCoverPreview').src = data.cover || DEFAULT_COVER;
+    $('customStatus').textContent = '已读取内部资料。您可以更改上述内容后点击导出。';
+  }).catch(error => { $('customStatus').textContent = error.message || '选择或读取音乐文件失败。'; });
+});
 $('customAudioInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
+  selectedDesktopCustomAudio = null;
+  $('customAudioSelection').textContent = '';
   $('customEngineRow').style.display = file ? 'none' : 'block';
   if (!file) return;
   $('customCoverPreview').dataset.embeddedCover = '';
@@ -964,16 +1087,18 @@ $('customCoverInput').addEventListener('change', (e) => {
 $('customTagForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const audioFile = $('customAudioInput').files[0];
-  if (!audioFile && !$('tagTitle').value.trim()) {
+  const desktopAudio = selectedDesktopCustomAudio;
+  if (!audioFile && !desktopAudio && !$('tagTitle').value.trim()) {
     $('customStatus').textContent = '请先选择音频，或搜索并填写曲名后直接封装。';
     return;
   }
 
   $('saveTagBtn').disabled = true;
-  $('customStatus').textContent = audioFile ? '正在打包并写回标签元数据，请稍候...' : '正在搜索音源并封装标签，请稍候...';
+  $('customStatus').textContent = audioFile || desktopAudio ? '正在打包并写回标签元数据，请稍候...' : '正在搜索音源并封装标签，请稍候...';
 
   const formData = new FormData();
   if (audioFile) formData.append('audio_file', audioFile);
+  if (desktopAudio) formData.append('local_audio_id', desktopAudio.url.split('/').pop());
 
   const coverFile = $('customCoverInput').files[0];
   if (coverFile) {
@@ -1020,9 +1145,20 @@ $('customTagForm').addEventListener('submit', async (e) => {
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|flac|wav|ogg)$/i;
 $('selectDirBtn').addEventListener('click', () => {
   if (window.AndroidMusic) AndroidMusic.pickFolder();
+  else if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.select_music_folder().then(records => addDesktopAudioRecords(records, true))
+      .catch(error => { $('playlistDropZone').textContent = error.message || '打开文件夹选择窗口失败。'; });
+  }
+  else if (window.showDirectoryPicker) chooseBrowserDirectory();
   else $('dirInput').click();
 });
-$('selectFilesBtn').addEventListener('click', () => $('audioFilesInput').click());
+$('selectFilesBtn').addEventListener('click', () => {
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.select_audio_files().then(records => addDesktopAudioRecords(records, false))
+      .catch(error => { $('playlistDropZone').textContent = error.message || '打开音乐文件选择窗口失败。'; });
+  } else if (window.showOpenFilePicker) chooseBrowserAudioFiles();
+  else $('audioFilesInput').click();
+});
 $('audioFilesInput').addEventListener('change', event => {
   addLocalAudioFiles(Array.from(event.target.files), false);
   event.target.value = '';
@@ -1038,6 +1174,38 @@ function setupDropZone(zone, onDrop) {
     zone.classList.remove('drag-over');
   }));
   zone.addEventListener('drop', async event => onDrop(await getDroppedFiles(event.dataTransfer)));
+}
+
+async function chooseBrowserDirectory() {
+  try {
+    const handle = await window.showDirectoryPicker({mode: 'read'});
+    await clearIndividualFileHandles();
+    await saveFileHandle('library-directory', handle);
+    const files = await collectDirectoryAudio(handle);
+    addLocalAudioFiles(files, true);
+  } catch (error) {
+    if (error && error.name !== 'AbortError') $('playlistDropZone').textContent = '无法读取所选文件夹，请检查浏览器文件访问权限。';
+  }
+}
+
+async function chooseBrowserAudioFiles() {
+  try {
+    const handles = await window.showOpenFilePicker({
+      multiple: true,
+      types: [{description: '音乐文件', accept: {'audio/*': ['.mp3', '.m4a', '.flac', '.wav', '.ogg']}}]
+    });
+    const files = [];
+    for (const handle of handles) {
+      const file = await handle.getFile();
+      const key = `file:${crypto.randomUUID()}`;
+      browserFileSources.set(file, {key, handle, folderPath: '已选歌曲'});
+      await saveFileHandle(key, handle);
+      files.push(file);
+    }
+    addLocalAudioFiles(files, false);
+  } catch (error) {
+    if (error && error.name !== 'AbortError') $('playlistDropZone').textContent = '无法读取所选音乐文件，请重新授权后重试。';
+  }
 }
 
 async function getDroppedFiles(dataTransfer) {
@@ -1100,6 +1268,8 @@ function addLocalAudioFiles(inputFiles, replace) {
       if (track.contentUri && track.androidCachedUrl && window.AndroidMusic) AndroidMusic.releaseAudio(track.contentUri);
     });
     localTracks = [];
+    playbackQueue = [];
+    playbackOrder = [];
     currentTrackIdx = -1;
     $('localAudioPlayer').removeAttribute('src');
     $('localAudioPlayer').load();
@@ -1111,21 +1281,22 @@ function addLocalAudioFiles(inputFiles, replace) {
   }
   const known = new Set(localTracks.map(localTrackKey));
   const added = files.filter(file => {
-    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    const source = browserFileSources.get(file);
+    const key = source && source.key || `${file.name}:${file.size}:${file.lastModified}`;
     if (known.has(key)) return false;
     known.add(key);
     return true;
-  }).map(file => ({
-    file,
-    title: file.name.replace(/\.[^/.]+$/, ''),
-    artist: '未知歌手',
-    album: '未知专辑',
-    folderPath: file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(0, -1).join('/') : '已选歌曲',
-    favorite: favoriteTrackKeys.has(key),
-    cover: null,
-    lrc: '',
-    objectUrl: null
-  }));
+  }).map(file => {
+    const source = browserFileSources.get(file);
+    const key = source && source.key || `${file.name}:${file.size}:${file.lastModified}`;
+    const fallbackFolder = file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(0, -1).join('/') : '已选歌曲';
+    return {
+      file, browserKey: source && source.key || '', fileHandle: source && source.handle || null,
+      title: file.name.replace(/\.[^/.]+$/, ''), artist: '未知歌手', album: '未知专辑',
+      folderPath: source && source.folderPath || fallbackFolder,
+      favorite: favoriteTrackKeys.has(key), cover: null, lrc: '', objectUrl: null
+    };
+  });
   localTracks.push(...added);
   if (!added.length) {
     $('playlistDropZone').textContent = '这些歌曲已在播放列表中';
@@ -1136,14 +1307,66 @@ function addLocalAudioFiles(inputFiles, replace) {
   if (!window.jsmediatags) {
     $('playlistDropZone').textContent = '歌曲已添加；标签解析库未加载，播放仍可用，但无法读取封面和内嵌歌词。';
     syncPlayerControls();
+    persistNewLocalSelection();
     return;
   }
   added.forEach(track => readLocalTrackMetadata(track));
   syncPlayerControls();
+  persistNewLocalSelection();
+}
+
+function persistNewLocalSelection() {
+  const savedKey = pendingSavedPlayback && pendingSavedPlayback.uri;
+  if (pendingSavedPlayback && savedKey && !localTracks.some(track => localTrackKey(track) === savedKey)) return;
+  if (pendingSavedPlayback) tryRestoreSavedPlayback();
+  persistAndroidPlayback(true);
+}
+
+function addDesktopAudioRecords(records, replace, restoring = false) {
+  if (!Array.isArray(records) || !records.length) return;
+  const items = Array.isArray(records) ? records.filter(record => record && record.path && record.url && AUDIO_EXTENSIONS.test(record.name || '')) : [];
+  if (!items.length) {
+    $('playlistDropZone').textContent = '没有选择受支持的音乐文件。';
+    return;
+  }
+  if (replace) {
+    $('localAudioPlayer').pause();
+    localTracks.forEach(track => { if (track.objectUrl) URL.revokeObjectURL(track.objectUrl); });
+    localTracks = [];
+    playbackQueue = [];
+    playbackOrder = [];
+    currentTrackIdx = -1;
+    $('localAudioPlayer').removeAttribute('src');
+    $('localAudioPlayer').load();
+    $('nowTitle').textContent = '未选择歌曲';
+    $('nowArtist').textContent = '本地音乐离线播放器';
+    $('nowCover').src = DEFAULT_COVER;
+  }
+  const known = new Set(localTracks.map(localTrackKey));
+  const added = items.filter(item => !known.has(item.path)).map(item => ({
+    file: {name: item.name, size: Number(item.size) || 0, lastModified: Number(item.lastModified) || 0},
+    desktopPath: item.path, streamUrl: item.url, metadataUrl: item.url,
+    title: item.name.replace(/\.[^/.]+$/, ''), artist: '未知歌手', album: '未知专辑',
+    folderPath: item.folderPath || '已选歌曲', favorite: favoriteTrackKeys.has(item.path),
+    cover: null, lrc: '', objectUrl: null
+  }));
+  localTracks.push(...added);
+  if (!added.length) {
+    $('playlistDropZone').textContent = '这些歌曲已在播放列表中';
+    return;
+  }
+  $('playlistDropZone').textContent = `已添加 ${added.length} 首；关闭后会记住这次选择`;
+  added.forEach(track => readLocalTrackMetadata(track));
+  renderLocalPlaylist($('searchLocal').value);
+  renderQueue();
+  syncPlayerControls();
+  if (!restoring) persistNewLocalSelection();
 }
 
 function localTrackKey(track) {
   if (track.contentUri) return track.contentUri;
+  if (track.desktopPath) return track.desktopPath;
+  if (track.browserKey) return track.browserKey;
   return `${track.file.name}:${track.file.size}:${track.file.lastModified}`;
 }
 
@@ -1234,7 +1457,7 @@ window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
 };
 
 function readLocalTrackMetadata(track) {
-  jsmediatags.read(track.file, {
+  jsmediatags.read(track.metadataUrl || track.file, {
     onSuccess: tag => {
       if (!localTracks.includes(track)) return;
       const tags = tag.tags;
@@ -1393,10 +1616,27 @@ function playLocalTrack(idx, keepQueue = false) {
     $('androidScopeNote').style.display = 'block';
     AndroidMusic.loadAudio(track.contentUri, idx);
   } else {
-    track.objectUrl = URL.createObjectURL(track.file);
-    player.src = track.objectUrl;
-    const playRequest = player.play();
-    if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
+    if (track.streamUrl) player.src = track.streamUrl;
+    else {
+      track.objectUrl = URL.createObjectURL(track.file);
+      player.src = track.objectUrl;
+    }
+    const resume = window.pendingLocalAudioResume && window.pendingLocalAudioResume.uri === localTrackKey(track)
+      ? window.pendingLocalAudioResume : null;
+    if (resume) {
+      player.addEventListener('loadedmetadata', function restoreLocalPosition() {
+        player.removeEventListener('loadedmetadata', restoreLocalPosition);
+        player.currentTime = Math.min(resume.position, Number.isFinite(player.duration) ? player.duration : resume.position);
+        window.pendingLocalAudioResume = null;
+        if (resume.wasPlaying) {
+          const request = player.play();
+          if (request && request.catch) request.catch(() => syncPlayerControls());
+        } else syncPlayerControls();
+      }, {once: true});
+    } else {
+      const playRequest = player.play();
+      if (playRequest && playRequest.catch) playRequest.catch(() => syncPlayerControls());
+    }
   }
 
   renderLocalPlaylist($('searchLocal').value);
@@ -1885,6 +2125,59 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   renderQueue();
   AndroidMusic.restoreFolders();
 }
+
+async function restoreDesktopLibrary() {
+  const api = window.pywebview && window.pywebview.api;
+  if (!api || !api.load_playback_state || !api.restore_audio_files) return;
+  try {
+    const state = await api.load_playback_state();
+    if (state && typeof state === 'object' && Object.keys(state).length) {
+      pendingSavedPlayback = state;
+      try { localStorage.setItem('musicdesk-playback-state', JSON.stringify(state)); } catch (_) {}
+    }
+    const records = await api.restore_audio_files();
+    if (records && records.length) {
+      addDesktopAudioRecords(records, true, true);
+      tryRestoreSavedPlayback();
+    } else if (state && Array.isArray(state.desktopFiles) && state.desktopFiles.length) {
+      $('playlistDropZone').textContent = '上次的音乐文件暂时无法访问，请重新选择文件夹或歌曲。';
+    }
+  } catch (_) {
+    $('playlistDropZone').textContent = '无法恢复上次的曲库，请重新选择文件夹或歌曲。';
+  }
+}
+if (window.pywebview && window.pywebview.api) restoreDesktopLibrary();
+else window.addEventListener('pywebviewready', restoreDesktopLibrary, {once: true});
+
+async function restoreBrowserLibrary() {
+  if (window.AndroidMusic || (window.pywebview && window.pywebview.api) || !window.indexedDB) return;
+  try {
+    const handles = await loadFileHandles();
+    const files = [];
+    let needsPermission = false;
+    const directory = handles.find(item => item.key === 'library-directory');
+    if (directory) {
+      if (await hasReadPermission(directory.handle)) files.push(...await collectDirectoryAudio(directory.handle));
+      else needsPermission = true;
+    }
+    for (const item of handles.filter(record => record.key.startsWith('file:'))) {
+      if (!(await hasReadPermission(item.handle))) { needsPermission = true; continue; }
+      const file = await item.handle.getFile();
+      browserFileSources.set(file, {key: item.key, handle: item.handle, folderPath: '已选歌曲'});
+      files.push(file);
+    }
+    if (files.length) addLocalAudioFiles(files, true);
+    else if (needsPermission || (pendingSavedPlayback && pendingSavedPlayback.uri)) {
+      $('playlistDropZone').textContent = '浏览器需要重新授权访问上次的音乐文件；请点击“选择文件夹”或“选择歌曲”。';
+    }
+  } catch (_) {
+    if (pendingSavedPlayback && pendingSavedPlayback.uri) {
+      $('playlistDropZone').textContent = '无法恢复上次的音乐文件，请重新选择文件夹或歌曲。';
+    }
+  }
+}
+if (!window.AndroidMusic && !(window.pywebview && window.pywebview.api)) restoreBrowserLibrary();
+
 // Initialize the playback mode control immediately on every platform so it
 // renders the selected mode icon before the first user interaction.
 syncPlayerControls();

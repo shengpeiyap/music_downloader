@@ -1,4 +1,5 @@
 import unittest
+import json
 import sys
 import io
 import wave
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
+from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -49,6 +51,60 @@ class DesktopLauncherTests(unittest.TestCase):
         self.assertEqual(captured["title"], "MusicDesk")
         self.assertEqual(captured["url"], "http://127.0.0.1:8765")
         self.assertEqual(captured["min_size"], (800, 600))
+
+    def test_native_window_exposes_desktop_file_picker_api(self):
+        captured = {}
+        bridge = object()
+        webview_module = SimpleNamespace(create_window=lambda **kwargs: captured.update(kwargs) or "window")
+        create_native_window(webview_module, "http://127.0.0.1:8765", bridge)
+        self.assertIs(captured["js_api"], bridge)
+
+    def test_desktop_media_bridge_registers_and_persists_selected_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audio = root / "local.mp3"
+            audio.write_bytes(b"ID3audio")
+            state_path = root / "state.json"
+            server = SimpleNamespace()
+            bridge = DesktopMediaBridge(server, state_path)
+            records = bridge._register_files([audio])
+            self.assertEqual(records[0]["name"], "local.mp3")
+            self.assertTrue(records[0]["url"].startswith("/api/local-audio/"))
+            state = {"desktopFiles": [records[0]["path"]], "uri": records[0]["path"]}
+            self.assertTrue(bridge.save_playback_state(json.dumps(state)))
+            self.assertEqual(bridge.load_playback_state(), state)
+            restored = bridge.restore_audio_files()
+            self.assertEqual([item["path"] for item in restored], [str(audio.resolve())])
+
+    def test_desktop_media_route_supports_audio_range_requests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            audio = Path(directory) / "sample.mp3"
+            audio.write_bytes(b"0123456789")
+            server = create_musicdesk_server("127.0.0.1", 0)
+            server.desktop_media_lock = threading.Lock()
+            server.desktop_media_files = {"selected-token": audio}
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                connection.request("GET", "/api/local-audio/selected-token", headers={"Range": "bytes=2-5"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 206)
+                self.assertEqual(response.read(), b"2345")
+                self.assertEqual(response.getheader("Content-Range"), "bytes 2-5/10")
+                connection.close()
+                with patch("app.read_music_metadata", return_value={"title": "sample"}):
+                    connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                    body = json.dumps({"local_audio_id": "selected-token"})
+                    connection.request("POST", "/api/parse_local_tag", body=body, headers={"Content-Type": "application/json"})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(json.loads(response.read()), {"title": "sample"})
+                    connection.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                worker.join(timeout=2)
 
     def test_portable_archive_keeps_app_relative_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -124,7 +180,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('playbackActive = false', activity)
         self.assertIn('window.onAndroidMediaCommand', page)
         self.assertIn('finishPlayAllTouch', page)
-        self.assertIn('const restoredQueue = savedQueue.map(uri => localTracks.find(track => track.contentUri === uri)).filter(Boolean);', page)
+        self.assertIn('const restoredQueue = savedQueue.map(key => localTracks.find(track => localTrackKey(track) === key)).filter(Boolean);', page)
         self.assertIn('playbackQueue = Array.isArray(state.queue)', page)
         self.assertIn('protected void onPause()', activity)
         self.assertIn('window.persistAndroidPlayback && window.persistAndroidPlayback(true)', activity)
@@ -253,6 +309,22 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("AndroidMusic.writeDownloadChunk", page)
         manifest = (Path(__file__).parent / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
         self.assertIn('android:usesCleartextTraffic="true"', manifest)
+
+    def test_desktop_and_browser_restore_local_audio_and_use_native_desktop_picker(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        persistence = page.split("function persistAndroidPlayback(force = false)", 1)[1].split("function tryRestoreSavedPlayback()", 1)[0]
+        self.assertNotIn("if (!window.AndroidMusic)", persistence)
+        self.assertIn("desktopFiles: localTracks.map(item => item.desktopPath).filter(Boolean)", persistence)
+        self.assertIn("window.pywebview.api.save_playback_state", persistence)
+        self.assertIn("select_music_folder()", page)
+        self.assertIn("select_audio_files()", page)
+        self.assertIn("async function restoreDesktopLibrary()", page)
+        self.assertIn("async function restoreBrowserLibrary()", page)
+        self.assertIn("window.showDirectoryPicker", page)
+        self.assertIn("browserKey: source && source.key", page)
+        self.assertIn("track.desktopPath", page)
+        self.assertIn("metadataUrl: item.url", page)
+        self.assertIn("local_audio_id", page)
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
