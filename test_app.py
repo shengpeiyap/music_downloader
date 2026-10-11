@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, shift_lrc_timestamps
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
@@ -20,6 +20,14 @@ from package_portable import create_portable_archive
 
 
 class FfmpegResolutionTests(unittest.TestCase):
+    def test_custom_packaging_trim_arguments_and_lrc_offset(self):
+        args = build_audio_trim_args("in.mp3", "out.mp3", 2.25, 10.0)
+        self.assertEqual(args, ["-nostdin", "-v", "error", "-y", "-ss", "2.250", "-i", "in.mp3", "-t", "7.750", "-map", "0:a:0", "-vn", "out.mp3"])
+        self.assertEqual(build_audio_trim_args("in.mp3", "out.mp3", 0, 0)[4:], ["-i", "in.mp3", "-map", "0:a:0", "-vn", "out.mp3"])
+        with self.assertRaises(ValueError):
+            build_audio_trim_args("in.mp3", "out.mp3", 4, 3)
+        self.assertEqual(shift_lrc_timestamps("[00:01.00]removed\n[00:05.20]line\nplain", 2.25), "[00:02.95]line\nplain")
+
     def test_prefers_app_managed_ffmpeg(self):
         with patch.dict(sys.modules, {"imageio_ffmpeg": SimpleNamespace(get_ffmpeg_exe=lambda: sys.executable)}):
             with patch("app.shutil.which", return_value="system-ffmpeg"):
@@ -207,6 +215,14 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('function setupDropZone(zone, onDrop)', page)
         self.assertIn('async function getDroppedFiles(dataTransfer)', page)
         self.assertIn('function addLocalAudioFiles(inputFiles, replace)', page)
+
+    def test_custom_packaging_has_audio_trim_and_lyric_calibration_on_web_and_android(self):
+        root = Path(__file__).parent
+        for page_path in (root / "index.html", root / "android/app/src/main/assets/index.html"):
+            page = page_path.read_text(encoding="utf-8")
+            for marker in ('id="customAudioPreview"', 'id="customTrimStart"', 'id="customTrimEnd"', 'id="customLyricsPreview"', 'id="customLyricsSetTime"', "function parseCustomLrc(text)"):
+                self.assertIn(marker, page)
+            self.assertIn("formData.append('trim_start'", page)
 
     def test_local_player_has_removal_and_custom_transport_controls(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")

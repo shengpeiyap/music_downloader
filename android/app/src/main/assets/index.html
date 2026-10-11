@@ -59,6 +59,23 @@
     .player-control-buttons button:disabled{opacity:.4;cursor:default}
     .player-timeline{display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
     .player-timeline input{flex:1;min-width:0;accent-color:var(--green);padding:0}
+    .custom-audio-editor{margin:-8px 0 20px;padding:16px;background:#0d110e;border:1px solid var(--line);border-radius:14px}
+    .custom-audio-editor[hidden]{display:none}
+    .custom-audio-editor audio{display:block;width:100%;margin-bottom:12px}
+    .custom-trim-grid{display:grid;grid-template-columns:1fr auto;gap:10px 14px;align-items:end}
+    .custom-trim-grid label{margin:0}
+    .custom-trim-grid input[type=range]{display:block;width:100%;padding:0;margin:8px 0 2px;accent-color:var(--green)}
+    .custom-trim-grid button,.custom-lyrics-tools button{margin:0;padding:7px 10px;font-size:12px;white-space:nowrap}
+    .custom-editor-hint{margin:10px 0 0;color:var(--muted);font-size:12px}
+    .custom-lyrics-tools{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+    .custom-lyrics-tools button{background:#29332c;color:var(--text);border:1px solid #37433a}
+    .custom-lyrics-tools button:disabled{opacity:.45;cursor:default}
+    .custom-lyrics-preview{max-height:210px;overflow:auto;background:#0d110e;border:1px solid #29332c;border-radius:10px;padding:8px}
+    .custom-lyric-line{display:block;width:100%;margin:2px 0;padding:7px 9px;text-align:left;background:transparent;color:var(--muted);font-size:13px;font-weight:500}
+    .custom-lyric-line.selected,.custom-lyric-line.active{background:#1f2b15;color:var(--green)}
+    .custom-lyric-time{display:inline-block;min-width:52px;color:#91a18e;font-variant-numeric:tabular-nums}
+    .custom-lyrics-empty{margin:8px;color:var(--muted);font-size:12px}
+    @media(max-width:560px){.custom-trim-grid{grid-template-columns:1fr}.custom-trim-grid button{justify-self:start}.custom-lyrics-tools button{flex:1 1 auto}}
     .drop-zone input[type=file]{display:none}
     .android-scope-note{display:none;margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:12px}
     .android-local-tabs{display:none;gap:8px;margin-bottom:12px}
@@ -246,6 +263,22 @@
           <span id="customAudioSelection"></span>
           <input id="customAudioInput" type="file" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg">
         </label>
+        <section id="customAudioEditor" class="custom-audio-editor" hidden aria-label="音频预听与裁剪">
+          <label for="customAudioPreview">音频试听与裁剪</label>
+          <audio id="customAudioPreview" controls preload="metadata"></audio>
+          <div class="custom-trim-grid">
+            <label>裁剪起点 <strong id="customTrimStartLabel">0:00</strong>
+              <input id="customTrimStart" type="range" min="0" max="0" step="0.01" value="0" aria-label="裁剪起点">
+            </label>
+            <button id="customTrimStartHere" type="button">设为当前播放位置</button>
+            <label>裁剪终点 <strong id="customTrimEndLabel">0:00</strong>
+              <input id="customTrimEnd" type="range" min="0" max="0" step="0.01" value="0" aria-label="裁剪终点">
+            </label>
+            <button id="customTrimEndHere" type="button">设为当前播放位置</button>
+          </div>
+          <p class="custom-editor-hint">试听会在终点暂停；拖动起点和终点可去掉头尾多余音频，导出时只保留选中片段。</p>
+          <button id="customTrimPreviewBtn" type="button">试听选中片段</button>
+        </section>
         <div id="customEngineRow" style="display:block;margin-bottom:18px">
           <label for="customEngine">未选择本地音频时的下载工具</label>
           <select id="customEngine"><option value="ytdlp">yt-dlp</option><option value="spotdl">SpotDL</option></select>
@@ -292,6 +325,14 @@
             <div style="margin-bottom:12px">
               <label for="tagLyrics">内嵌歌词 (LRC/Plain Lyrics)</label>
               <textarea id="tagLyrics" placeholder="可以粘贴 LRC 格式或纯文本歌词..."></textarea>
+              <div class="custom-lyrics-tools">
+                <button id="customLyricsSetTime" type="button" disabled>将选中歌词设为当前播放时间</button>
+                <button id="customLyricsEarlier" type="button" disabled>全部提前 0.5 秒</button>
+                <button id="customLyricsLater" type="button" disabled>全部延后 0.5 秒</button>
+              </div>
+              <div id="customLyricsPreview" class="custom-lyrics-preview" aria-live="polite">
+                <p class="custom-lyrics-empty">选择音频并载入 LRC 歌词后，可试听并点选歌词校时。</p>
+              </div>
             </div>
 
             <div style="margin-bottom:12px">
@@ -966,6 +1007,216 @@ $('audio').addEventListener('change', () => {
 
 // ===== 自定义 Tab 标签编辑与封装逻辑 =====
 let selectedDesktopCustomAudio = null;
+let customPreviewObjectUrl = null;
+let customLrcEntries = [];
+let customSelectedLyricKey = '';
+
+function formatEditorTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const whole = Math.floor(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+function formatLrcTimestamp(seconds) {
+  const centiseconds = Math.max(0, Math.round(seconds * 100));
+  const minutes = Math.floor(centiseconds / 6000);
+  const remainder = centiseconds % 6000;
+  return `${String(minutes).padStart(2, '0')}:${String(Math.floor(remainder / 100)).padStart(2, '0')}.${String(remainder % 100).padStart(2, '0')}`;
+}
+
+function updateCustomTrimLabels() {
+  $('customTrimStartLabel').textContent = formatEditorTime(Number($('customTrimStart').value));
+  $('customTrimEndLabel').textContent = formatEditorTime(Number($('customTrimEnd').value));
+}
+
+function setCustomAudioPreview(source, isFile = false) {
+  const player = $('customAudioPreview');
+  player.pause();
+  if (customPreviewObjectUrl) URL.revokeObjectURL(customPreviewObjectUrl);
+  customPreviewObjectUrl = isFile && source ? URL.createObjectURL(source) : null;
+  player.removeAttribute('src');
+  if (!source) {
+    player.load();
+    $('customAudioEditor').hidden = true;
+    return;
+  }
+  player.src = customPreviewObjectUrl || source;
+  player.load();
+  $('customAudioEditor').hidden = false;
+  $('customTrimStart').value = '0';
+  $('customTrimEnd').value = '0';
+  updateCustomTrimLabels();
+  renderCustomLyricsPreview();
+}
+
+function initializeCustomTrimRange() {
+  const duration = $('customAudioPreview').duration;
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  for (const input of [$('customTrimStart'), $('customTrimEnd')]) {
+    input.min = '0';
+    input.max = String(duration);
+  }
+  $('customTrimStart').value = '0';
+  $('customTrimEnd').value = String(duration);
+  updateCustomTrimLabels();
+}
+
+function parseCustomLrc(text) {
+  const entries = [];
+  const lines = text.split(/\n/);
+  let offset = 0;
+  lines.forEach((rawLine, lineIndex) => {
+    if (!rawLine) return;
+    const line = rawLine.replace(/\r$/, '');
+    const timePattern = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+    const matches = [...line.matchAll(timePattern)];
+    const lyricText = line.replace(timePattern, '').trim();
+    matches.forEach((match, timestampIndex) => {
+      const fraction = (match[3] || '0').padEnd(3, '0').slice(0, 3);
+      entries.push({
+        key: `${lineIndex}:${timestampIndex}`,
+        lineIndex,
+        timestampIndex,
+        offset: offset + match.index,
+        length: match[0].length,
+        seconds: Number(match[1]) * 60 + Number(match[2]) + Number(fraction) / 1000,
+        text: lyricText,
+      });
+    });
+    offset += rawLine.length + 1;
+  });
+  return entries;
+}
+
+function updateCustomLyricsHighlight() {
+  const currentTime = $('customAudioPreview').currentTime || 0;
+  let activeIndex = -1;
+  customLrcEntries.forEach((entry, index) => {
+    if (entry.seconds <= currentTime && (activeIndex < 0 || entry.seconds >= customLrcEntries[activeIndex].seconds)) activeIndex = index;
+  });
+  $('customLyricsPreview').querySelectorAll('.custom-lyric-line').forEach((button, index) => {
+    button.classList.toggle('active', index === activeIndex);
+    button.classList.toggle('selected', customLrcEntries[index]?.key === customSelectedLyricKey);
+  });
+}
+
+function renderCustomLyricsPreview() {
+  const container = $('customLyricsPreview');
+  const lyrics = $('tagLyrics').value;
+  customLrcEntries = parseCustomLrc(lyrics);
+  container.replaceChildren();
+  if (!customLrcEntries.length) {
+    const message = document.createElement('p');
+    message.className = 'custom-lyrics-empty';
+    message.textContent = lyrics.trim()
+      ? '这段歌词没有时间戳。可以试听音频；校时工具需要 LRC 时间戳。'
+      : '选择音频并载入 LRC 歌词后，可试听并点选歌词校时。';
+    container.append(message);
+  } else {
+    customLrcEntries.forEach((entry, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'custom-lyric-line';
+      button.dataset.lyricIndex = String(index);
+      const time = document.createElement('span');
+      time.className = 'custom-lyric-time';
+      time.textContent = formatEditorTime(entry.seconds);
+      button.append(time, document.createTextNode(entry.text || '（空歌词行）'));
+      container.append(button);
+    });
+  }
+  const hasLrc = customLrcEntries.length > 0;
+  $('customLyricsSetTime').disabled = !hasLrc || !$('customAudioPreview').getAttribute('src') || !customSelectedLyricKey;
+  $('customLyricsEarlier').disabled = !hasLrc;
+  $('customLyricsLater').disabled = !hasLrc;
+  $('customLyricsSetTime').textContent = customSelectedLyricKey
+    ? '将选中歌词设为当前播放时间'
+    : '先点选一行歌词，再设置播放时间';
+  updateCustomLyricsHighlight();
+}
+
+function shiftCustomLyrics(offsetSeconds) {
+  const timestampPattern = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+  $('tagLyrics').value = $('tagLyrics').value.replace(timestampPattern, (raw, minutes, seconds, fraction = '0') => {
+    const milliseconds = Number((fraction + '00').slice(0, 3));
+    const shifted = Math.max(0, Number(minutes) * 60 + Number(seconds) + milliseconds / 1000 + offsetSeconds);
+    return `[${formatLrcTimestamp(shifted)}]`;
+  });
+  renderCustomLyricsPreview();
+}
+
+$('tagLyrics').addEventListener('input', () => {
+  customSelectedLyricKey = '';
+  renderCustomLyricsPreview();
+});
+$('customLyricsPreview').addEventListener('click', event => {
+  const button = event.target.closest('[data-lyric-index]');
+  if (!button) return;
+  const entry = customLrcEntries[Number(button.dataset.lyricIndex)];
+  if (!entry) return;
+  customSelectedLyricKey = entry.key;
+  const player = $('customAudioPreview');
+  if (player.getAttribute('src')) {
+    player.currentTime = entry.seconds;
+    player.play().catch(() => {});
+  }
+  renderCustomLyricsPreview();
+});
+$('customLyricsSetTime').addEventListener('click', () => {
+  const entry = customLrcEntries.find(item => item.key === customSelectedLyricKey);
+  const player = $('customAudioPreview');
+  if (!entry || !Number.isFinite(player.currentTime)) return;
+  const replacement = `[${formatLrcTimestamp(player.currentTime)}]`;
+  const text = $('tagLyrics').value;
+  $('tagLyrics').value = text.slice(0, entry.offset) + replacement + text.slice(entry.offset + entry.length);
+  customSelectedLyricKey = entry.key;
+  renderCustomLyricsPreview();
+});
+$('customLyricsEarlier').addEventListener('click', () => shiftCustomLyrics(-0.5));
+$('customLyricsLater').addEventListener('click', () => shiftCustomLyrics(0.5));
+$('customAudioPreview').addEventListener('loadedmetadata', initializeCustomTrimRange);
+$('customAudioPreview').addEventListener('timeupdate', () => {
+  const player = $('customAudioPreview');
+  const end = Number($('customTrimEnd').value);
+  if (!player.paused && end > 0 && player.currentTime >= end) {
+    player.pause();
+    player.currentTime = Number($('customTrimStart').value) || 0;
+  }
+  updateCustomLyricsHighlight();
+});
+$('customAudioPreview').addEventListener('play', () => { $('customTrimPreviewBtn').textContent = '暂停试听'; });
+$('customAudioPreview').addEventListener('pause', () => { $('customTrimPreviewBtn').textContent = '试听选中片段'; });
+$('customTrimStart').addEventListener('input', () => {
+  const duration = $('customAudioPreview').duration || 0;
+  const start = Number($('customTrimStart').value);
+  if (start >= Number($('customTrimEnd').value)) $('customTrimEnd').value = String(Math.min(duration, start + 0.1));
+  updateCustomTrimLabels();
+});
+$('customTrimEnd').addEventListener('input', () => {
+  const end = Number($('customTrimEnd').value);
+  if (end <= Number($('customTrimStart').value)) $('customTrimStart').value = String(Math.max(0, end - 0.1));
+  updateCustomTrimLabels();
+});
+$('customTrimStartHere').addEventListener('click', () => {
+  $('customTrimStart').value = String(Math.min($('customAudioPreview').currentTime, Number($('customTrimEnd').value) - 0.1));
+  $('customTrimStart').dispatchEvent(new Event('input'));
+});
+$('customTrimEndHere').addEventListener('click', () => {
+  $('customTrimEnd').value = String(Math.max($('customAudioPreview').currentTime, Number($('customTrimStart').value) + 0.1));
+  $('customTrimEnd').dispatchEvent(new Event('input'));
+});
+$('customTrimPreviewBtn').addEventListener('click', () => {
+  const player = $('customAudioPreview');
+  if (player.paused) {
+    if (player.currentTime < Number($('customTrimStart').value) || player.currentTime >= Number($('customTrimEnd').value)) {
+      player.currentTime = Number($('customTrimStart').value) || 0;
+    }
+    player.play().catch(error => { $('customStatus').textContent = error.message || '无法试听音频。'; });
+  } else {
+    player.pause();
+  }
+});
+
 $('customAudioInput').addEventListener('click', event => {
   if (!window.pywebview || !window.pywebview.api) return;
   event.preventDefault();
@@ -975,6 +1226,7 @@ $('customAudioInput').addEventListener('click', event => {
     selectedDesktopCustomAudio = record;
     $('customAudioInput').value = '';
     $('customAudioSelection').textContent = `已选择：${record.name}`;
+    setCustomAudioPreview(record.url);
     $('customEngineRow').style.display = 'none';
     $('customCoverPreview').dataset.embeddedCover = '';
     $('customStatus').textContent = '正在读取并解析音频标签元数据...';
@@ -990,6 +1242,8 @@ $('customAudioInput').addEventListener('click', event => {
     $('tagAlbumArtist').value = data.albumartist || '';
     $('tagYear').value = data.year || '';
     $('tagLyrics').value = data.lyrics || '';
+    customSelectedLyricKey = '';
+    renderCustomLyricsPreview();
     $('tagSearch').value = data.artist && data.artist !== '未知艺人' ? `${data.artist} - ${data.title}` : data.title || '';
     $('customCoverPreview').dataset.embeddedCover = data.cover || '';
     $('customCoverPreview').src = data.cover || DEFAULT_COVER;
@@ -1001,7 +1255,11 @@ $('customAudioInput').addEventListener('change', async (e) => {
   selectedDesktopCustomAudio = null;
   $('customAudioSelection').textContent = '';
   $('customEngineRow').style.display = file ? 'none' : 'block';
-  if (!file) return;
+  if (!file) {
+    setCustomAudioPreview('');
+    return;
+  }
+  setCustomAudioPreview(file, true);
   $('customCoverPreview').dataset.embeddedCover = '';
 
   $('customStatus').textContent = '正在读取并解析音频标签元数据...';
@@ -1022,6 +1280,8 @@ $('customAudioInput').addEventListener('change', async (e) => {
     $('tagAlbumArtist').value = d.albumartist || '';
     $('tagYear').value = d.year || '';
     $('tagLyrics').value = d.lyrics || '';
+    customSelectedLyricKey = '';
+    renderCustomLyricsPreview();
     $('tagSearch').value = d.artist && d.artist !== '未知艺人' ? `${d.artist} - ${d.title}` : d.title || '';
     $('customCoverPreview').dataset.embeddedCover = d.cover || '';
 
@@ -1065,6 +1325,8 @@ $('tagSearchBtn').addEventListener('click', async () => {
     $('tagAlbumArtist').value = d.albumartist || d.artist || '';
     $('tagYear').value = d.year || '';
     $('tagLyrics').value = d.lyrics || '';
+    customSelectedLyricKey = '';
+    renderCustomLyricsPreview();
     $('customCoverPreview').dataset.embeddedCover = d.cover || '';
     $('customCoverPreview').src = d.cover || DEFAULT_COVER;
     $('customStatus').textContent = '已根据关键词补全信息，请检查后导出。';
@@ -1115,6 +1377,8 @@ $('customTagForm').addEventListener('submit', async (e) => {
   formData.append('preferred_engine', $('customEngine').value);
   formData.append('filename_append_enabled', $('filenameAppendEnabled').checked ? '1' : '0');
   formData.append('filename_append', $('filenameAppend').value);
+  formData.append('trim_start', desktopAudio || audioFile ? $('customTrimStart').value : '0');
+  formData.append('trim_end', desktopAudio || audioFile ? $('customTrimEnd').value : '0');
 
   try {
     const embeddedCover = $('customCoverPreview').dataset.embeddedCover;

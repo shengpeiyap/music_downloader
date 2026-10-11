@@ -8,6 +8,7 @@ import importlib.util
 import html as html_module
 import hmac
 import ipaddress
+import math
 import os
 import re
 import secrets
@@ -166,6 +167,44 @@ def multipart_text(fields: dict, name: str) -> str:
     if payload is None:
         return ""
     return payload.decode(part.get_content_charset() or "utf-8", errors="replace").strip()
+
+
+def build_audio_trim_args(input_path: str | Path, output_path: str | Path, start: float, end: float) -> list[str]:
+    """Build FFmpeg arguments for an optional validated [start, end) range."""
+    if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < 0:
+        raise ValueError("音频裁剪时间无效。")
+    if end and end <= start:
+        raise ValueError("裁剪终点必须晚于起点。")
+    args = ["-nostdin", "-v", "error", "-y"]
+    if start > 0:
+        args.extend(["-ss", f"{start:.3f}"])
+    args.extend(["-i", str(input_path)])
+    if end > 0:
+        args.extend(["-t", f"{end - start:.3f}"])
+    args.extend(["-map", "0:a:0", "-vn", str(output_path)])
+    return args
+
+
+def shift_lrc_timestamps(lyrics: str, offset_seconds: float) -> str:
+    """Shift synced lyric timestamps for an audio segment, dropping removed lines."""
+    pattern = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
+
+    def shift(match: re.Match) -> str:
+        fraction = (match.group(3) or "0").ljust(3, "0")[:3]
+        source_time = int(match.group(1)) * 60 + int(match.group(2)) + int(fraction) / 1000
+        if source_time < offset_seconds:
+            return ""
+        milliseconds = round((source_time - offset_seconds) * 100)
+        minutes, remainder = divmod(milliseconds, 6000)
+        return f"[{minutes:02d}:{remainder // 100:02d}.{remainder % 100:02d}]"
+
+    shifted_lines = []
+    for line in lyrics.splitlines():
+        timestamps = list(pattern.finditer(line))
+        if timestamps and all(shift(match) == "" for match in timestamps):
+            continue
+        shifted_lines.append(pattern.sub(shift, line))
+    return "\n".join(shifted_lines)
 
 
 def make_tag_export_filename(
@@ -1014,6 +1053,11 @@ class Handler(SimpleHTTPRequestHandler):
                 export_format = multipart_text(fields, "format").lower() or "mp3"
                 preferred_engine = multipart_text(fields, "preferred_engine") or "ytdlp"
                 filename_append = multipart_text(fields, "filename_append") if multipart_text(fields, "filename_append_enabled") == "1" else ""
+                try:
+                    trim_start = float(multipart_text(fields, "trim_start") or 0)
+                    trim_end = float(multipart_text(fields, "trim_end") or 0)
+                except ValueError as exc:
+                    raise ValueError("音频裁剪时间无效。") from exc
 
                 if export_format not in FORMATS:
                     export_format = "mp3"
@@ -1038,7 +1082,7 @@ class Handler(SimpleHTTPRequestHandler):
 
                     staged_audio = work_dir / f"staged.{export_format}"
                     proc = subprocess.run(
-                        [ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(in_audio), "-map", "0:a:0", "-vn", str(staged_audio)],
+                        [ffmpeg, *build_audio_trim_args(in_audio, staged_audio, trim_start, trim_end)],
                         capture_output=True, timeout=300, env=get_env_with_utf8()
                     )
                     if proc.returncode or not staged_audio.is_file():
@@ -1051,6 +1095,8 @@ class Handler(SimpleHTTPRequestHandler):
                     if albumartist: f['albumartist'] = albumartist
                     if year and year.isdigit(): f['year'] = int(year)
                     lyrics = lyrics or fetch_lrc_lyrics(title, artist)
+                    if lyrics and trim_start > 0:
+                        lyrics = shift_lrc_timestamps(lyrics, trim_start)
                     if lyrics: f['lyrics'] = lyrics
 
                     if cover_part and cover_part.get_payload(decode=True):
