@@ -247,6 +247,10 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("compileSdk = 36", gradle)
         self.assertEqual((root / "android/app/src/main/assets/index.html").read_bytes(), (root / "index.html").read_bytes())
         self.assertEqual((root / "android/app/src/main/assets/default_song_img.png").read_bytes(), (root / "default_song_img.png").read_bytes())
+        self.assertEqual((root / "android/app/src/main/assets/i18n.js").read_bytes(), (root / "i18n.js").read_bytes())
+        self.assertIn('id="languageSelect"', page)
+        self.assertIn('id="navMobileBtn"', page)
+        self.assertIn("musicdesk-language", (root / "i18n.js").read_text(encoding="utf-8"))
         self.assertIn("ACTION_OPEN_DOCUMENT_TREE", activity)
         self.assertIn("buildChildDocumentsUriUsingTree", activity)
         self.assertIn('webView.addJavascriptInterface(new AndroidMusicBridge(), "AndroidMusic")', activity)
@@ -264,6 +268,14 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('function renderQueue()', page)
         self.assertIn('private String readArtwork(Uri source)', activity)
         self.assertNotIn('track.put("cover"', activity)
+
+    def test_i18n_script_is_included_and_bundled_for_portable_build(self):
+        root = Path(__file__).parent
+        page = (root / "index.html").read_text(encoding="utf-8")
+        build_script = (root / "build_windows.bat").read_text(encoding="utf-8")
+        self.assertIn('<script src="i18n.js"></script>', page)
+        self.assertIn('--add-data "i18n.js;."', build_script)
+        self.assertIn("function updateMobileTabLabel(tabName)", (root / "i18n.js").read_text(encoding="utf-8"))
 
     def test_android_player_supports_repeat_shuffle_and_large_library_views(self):
         root = Path(__file__).parent
