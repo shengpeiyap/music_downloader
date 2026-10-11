@@ -220,7 +220,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         root = Path(__file__).parent
         for page_path in (root / "index.html", root / "android/app/src/main/assets/index.html"):
             page = page_path.read_text(encoding="utf-8")
-            for marker in ('id="customAudioPreview"', 'id="customTrimStart"', 'id="customTrimEnd"', 'id="customLyricsPreview"', 'id="customLyricsSetTime"', 'id="customLyricsTimingMode"', 'id="customLyricsMarkCurrent"', 'id="customLyricsUndoMark"', 'id="customLyricsFinishTiming"', "function parseCustomLrc(text)", "function markCurrentPlainLyric()", "function finishPlainLyricTiming()", "event.code !== 'Space'"):
+            for marker in ('id="customAudioPreview"', 'id="customTrimStart"', 'id="customTrimEnd"', 'id="customLyricsPreview"', 'id="customLyricsSetTime"', 'id="customLyricsTimingMode"', 'id="customLyricsMarkCurrent"', 'id="customLyricsUndoMark"', 'id="customLyricsFinishTiming"', "function parseCustomLrc(text)", "function markCurrentPlainLyric()", "function finishPlainLyricTiming()", 'id="helpBtn"', 'id="helpDialog"', "event.code === 'Space'", "event.key.toLowerCase() === 'k'", "event.key.toLowerCase() === 'm'", "event.key.toLowerCase() === 't'"):
                 self.assertIn(marker, page)
             self.assertIn("formData.append('trim_start'", page)
 

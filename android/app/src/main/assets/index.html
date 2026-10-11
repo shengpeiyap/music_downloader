@@ -12,6 +12,17 @@
 
     .header-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
     .brand{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--green);font-weight:700}
+    .help-button{flex:none;width:36px;height:36px;margin:0;padding:0;border:1px solid #52604f;border-radius:50%;background:#151a17;color:var(--green);font-size:20px;line-height:1}
+    .help-dialog{width:min(640px,calc(100vw - 28px));max-height:min(82vh,760px);overflow:auto;padding:24px;background:#151a17;color:var(--text);border:1px solid #39453b;border-radius:18px;box-shadow:0 24px 80px #000b}
+    .help-dialog::backdrop{background:#000b;backdrop-filter:blur(3px)}
+    .help-dialog-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+    .help-dialog-header h2{margin:0;font-size:22px}
+    .help-dialog-header button{margin:0;padding:6px 11px;background:#29332c;color:var(--text)}
+    .help-dialog section{padding:12px 0;border-top:1px solid var(--line)}
+    .help-dialog h3{margin:0 0 6px;font-size:16px}
+    .help-dialog p,.help-dialog li{margin:4px 0;color:var(--muted);font-size:14px}
+    .help-dialog ul{margin:6px 0;padding-left:20px}
+    .help-shortcut{display:inline-block;min-width:26px;margin-right:6px;padding:1px 6px;border:1px solid #52604f;border-radius:5px;background:#0d110e;color:var(--text);text-align:center;font:600 12px/1.7 ui-monospace,monospace}
 
     /* Tab 导航栏 */
     .nav-tabs{display:flex;gap:10px;background:#151a17;padding:6px;border-radius:12px;border:1px solid var(--line)}
@@ -177,7 +188,36 @@
       <button class="tab-btn" onclick="switchTab('custom')">自定义封装与标签编辑</button>
       <button class="tab-btn" onclick="switchTab('local')">本地离线播放器</button>
     </div>
+    <button id="helpBtn" class="help-button" type="button" aria-label="帮助与快捷键" title="帮助与快捷键">?</button>
   </div>
+  <dialog id="helpDialog" class="help-dialog" aria-labelledby="helpTitle">
+    <div class="help-dialog-header">
+      <h2 id="helpTitle">MusicDesk 使用帮助</h2>
+      <button id="closeHelpBtn" type="button" aria-label="关闭帮助">关闭</button>
+    </div>
+    <section>
+      <h3>在线解析与下载</h3>
+      <p>粘贴 Spotify、YouTube 分享链接或输入歌曲关键词，读取公开曲目信息、查看歌词、下载音频；也可将本地音频转换为其他格式。</p>
+    </section>
+    <section>
+      <h3>自定义封装</h3>
+      <p>选择本地音频后可试听、裁剪头尾、修改曲目信息和封面；同步歌词可逐句校时，纯文本歌词可制作时间戳并生成 LRC。</p>
+    </section>
+    <section>
+      <h3>本地离线播放器</h3>
+      <p>选择歌曲或文件夹建立曲库，浏览标签、专辑封面和歌词；支持队列、收藏、播放模式与上次播放状态恢复。</p>
+    </section>
+    <section>
+      <h3>键盘快捷键</h3>
+      <ul>
+        <li><kbd class="help-shortcut">Space</kbd> 或 <kbd class="help-shortcut">K</kbd>：播放 / 暂停当前页面的音频。</li>
+        <li><kbd class="help-shortcut">←</kbd> / <kbd class="help-shortcut">→</kbd>：后退 / 前进 5 秒。</li>
+        <li><kbd class="help-shortcut">M</kbd>：纯文本逐句打点模式下，标记当前句并前进。</li>
+        <li><kbd class="help-shortcut">T</kbd>：将选中的 LRC 歌词时间设为当前播放位置。</li>
+      </ul>
+      <p>输入框、歌词文本框和进度滑杆获得焦点时，快捷键不会拦截输入或滑杆操作。打点使用 M，播放暂停使用 Space / K，二者互不冲突。</p>
+    </section>
+  </dialog>
 
   <!-- Tab 1: 在线解析与格式转换 -->
   <div id="tab-online" class="tab-content active">
@@ -1278,13 +1318,6 @@ $('customLyricsPreview').addEventListener('click', event => {
   }
   renderCustomLyricsPreview();
 });
-document.addEventListener('keydown', event => {
-  const target = event.target;
-  if (!customLyricTimingMode || event.code !== 'Space' || event.repeat || event.ctrlKey || event.altKey || event.metaKey
-      || target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName))) return;
-  event.preventDefault();
-  markCurrentPlainLyric();
-});
 $('customLyricsPreview').addEventListener('click', event => {
   const button = event.target.closest('[data-lyric-index]');
   if (!button) return;
@@ -1351,6 +1384,55 @@ $('customTrimPreviewBtn').addEventListener('click', () => {
   } else {
     player.pause();
   }
+});
+
+function getKeyboardAudioPlayer() {
+  const custom = $('tab-custom').classList.contains('active') ? $('customAudioPreview') : null;
+  if (custom?.getAttribute('src')) return custom;
+  const online = $('tab-online').classList.contains('active') ? $('audioPlayer') : null;
+  if (online?.src) return online;
+  if ($('tab-local').classList.contains('active') && currentTrackIdx >= 0 && localTracks[currentTrackIdx]) return $('localAudioPlayer');
+  return null;
+}
+
+function toggleKeyboardAudioPlayback(player) {
+  if (player === $('localAudioPlayer')) {
+    $('togglePlaybackBtn').click();
+  } else if (player.paused) {
+    player.play().catch(() => {});
+  } else {
+    player.pause();
+  }
+}
+
+document.addEventListener('keydown', event => {
+  if ($('helpDialog').open || event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+  const target = event.target;
+  if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+
+  const player = getKeyboardAudioPlayer();
+  if (!player) return;
+  if (event.code === 'Space' || event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    toggleKeyboardAudioPlayback(player);
+  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    event.preventDefault();
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    const duration = Number.isFinite(player.duration) ? player.duration : Infinity;
+    player.currentTime = Math.max(0, Math.min(duration, (Number(player.currentTime) || 0) + direction * 5));
+  } else if (event.key.toLowerCase() === 'm' && customLyricTimingMode && $('tab-custom').classList.contains('active')) {
+    event.preventDefault();
+    markCurrentPlainLyric();
+  } else if (event.key.toLowerCase() === 't' && $('tab-custom').classList.contains('active') && !$('customLyricsSetTime').disabled) {
+    event.preventDefault();
+    $('customLyricsSetTime').click();
+  }
+});
+
+$('helpBtn').addEventListener('click', () => $('helpDialog').showModal());
+$('closeHelpBtn').addEventListener('click', () => $('helpDialog').close());
+$('helpDialog').addEventListener('click', event => {
+  if (event.target === $('helpDialog')) $('helpDialog').close();
 });
 
 $('customAudioInput').addEventListener('click', event => {
