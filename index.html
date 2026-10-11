@@ -326,9 +326,13 @@
               <label for="tagLyrics">内嵌歌词 (LRC/Plain Lyrics)</label>
               <textarea id="tagLyrics" placeholder="可以粘贴 LRC 格式或纯文本歌词..."></textarea>
               <div class="custom-lyrics-tools">
-                <button id="customLyricsSetTime" type="button" disabled>将选中歌词设为当前播放时间</button>
-                <button id="customLyricsEarlier" type="button" disabled>全部提前 0.5 秒</button>
-                <button id="customLyricsLater" type="button" disabled>全部延后 0.5 秒</button>
+                <button id="customLyricsSetTime" type="button" disabled hidden>将选中歌词设为当前播放时间</button>
+                <button id="customLyricsEarlier" type="button" disabled hidden>全部提前 0.5 秒</button>
+                <button id="customLyricsLater" type="button" disabled hidden>全部延后 0.5 秒</button>
+                <button id="customLyricsTimingMode" type="button" hidden>为纯文本逐句添加时间戳</button>
+                <button id="customLyricsMarkCurrent" type="button" hidden disabled>标记当前句</button>
+                <button id="customLyricsUndoMark" type="button" hidden disabled>撤销上一条</button>
+                <button id="customLyricsFinishTiming" type="button" hidden disabled>完成并生成 LRC</button>
               </div>
               <div id="customLyricsPreview" class="custom-lyrics-preview" aria-live="polite">
                 <p class="custom-lyrics-empty">选择音频并载入 LRC 歌词后，可试听并点选歌词校时。</p>
@@ -1010,6 +1014,12 @@ let selectedDesktopCustomAudio = null;
 let customPreviewObjectUrl = null;
 let customLrcEntries = [];
 let customSelectedLyricKey = '';
+let customLyricTimingMode = false;
+let customLyricTimingSource = '';
+let customPlainTimingLines = [];
+let customPlainTimingCursor = -1;
+let customPlainTimingMarks = new Map();
+let customPlainTimingHistory = [];
 
 function formatEditorTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -1032,12 +1042,19 @@ function updateCustomTrimLabels() {
 function setCustomAudioPreview(source, isFile = false) {
   const player = $('customAudioPreview');
   player.pause();
+  customLyricTimingMode = false;
+  customLyricTimingSource = '';
+  customPlainTimingLines = [];
+  customPlainTimingCursor = -1;
+  customPlainTimingMarks = new Map();
+  customPlainTimingHistory = [];
   if (customPreviewObjectUrl) URL.revokeObjectURL(customPreviewObjectUrl);
   customPreviewObjectUrl = isFile && source ? URL.createObjectURL(source) : null;
   player.removeAttribute('src');
   if (!source) {
     player.load();
     $('customAudioEditor').hidden = true;
+    renderCustomLyricsPreview();
     return;
   }
   player.src = customPreviewObjectUrl || source;
@@ -1105,11 +1122,29 @@ function renderCustomLyricsPreview() {
   const lyrics = $('tagLyrics').value;
   customLrcEntries = parseCustomLrc(lyrics);
   container.replaceChildren();
-  if (!customLrcEntries.length) {
+  const isPlainLyrics = Boolean(lyrics.trim()) && !customLrcEntries.length;
+  if (customLyricTimingMode && customPlainTimingLines.length) {
+    const progress = document.createElement('p');
+    progress.className = 'custom-lyrics-empty';
+    progress.textContent = `已标记 ${customPlainTimingMarks.size} / ${customPlainTimingLines.length} 句。播放到每句开始处，按空格或点击“标记当前句”。`;
+    container.append(progress);
+    customPlainTimingLines.forEach((line, index) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = `custom-lyric-line${index === customPlainTimingCursor ? ' selected' : ''}`;
+      row.dataset.timingLine = String(index);
+      const time = document.createElement('span');
+      time.className = 'custom-lyric-time';
+      const markedAt = customPlainTimingMarks.get(index);
+      time.textContent = Number.isFinite(markedAt) ? formatEditorTime(markedAt) : '待标记';
+      row.append(time, document.createTextNode(line.text));
+      container.append(row);
+    });
+  } else if (!customLrcEntries.length) {
     const message = document.createElement('p');
     message.className = 'custom-lyrics-empty';
     message.textContent = lyrics.trim()
-      ? '这段歌词没有时间戳。可以试听音频；校时工具需要 LRC 时间戳。'
+      ? '这段歌词没有时间戳。选择音频后，可以开启逐句打点模式。'
       : '选择音频并载入 LRC 歌词后，可试听并点选歌词校时。';
     container.append(message);
   } else {
@@ -1126,13 +1161,84 @@ function renderCustomLyricsPreview() {
     });
   }
   const hasLrc = customLrcEntries.length > 0;
-  $('customLyricsSetTime').disabled = !hasLrc || !$('customAudioPreview').getAttribute('src') || !customSelectedLyricKey;
+  const hasAudio = Boolean($('customAudioPreview').getAttribute('src'));
+  $('customLyricsSetTime').hidden = !hasLrc;
+  $('customLyricsSetTime').disabled = !hasLrc || !hasAudio || !customSelectedLyricKey;
+  $('customLyricsEarlier').hidden = !hasLrc;
   $('customLyricsEarlier').disabled = !hasLrc;
+  $('customLyricsLater').hidden = !hasLrc;
   $('customLyricsLater').disabled = !hasLrc;
+  $('customLyricsTimingMode').hidden = !isPlainLyrics || !hasAudio;
+  $('customLyricsTimingMode').textContent = customLyricTimingMode ? '退出逐句打点' : '为纯文本逐句添加时间戳';
+  $('customLyricsMarkCurrent').hidden = !customLyricTimingMode;
+  $('customLyricsMarkCurrent').disabled = !hasAudio || customPlainTimingCursor < 0;
+  $('customLyricsUndoMark').hidden = !customLyricTimingMode;
+  $('customLyricsUndoMark').disabled = !customPlainTimingHistory.length;
+  $('customLyricsFinishTiming').hidden = !customLyricTimingMode;
+  $('customLyricsFinishTiming').disabled = !customPlainTimingLines.length || customPlainTimingMarks.size !== customPlainTimingLines.length;
+  $('customLyricsMarkCurrent').textContent = customPlainTimingCursor >= 0
+    ? `标记第 ${customPlainTimingLines[customPlainTimingCursor].lineNumber} 行（空格）`
+    : '所有歌词行已标记';
   $('customLyricsSetTime').textContent = customSelectedLyricKey
     ? '将选中歌词设为当前播放时间'
     : '先点选一行歌词，再设置播放时间';
   updateCustomLyricsHighlight();
+}
+
+function startPlainLyricTiming() {
+  if (customLyricTimingMode) {
+    customLyricTimingMode = false;
+    renderCustomLyricsPreview();
+    return;
+  }
+  customLyricTimingSource = $('tagLyrics').value;
+  customPlainTimingLines = customLyricTimingSource.split(/\r?\n/)
+    .map((text, lineIndex) => ({text, lineIndex, lineNumber: lineIndex + 1}))
+    .filter(line => line.text.trim());
+  if (!customPlainTimingLines.length || !$('customAudioPreview').getAttribute('src')) return;
+  customPlainTimingMarks = new Map();
+  customPlainTimingHistory = [];
+  customPlainTimingCursor = 0;
+  customLyricTimingMode = true;
+  renderCustomLyricsPreview();
+}
+
+function markCurrentPlainLyric() {
+  if (!customLyricTimingMode || customPlainTimingCursor < 0) return;
+  const player = $('customAudioPreview');
+  if (!player.getAttribute('src') || !Number.isFinite(player.currentTime)) return;
+  const lineIndex = customPlainTimingCursor;
+  customPlainTimingHistory.push({lineIndex, previous: customPlainTimingMarks.get(lineIndex)});
+  customPlainTimingMarks.set(lineIndex, player.currentTime);
+  customPlainTimingCursor = customPlainTimingLines.findIndex((_, index) => index > lineIndex && !customPlainTimingMarks.has(index));
+  if (customPlainTimingCursor < 0) customPlainTimingCursor = customPlainTimingLines.findIndex((_, index) => !customPlainTimingMarks.has(index));
+  renderCustomLyricsPreview();
+}
+
+function undoPlainLyricTimingMark() {
+  const previous = customPlainTimingHistory.pop();
+  if (!previous) return;
+  if (Number.isFinite(previous.previous)) customPlainTimingMarks.set(previous.lineIndex, previous.previous);
+  else customPlainTimingMarks.delete(previous.lineIndex);
+  customPlainTimingCursor = previous.lineIndex;
+  renderCustomLyricsPreview();
+}
+
+function finishPlainLyricTiming() {
+  if (!customPlainTimingLines.length || customPlainTimingMarks.size !== customPlainTimingLines.length) return;
+  const lines = customLyricTimingSource.split(/\r?\n/);
+  customPlainTimingLines.forEach((line, index) => {
+    lines[line.lineIndex] = `[${formatLrcTimestamp(customPlainTimingMarks.get(index))}]${line.text}`;
+  });
+  $('tagLyrics').value = lines.join('\n');
+  customSelectedLyricKey = '';
+  customLyricTimingMode = false;
+  customLyricTimingSource = '';
+  customPlainTimingLines = [];
+  customPlainTimingCursor = -1;
+  customPlainTimingMarks = new Map();
+  customPlainTimingHistory = [];
+  renderCustomLyricsPreview();
 }
 
 function shiftCustomLyrics(offsetSeconds) {
@@ -1147,7 +1253,37 @@ function shiftCustomLyrics(offsetSeconds) {
 
 $('tagLyrics').addEventListener('input', () => {
   customSelectedLyricKey = '';
+  customLyricTimingMode = false;
+  customLyricTimingSource = '';
+  customPlainTimingLines = [];
+  customPlainTimingCursor = -1;
+  customPlainTimingMarks = new Map();
+  customPlainTimingHistory = [];
   renderCustomLyricsPreview();
+});
+$('customLyricsTimingMode').addEventListener('click', startPlainLyricTiming);
+$('customLyricsMarkCurrent').addEventListener('click', markCurrentPlainLyric);
+$('customLyricsUndoMark').addEventListener('click', undoPlainLyricTimingMark);
+$('customLyricsFinishTiming').addEventListener('click', finishPlainLyricTiming);
+$('customLyricsPreview').addEventListener('click', event => {
+  const button = event.target.closest('[data-timing-line]');
+  if (!button || !customLyricTimingMode) return;
+  const index = Number(button.dataset.timingLine);
+  const markedAt = customPlainTimingMarks.get(index);
+  if (Number.isFinite(markedAt)) {
+    customPlainTimingCursor = index;
+    $('customAudioPreview').currentTime = markedAt;
+  } else {
+    customPlainTimingCursor = index;
+  }
+  renderCustomLyricsPreview();
+});
+document.addEventListener('keydown', event => {
+  const target = event.target;
+  if (!customLyricTimingMode || event.code !== 'Space' || event.repeat || event.ctrlKey || event.altKey || event.metaKey
+      || target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName))) return;
+  event.preventDefault();
+  markCurrentPlainLyric();
 });
 $('customLyricsPreview').addEventListener('click', event => {
   const button = event.target.closest('[data-lyric-index]');
