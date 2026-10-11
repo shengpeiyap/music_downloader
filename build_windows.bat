@@ -17,7 +17,7 @@ if errorlevel 1 goto :error
 if errorlevel 1 goto :error
 
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --console ^
-  --name yt-dlp --collect-all yt_dlp yt_dlp_launcher.py
+  --name yt-dlp --collect-all yt_dlp --collect-all yt_dlp_ejs yt_dlp_launcher.py
 if errorlevel 1 goto :error
 
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --console ^

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, find_ffmpeg, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
@@ -114,7 +114,8 @@ class DesktopLauncherTests(unittest.TestCase):
             (package / "MusicDesk.exe").write_bytes(b"app")
             (package / "_internal" / "music_tag.py").write_bytes(b"dependency")
             (package / "_internal" / "default_song_img.png").write_bytes(b"placeholder")
-            archive_path = create_portable_archive(package, root / "package.zip")
+            with patch("package_portable.shutil.which", return_value=None):
+                archive_path = create_portable_archive(package, root / "package.zip")
 
             import zipfile
             with zipfile.ZipFile(archive_path) as archive:
@@ -560,6 +561,48 @@ class LyricsLookupTests(unittest.TestCase):
 
 
 class FetchMediaStreamTests(unittest.TestCase):
+    def test_source_tools_use_modules_instead_of_path_bound_launchers(self):
+        with patch("app.sys.executable", r"C:\Project\.venv\Scripts\python.exe"), \
+             patch("app.sys.frozen", False, create=True), \
+             patch("app.importlib.util.find_spec", return_value=object()), \
+             patch("app.Path.exists", return_value=True), \
+             patch("app.shutil.which", return_value=r"C:\Project\.venv\Scripts\yt-dlp.exe"):
+            self.assertEqual(find_executable("yt-dlp"), [r"C:\Project\.venv\Scripts\python.exe", "-m", "yt_dlp"])
+            self.assertEqual(find_executable("spotdl"), [r"C:\Project\.venv\Scripts\python.exe", "-m", "spotdl"])
+
+    def test_ytdlp_explicitly_selects_available_js_runtime(self):
+        def find_runtime(name):
+            return {"node": r"C:\Tools\node.exe"}.get(name)
+
+        with patch("app.Path.is_file", return_value=False), patch("app.shutil.which", side_effect=find_runtime):
+            self.assertEqual(
+                get_ytdlp_js_runtime_args(),
+                ["--js-runtimes", r"node:C:\Tools\node.exe"],
+            )
+
+    def test_ytdlp_failure_logs_actionable_stderr(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch("app.find_executable", return_value=["yt-dlp"]), \
+             patch("app.get_ytdlp_js_runtime_args", return_value=["--js-runtimes", "node:C:/Tools/node.exe"]), \
+             patch("app.subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="", stderr="No supported JavaScript runtime")) as run, \
+             redirect_stdout(StringIO()) as output:
+            path, source_url = fetch_with_ytdlp(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "Track", "Artist", Path(directory)
+            )
+
+        self.assertIsNone(path)
+        self.assertEqual(source_url, "")
+        self.assertIn("--js-runtimes", run.call_args.args[0])
+        self.assertIn("[yt-dlp 失败详情] No supported JavaScript runtime", output.getvalue())
+
+    def test_youtube_url_does_not_fall_back_to_spotdl(self):
+        with patch("app.fetch_with_ytdlp", return_value=(None, "")), \
+             patch("app.fetch_with_spotdl") as spotdl:
+            with self.assertRaises(ValueError):
+                fetch_media_stream("https://youtu.be/dQw4w9WgXcQ")
+
+        spotdl.assert_not_called()
+
     def test_ytdlp_execution(self):
         def mock_run(cmd, **kwargs):
             # 找到输出路径参数中的基目录

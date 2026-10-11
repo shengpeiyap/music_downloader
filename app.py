@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import argparse
+import importlib.util
 import html as html_module
 import hmac
 import ipaddress
@@ -336,6 +337,16 @@ def find_executable(name: str) -> list[str]:
     exe_name = f"{name}.exe" if os.name == "nt" else name
     local_path = python_exe.parent / exe_name
 
+    # pip-generated Windows console launchers embed the venv's original path.
+    # Calling the installed module keeps source installs working after the folder moves.
+    module_name = {"yt-dlp": "yt_dlp", "spotdl": "spotdl"}.get(name)
+    if module_name and not getattr(sys, "frozen", False):
+        try:
+            if importlib.util.find_spec(module_name):
+                return [sys.executable, "-m", module_name]
+        except (ImportError, ValueError):
+            pass
+
     if local_path.exists():
         return [str(local_path)]
 
@@ -346,6 +357,31 @@ def find_executable(name: str) -> list[str]:
     if name == "yt-dlp":
         return [sys.executable, "-m", "yt_dlp"]
     return [name]
+
+
+def get_ytdlp_js_runtime_args() -> list[str]:
+    """Enable a supported JS runtime explicitly for YouTube challenge solving."""
+    runtime_names = (("deno", "deno"), ("node", "node"), ("quickjs", "qjs"))
+    app_dir = Path(sys.executable).resolve().parent
+    for runtime, executable in runtime_names:
+        runtime_path = next(
+            (str(candidate) for candidate in (app_dir / f"{executable}.exe", app_dir / executable) if candidate.is_file()),
+            None,
+        ) or shutil.which(executable)
+        if runtime_path:
+            return ["--js-runtimes", f"{runtime}:{runtime_path}"]
+    return []
+
+
+def log_downloader_failure(engine: str, proc: subprocess.CompletedProcess[str]) -> None:
+    """Expose a short actionable error in the server console without dumping huge logs."""
+    details = (proc.stderr or proc.stdout or "").strip()
+    if details:
+        lines = [line.strip() for line in details.splitlines() if line.strip()]
+        print(f"[{engine} 失败详情] " + " | ".join(lines[-4:])[-1200:])
+    else:
+        print(f"[{engine} 失败详情] 进程退出码：{proc.returncode}，没有提供错误输出。")
+    sys.stdout.flush()
 
 
 def fetch_youtube_rich_metadata(url: str) -> dict:
@@ -359,7 +395,7 @@ def fetch_youtube_rich_metadata(url: str) -> dict:
             encoding="utf-8",
             errors="replace",
             env=get_env_with_utf8(),
-            shell=(os.name == 'nt')
+            shell=False
         )
         if proc.returncode == 0 and proc.stdout.strip():
             info = json.loads(proc.stdout)
@@ -397,7 +433,7 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> tuple
         target_url = f"ytsearch1:{search_query}"
         print(f"[yt-dlp 引擎] 检索关键词: {search_query}")
 
-    cmd = find_executable("yt-dlp") + [
+    cmd = find_executable("yt-dlp") + get_ytdlp_js_runtime_args() + [
         "-x",
         "--audio-format", "mp3",
         "--no-playlist",
@@ -406,7 +442,6 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> tuple
         "-o", str(base_dir / "ytdlp_%(id)s.%(ext)s"),
         target_url
     ]
-
     print(f"[MusicDesk 调度] 尝试 [yt-dlp] 抓取音频...")
     sys.stdout.flush()
     proc = subprocess.run(
@@ -439,6 +474,7 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> tuple
         sys.stdout.flush()
         return latest, source_url
     
+    log_downloader_failure("yt-dlp", proc)
     print(f"[yt-dlp 抓取失败]")
     sys.stdout.flush()
     return None, ""
@@ -468,6 +504,7 @@ def fetch_with_spotdl(url: str, base_dir: Path) -> tuple[Path | None, str]:
             sys.stdout.flush()
             return latest, url
 
+    log_downloader_failure("spotdl", proc)
     print(f"[spotdl 下载未成功]")
     sys.stdout.flush()
     return None, ""
@@ -491,17 +528,12 @@ def fetch_media_stream(url: str, title: str = "", artist: str = "", preferred_en
                 return res_file, "" if source_url == query else source_url
         raise ValueError("没有找到可下载的匹配音频，请尝试调整关键词。")
 
-    engines = {
-        "ytdlp": lambda: fetch_with_ytdlp(url, title, artist, base_dir),
-        "spotdl": lambda: fetch_with_spotdl(url, base_dir),
-    }
+    engines = {"ytdlp": lambda: fetch_with_ytdlp(url, title, artist, base_dir)}
+    if "spotify.com" in url.lower():
+        engines["spotdl"] = lambda: fetch_with_spotdl(url, base_dir)
 
     valid_engine = preferred_engine if preferred_engine in engines else "ytdlp"
-
-    priority_order = [valid_engine]
-    for eng in ["ytdlp", "spotdl"]:
-        if eng not in priority_order:
-            priority_order.append(eng)
+    priority_order = [valid_engine] + [name for name in engines if name != valid_engine]
 
     for eng_name in priority_order:
         res_file, source_url = engines[eng_name]()
