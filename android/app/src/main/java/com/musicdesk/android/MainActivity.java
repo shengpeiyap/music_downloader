@@ -1,6 +1,7 @@
 package com.musicdesk.android;
 
 import android.app.Activity;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -14,6 +15,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -35,6 +37,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.UUID;
 import java.util.HashSet;
 import java.util.Set;
@@ -56,6 +60,7 @@ public final class MainActivity extends Activity {
     private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, JSONObject> cachedTracks = new HashMap<>();
     private boolean mediaReceiverRegistered;
     private volatile boolean playbackActive;
@@ -142,6 +147,16 @@ public final class MainActivity extends Activity {
         else registerReceiver(mediaCommandReceiver, mediaFilter);
         mediaReceiverRegistered = true;
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        WebView currentWebView = webView;
+        if (currentWebView != null) currentWebView.postDelayed(() -> {
+            if (webView == currentWebView) currentWebView.evaluateJavascript(
+                    "window.refreshAndroidSettings && window.refreshAndroidSettings()", null);
+        }, 300);
     }
 
     @Override
@@ -353,6 +368,144 @@ public final class MainActivity extends Activity {
     }
 
     private final class AndroidMusicBridge {
+        @JavascriptInterface
+        public String getAppVersion() {
+            try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+            catch (PackageManager.NameNotFoundException ignored) { return "unknown"; }
+        }
+
+        @JavascriptInterface
+        public String hasNotificationPermission() {
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return "false";
+            if (Build.VERSION.SDK_INT >= 24) {
+                NotificationManager manager = getSystemService(NotificationManager.class);
+                return manager != null && manager.areNotificationsEnabled() ? "true" : "false";
+            }
+            return "true";
+        }
+
+        @JavascriptInterface
+        public void openNotificationSettings() {
+            runOnUiThread(() -> {
+                Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+                try { startActivity(intent); }
+                catch (RuntimeException ignored) { openAppSettings(); }
+            });
+        }
+
+        @JavascriptInterface
+        public void openAppSettings() {
+            runOnUiThread(() -> {
+                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName()));
+                try { startActivity(intent); } catch (RuntimeException ignored) { }
+            });
+        }
+
+        @JavascriptInterface
+        public String getSavedFolders() {
+            JSONArray folders = new JSONArray();
+            SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            Set<String> saved = new HashSet<>(preferences.getStringSet(PREF_SAVED_FOLDERS, new HashSet<>()));
+            Set<String> granted = new HashSet<>();
+            for (android.content.UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
+                if (permission.isReadPermission()) granted.add(permission.getUri().toString());
+            }
+            for (String value : saved) {
+                Uri tree = Uri.parse(value);
+                String documentId = DocumentsContract.getTreeDocumentId(tree);
+                String path = documentId == null ? "" : documentId.replaceFirst("^[^:]+:", "");
+                JSONObject item = new JSONObject();
+                try {
+                    item.put("uri", value);
+                    item.put("name", path.isEmpty() ? documentId : path);
+                    item.put("authorized", granted.contains(value));
+                    folders.put(item);
+                } catch (org.json.JSONException ignored) { }
+            }
+            return folders.toString();
+        }
+
+        @JavascriptInterface
+        public String removeSavedFolder(String value) {
+            SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            Set<String> saved = new HashSet<>(preferences.getStringSet(PREF_SAVED_FOLDERS, new HashSet<>()));
+            if (!saved.remove(value)) return "false";
+            preferences.edit().putStringSet(PREF_SAVED_FOLDERS, saved).apply();
+            Uri tree = Uri.parse(value);
+            for (android.content.UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
+                if (permission.getUri().equals(tree)) {
+                    int flags = (permission.isReadPermission() ? Intent.FLAG_GRANT_READ_URI_PERMISSION : 0)
+                            | (permission.isWritePermission() ? Intent.FLAG_GRANT_WRITE_URI_PERMISSION : 0);
+                    try { if (flags != 0) getContentResolver().releasePersistableUriPermission(tree, flags); }
+                    catch (SecurityException ignored) { }
+                }
+            }
+            return "true";
+        }
+
+        @JavascriptInterface
+        public String rescanSavedFolder(String value) {
+            Set<String> saved = new HashSet<>(getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                    .getStringSet(PREF_SAVED_FOLDERS, new HashSet<>()));
+            if (!saved.contains(value)) return "false";
+            Uri tree = Uri.parse(value);
+            boolean authorized = false;
+            for (android.content.UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
+                if (permission.getUri().equals(tree) && permission.isReadPermission()) authorized = true;
+            }
+            if (!authorized) return "false";
+            scanFolderAsync(tree);
+            return "true";
+        }
+
+        @JavascriptInterface
+        public void checkForUpdates() {
+            updateExecutor.execute(() -> {
+                JSONObject result = new JSONObject();
+                HttpURLConnection connection = null;
+                try {
+                    String current = getAppVersion();
+                    connection = (HttpURLConnection) new URL("https://api.github.com/repos/shengpeiyap/music_downloader/releases/latest").openConnection();
+                    connection.setRequestMethod("GET");
+                    connection.setConnectTimeout(7000);
+                    connection.setReadTimeout(7000);
+                    connection.setRequestProperty("Accept", "application/vnd.github+json");
+                    connection.setRequestProperty("User-Agent", "MusicDesk-Android/" + current);
+                    int status = connection.getResponseCode();
+                    if (status != HttpURLConnection.HTTP_OK) throw new IOException("GitHub 返回状态 " + status);
+                    ByteArrayOutputStream output = new ByteArrayOutputStream();
+                    try (InputStream input = connection.getInputStream()) {
+                        byte[] buffer = new byte[4096];
+                        int count;
+                        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                    }
+                    JSONObject release = new JSONObject(output.toString("UTF-8"));
+                    result.put("ok", true);
+                    result.put("current", current);
+                    result.put("latest", release.optString("tag_name", ""));
+                    result.put("url", release.optString("html_url", "https://github.com/shengpeiyap/music_downloader/releases"));
+                    result.put("notes", release.optString("body", ""));
+                } catch (Exception error) {
+                    try { result.put("ok", false); result.put("error", error.getMessage() == null ? "无法连接 GitHub" : error.getMessage()); }
+                    catch (org.json.JSONException ignored) { }
+                } finally {
+                    if (connection != null) connection.disconnect();
+                }
+                String payload = JSONObject.quote(result.toString());
+                runOnUiThread(() -> { if (webView != null) webView.evaluateJavascript("window.onAndroidUpdateCheck && window.onAndroidUpdateCheck(" + payload + ")", null); });
+            });
+        }
+
+        @JavascriptInterface
+        public void openReleasePage(String value) {
+            Uri uri = Uri.parse(value == null ? "" : value);
+            if (!"https".equals(uri.getScheme()) || !"github.com".equals(uri.getHost())) return;
+            runOnUiThread(() -> { try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (RuntimeException ignored) { } });
+        }
+
         @JavascriptInterface
         public void pickFolder() {
             runOnUiThread(() -> {
@@ -582,6 +735,7 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         folderExecutor.shutdownNow();
         audioExecutor.shutdownNow();
+        updateExecutor.shutdownNow();
         if (downloadOutput != null) {
             try { downloadOutput.close(); } catch (IOException ignored) {}
             downloadOutput = null;

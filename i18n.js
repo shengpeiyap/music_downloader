@@ -9,6 +9,26 @@
     '选择语言': 'Language', '帮助与快捷键': 'Help & Shortcuts',
     'MusicDesk 使用帮助': 'MusicDesk Help', '关闭帮助': 'Close help', '关闭': 'Close',
     '关闭帮助': 'Close help', '在线解析与下载': 'Online Search & Download',
+    '设置': 'Settings', '设置中心': 'Settings', '管理电脑服务连接、曲库访问权限和应用信息。': 'Manage computer connections, library access, and app information.',
+    '电脑服务连接': 'Computer Service', '在线解析、下载和格式转换需要连接同一 Wi‑Fi 下运行的电脑端 MusicDesk。': 'Online search, downloads, and conversions require MusicDesk running on a computer on the same Wi-Fi network.',
+    '曲库与权限': 'Library & Permissions', 'MusicDesk 仅访问你选择的文件夹。撤销授权后，下次启动将不再自动载入该文件夹。': 'MusicDesk only accesses folders you select. Revoked folders will no longer be restored at startup.',
+    'MusicDesk 仅访问你选择的文件夹。撤销授权后，下次启动将不再自动载入该文件夹；当前已载入的曲目会保留到本次使用结束。': 'MusicDesk only accesses folders you select. Revoked folders will no longer be restored at startup; tracks already loaded remain available until you close the app.',
+    '添加音乐文件夹': 'Add Music Folder', '正在读取已授权文件夹…': 'Loading authorized folders…', '尚未授权音乐文件夹。添加文件夹后，应用会在下次打开时恢复曲库。': 'No music folders are authorized. Add a folder and the library will be restored next time.',
+    '已授权 · 可在启动时恢复': 'Authorized · Restored at startup', '授权已失效 · 需要重新选择': 'Access expired · Select the folder again',
+    '重新扫描': 'Rescan', '正在扫描…': 'Scanning…', '请重新授权': 'Reauthorize', '移除': 'Remove',
+    '通知权限': 'Notifications', '正在检查…': 'Checking…', '已允许通知；锁屏播放控制由 Android 系统管理。': 'Notifications are enabled. Android controls lock-screen playback settings.',
+    '通知已关闭；播放时可能看不到锁屏/通知栏控制。': 'Notifications are disabled. Lock-screen and notification playback controls may be hidden.',
+    '管理': 'Manage', '系统应用权限': 'App Permissions', '在 Android 系统设置中查看和管理': 'View and manage permissions in Android Settings',
+    '打开系统设置': 'Open System Settings', '检查更新': 'Check for Updates', '当前版本：读取中…': 'Current version: Loading…',
+    '检查公开的 GitHub Release，不会自动下载或安装。': 'Checks public GitHub releases. Updates are not downloaded or installed automatically.',
+    '当前版本：': 'Current version: ', '检查失败：': 'Check failed: ', '无法读取 GitHub Release': 'Could not read GitHub release information',
+    'GitHub 最新版本：': 'Latest GitHub version: ', '。请打开发布页确认是否适用于 Android。': '. Open the release page to confirm Android availability.',
+    '发现新版本 ': 'A newer version is available: ', '。请在发布页确认 Android 安装包后手动下载并安装。': '. Check for an Android package on the release page, then download and install it manually.',
+    '当前版本已是最新版本（': 'You are using the latest version (', '）。': ').', '正在检查 GitHub Release…': 'Checking GitHub releases…',
+    '查看更新': 'View Release', '关于 MusicDesk': 'About MusicDesk', 'MusicDesk · 本地音乐播放器与曲目信息工具': 'MusicDesk · Local music player and track information tools',
+    '音乐文件在本机处理；在线检索、下载和转换通过你连接的电脑服务完成。': 'Music files are processed locally. Online lookup, downloads, and conversion use your connected computer service.',
+    '项目主页与更新记录': 'Project page and release notes', '使用帮助与快捷键': 'Help & Keyboard Shortcuts',
+    '在线': 'Online', '设置': 'Settings',
     '粘贴 Spotify、YouTube 分享链接或输入歌曲关键词，读取公开曲目信息、查看歌词、下载音频；也可将本地音频转换为其他格式。': 'Paste a Spotify or YouTube link, or search by song keywords to view public track details and lyrics or download audio. You can also convert local audio.',
     '自定义封装': 'Custom Packaging',
     '选择本地音频后可试听、裁剪头尾、修改曲目信息和封面；同步歌词可逐句校时，纯文本歌词可制作时间戳并生成 LRC。': 'Preview and trim local audio, edit track details and cover art, calibrate synced lyrics line by line, or add timestamps to plain lyrics and create an LRC file.',
@@ -61,6 +81,7 @@
     '连接同一 Wi‑Fi 上运行的 MusicDesk 电脑，即可使用在线服务。': 'Connect to a MusicDesk computer on the same Wi-Fi network to use online services.',
     '连接电脑上的 MusicDesk': 'Connect to MusicDesk on your computer', '连接电脑': 'Connect Computer', '先在电脑运行': 'Start MusicDesk on your computer first',
     '电脑服务地址': 'Computer server address', '一次性配对密钥': 'One-time pairing token', '测试并保存连接': 'Test and Save Connection', '尚未连接': 'Not connected', '断开': 'Disconnect',
+    '从电脑终端复制配对密钥': 'Copy the pairing token from your computer terminal',
     '首选：spotdl (完整元数据)': 'Preferred: spotdl (full metadata)', '首选：yt-dlp': 'Preferred: yt-dlp',
     '未选择本地音频时的下载工具': 'Download source when no local audio is selected', '转换并保存': 'Convert and Save',
     '导出格式 (Format)': 'Output Format', '定制标签。': 'Custom tags.', '音乐资料，': 'Music details, ', '由你整理。': 'organized your way.',
@@ -101,6 +122,7 @@
     online: { zh: '在线解析与下载', en: 'Online' },
     custom: { zh: '自定义封装与标签编辑', en: 'Custom' },
     local: { zh: '本地离线播放器', en: 'Library' },
+    settings: { zh: '设置', en: 'Settings' },
   };
   let language = 'zh';
 
@@ -109,8 +131,19 @@
     if (!trimmed) return value;
     const count = trimmed.match(/^(\d+)\s*(首|tracks?)$/i);
     if (count) return value.replace(trimmed, lang === 'en' ? `${count[1]} tracks` : `${count[1]} 首`);
+    const phrases = lang === 'en'
+      ? [['。请打开发布页确认是否适用于 Android。', '. Open the release page to confirm Android availability.'], ['。请在发布页确认 Android 安装包后手动下载并安装。', '. Check for an Android package on the release page, then download and install it manually.']]
+      : [['. Open the release page to confirm Android availability.', '。请打开发布页确认是否适用于 Android。'], ['. Check for an Android package on the release page, then download and install it manually.', '。请在发布页确认 Android 安装包后手动下载并安装。']];
+    for (const [source, target] of phrases) {
+      if (trimmed.includes(source)) return value.replace(trimmed, trimmed.replace(source, target));
+    }
     const translated = lang === 'en' ? translations[trimmed] : reverse.get(trimmed);
-    return translated === undefined ? value : value.replace(trimmed, translated);
+    if (translated !== undefined) return value.replace(trimmed, translated);
+    const prefixes = lang === 'en'
+      ? [['当前版本：', 'Current version: '], ['检查失败：', 'Check failed: '], ['GitHub 最新版本：', 'Latest GitHub version: '], ['发现新版本 ', 'A newer version is available: '], ['当前版本已是最新版本：', 'You are using the latest version: '], ['已连接：', 'Connected: '], ['已保存：', 'Saved: ']]
+      : [['Current version: ', '当前版本：'], ['Check failed: ', '检查失败：'], ['Latest GitHub version: ', 'GitHub 最新版本：'], ['A newer version is available: ', '发现新版本 '], ['You are using the latest version: ', '当前版本已是最新版本：'], ['Connected: ', '已连接：'], ['Saved: ', '已保存：']];
+    const prefix = prefixes.find(([source]) => trimmed.startsWith(source));
+    return prefix ? value.replace(trimmed, prefix[1] + trimmed.slice(prefix[0].length)) : value;
   }
 
   function translateTextNode(node) {
@@ -126,15 +159,21 @@
       translateTextNode(root);
       return;
     }
-    if (root.nodeType !== Node.ELEMENT_NODE || root.matches(protectedSelectors)) return;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) translateTextNode(walker.currentNode);
-    root.querySelectorAll('[placeholder],[title],[aria-label],[alt]').forEach(element => {
-      if (element.matches(protectedSelectors)) return;
+    if (root.nodeType !== Node.ELEMENT_NODE) return;
+    const protectedAttributeSelectors = 'script,style,[contenteditable="true"],#lrcContainer,#localLrcContainer,#customLyricsPreview,.track-list,.queue-sheet,.result-info,#nowTitle,#nowArtist,#miniTitle,#miniArtist,#title,#artist';
+    const translateAttributes = element => {
+      if (element.matches(protectedAttributeSelectors)) return;
       for (const attribute of ['placeholder', 'title', 'aria-label', 'alt']) {
         const value = element.getAttribute(attribute);
         if (value) element.setAttribute(attribute, lookup(value, language));
       }
+    };
+    translateAttributes(root);
+    if (root.matches(protectedSelectors)) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) translateTextNode(walker.currentNode);
+    root.querySelectorAll('[placeholder],[title],[aria-label],[alt]').forEach(element => {
+      translateAttributes(element);
     });
   }
 
@@ -153,7 +192,7 @@
     translateTree(document.body);
     const active = document.querySelector('.tab-btn.active');
     const index = active ? [...document.querySelectorAll('.tab-btn')].indexOf(active) : 0;
-    updateMobileTabLabel(['online', 'custom', 'local'][Math.max(index, 0)]);
+    updateMobileTabLabel(['online', 'custom', 'local', 'settings'][Math.max(index, 0)]);
   }
 
   document.addEventListener('DOMContentLoaded', () => {

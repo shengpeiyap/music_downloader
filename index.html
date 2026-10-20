@@ -16,6 +16,19 @@
     .language-select{width:auto;margin:0;padding:7px 28px 7px 10px;border-radius:9px;font-size:13px}
     .nav-mobile-button{display:none;align-items:center;gap:8px;margin:0;padding:8px 11px;background:#151a17;border:1px solid var(--line);color:var(--text);font-size:13px}
     .help-button{flex:none;width:36px;height:36px;margin:0;padding:0;border:1px solid #52604f;border-radius:50%;background:#151a17;color:var(--green);font-size:20px;line-height:1}
+    .android-only-tab{display:none!important}
+    .settings-card{margin:12px 0;padding:18px}
+    .settings-card h2{margin:0 0 6px;font-size:18px}
+    .settings-card .hint{margin:0 0 12px}
+    .settings-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+    .settings-row:first-child{border-top:0}
+    .settings-row button{flex:none;margin:0;padding:7px 10px;font-size:12px}
+    .settings-folder-actions{display:flex;flex:none;gap:6px}
+    .settings-folder-list{margin:8px 0}
+    .settings-about{color:var(--muted);font-size:13px}
+    .settings-about a{color:var(--green)}
+    body.android-app .android-only-tab{display:block!important}
+    body.android-app #tab-settings.active{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 2px calc(90px + env(safe-area-inset-bottom))}
     .help-dialog{width:min(640px,calc(100vw - 28px));max-height:min(82vh,760px);overflow:auto;padding:24px;background:#151a17;color:var(--text);border:1px solid #39453b;border-radius:18px;box-shadow:0 24px 80px #000b}
     .help-dialog::backdrop{background:#000b;backdrop-filter:blur(3px)}
     .help-dialog-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
@@ -182,7 +195,7 @@
     .filebox{display:block;border:1px dashed #465449;border-radius:12px;padding:18px;background:#0d110e}.filebox input{width:100%;margin-top:10px;color:var(--muted)}.status{font-size:13px;margin:12px 0 0;min-height:20px}.legal{font-size:12px;color:#87938a;margin-top:24px}.footer{border-top:1px solid var(--line);margin-top:28px;padding-top:16px;font-size:12px;color:#77847a}
     @media(max-width:768px){main{padding:18px 14px 48px}.header-bar{position:relative;align-items:center;gap:10px}.header-actions{gap:7px}.nav-mobile-button{display:flex;max-width:min(46vw,210px)}.nav-mobile-button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-tabs{display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:30;min-width:205px;max-width:calc(100vw - 32px);flex-direction:column;align-items:stretch;gap:4px;box-shadow:0 14px 35px #0009}.nav-tabs.mobile-open{display:flex}.tab-btn{text-align:left;white-space:nowrap;padding:10px 12px}.language-select{padding:7px 24px 7px 8px;font-size:12px}.card{padding:18px}.local-layout,.tag-layout,.grid{grid-template-columns:1fr}.local-layout{gap:12px}.playlist-card{height:auto;max-height:440px;padding:14px}.track-list{min-height:80px;max-height:300px}.player-main-card{height:auto;min-height:420px;padding:20px 14px}.now-playing-cover{width:min(48vw,180px);height:min(48vw,180px)}.row{align-items:stretch;flex-direction:column;gap:8px}.result-header{align-items:flex-start;flex-wrap:wrap}.engine-box{align-items:flex-start}.player-controls{max-width:100%}.track-remove{padding:5px 7px}.playlist-header h2{font-size:16px!important}}
     @media(max-width:768px){body.android-app .nav-tabs{display:none}body.android-app .nav-tabs.mobile-open{display:flex}}
-    @media(max-width:480px){.header-bar{gap:6px}.brand{font-size:9px;letter-spacing:.08em}.header-actions{gap:4px}.nav-mobile-button{max-width:88px;padding:7px 7px;font-size:11px}.language-select{max-width:72px;padding-left:5px;padding-right:16px;font-size:10px}.help-button{width:34px;height:34px}}
+    @media(max-width:480px){.header-bar{gap:6px}.brand{font-size:9px;letter-spacing:.08em}.header-actions{gap:4px}.nav-mobile-button{max-width:88px;padding:7px 7px;font-size:11px}.language-select{max-width:104px;min-width:92px;padding-left:5px;padding-right:16px;font-size:10px}.help-button{width:34px;height:34px}}
   </style>
 </head>
 <body><main>
@@ -193,6 +206,7 @@
         <button class="tab-btn active" onclick="switchTab('online')">在线解析与下载</button>
         <button class="tab-btn" onclick="switchTab('custom')">自定义封装与标签编辑</button>
         <button class="tab-btn" onclick="switchTab('local')">本地离线播放器</button>
+        <button id="androidSettingsNav" class="tab-btn android-only-tab" onclick="switchTab('settings')">设置</button>
       </div>
       <button id="navMobileBtn" class="nav-mobile-button" type="button" aria-expanded="false" aria-controls="navTabs"><span>☰</span><span id="mobileTabLabel">在线解析与下载</span></button>
       <select id="languageSelect" class="language-select" aria-label="选择语言" title="选择语言">
@@ -236,19 +250,6 @@
     <h1>音乐资料，<br>由你整理。</h1>
     <p class="intro">从分享链接查看公开曲目信息，或把你拥有使用权的音频转换成常见格式。轻量、私密，文件在本机处理。</p>
     <p id="androidOnlineNote" class="android-scope-note">连接同一 Wi‑Fi 上运行的 MusicDesk 电脑，即可使用在线服务。</p>
-    <section id="androidApiConnectCard" class="card android-api-connect" style="display:none">
-      <h2>连接电脑上的 MusicDesk</h2>
-      <p class="hint">先在电脑运行 <strong>start_lan.bat</strong>，再填入终端显示的地址和一次性配对密钥。手机与电脑需在同一 Wi‑Fi。</p>
-      <label for="apiServerUrl">电脑服务地址</label>
-      <input id="apiServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.20:8765" autocomplete="url">
-      <label for="apiPairingToken" style="margin-top:12px">一次性配对密钥</label>
-      <input id="apiPairingToken" type="password" autocomplete="off" placeholder="从电脑终端复制配对密钥">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button id="connectApiBtn" type="button">测试并保存连接</button>
-        <button id="forgetApiBtn" class="lrc-btn" type="button">断开</button>
-      </div>
-      <p id="apiConnectionStatus" class="status" aria-live="polite">尚未连接</p>
-    </section>
     <div class="grid">
       <section class="card"><h2>曲目信息搜索</h2><p class="hint">粘贴 Spotify / YouTube 分享链接，或搜索“作者 - 标题”及单独标题</p>
         <form id="lookup"><label for="share">分享链接或关键词</label><input id="share" type="text" placeholder="Spotify 链接，或 作者 - 标题 / 标题" required><button id="lookupBtn">读取 / 搜索曲目信息</button></form>
@@ -506,6 +507,45 @@
     </div>
   </div>
 
+  <div id="tab-settings" class="tab-content">
+    <h1>设置中心</h1>
+    <p class="intro">管理电脑服务连接、曲库访问权限和应用信息。</p>
+    <section id="androidApiConnectCard" class="card android-api-connect settings-card">
+      <h2>电脑服务连接</h2>
+      <p class="hint">在线解析、下载和格式转换需要连接同一 Wi‑Fi 下运行的电脑端 MusicDesk。</p>
+      <label for="apiServerUrl">电脑服务地址</label>
+      <input id="apiServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.20:8765" autocomplete="url">
+      <label for="apiPairingToken" style="margin-top:12px">一次性配对密钥</label>
+      <input id="apiPairingToken" type="password" autocomplete="off" placeholder="从电脑终端复制配对密钥">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="connectApiBtn" type="button">测试并保存连接</button>
+        <button id="forgetApiBtn" class="lrc-btn" type="button">断开</button>
+      </div>
+      <p id="apiConnectionStatus" class="status" aria-live="polite">尚未连接</p>
+    </section>
+    <section class="card settings-card">
+      <h2>曲库与权限</h2>
+      <p class="hint">MusicDesk 仅访问你选择的文件夹。撤销授权后，下次启动将不再自动载入该文件夹；当前已载入的曲目会保留到本次使用结束。</p>
+      <button id="addAndroidFolderBtn" type="button">添加音乐文件夹</button>
+      <div id="androidSettingsFolders" class="settings-folder-list"><p class="status">正在读取已授权文件夹…</p></div>
+      <div class="settings-row"><div><strong>通知权限</strong><div id="notificationPermissionStatus" class="settings-about">正在检查…</div></div><button id="manageNotificationBtn" type="button">管理</button></div>
+      <div class="settings-row"><div><strong>系统应用权限</strong><div class="settings-about">在 Android 系统设置中查看和管理</div></div><button id="manageAppPermissionsBtn" class="lrc-btn" type="button">打开系统设置</button></div>
+    </section>
+    <section class="card settings-card">
+      <h2>检查更新</h2>
+      <p id="appVersionLabel" class="hint">当前版本：读取中…</p>
+      <p id="updateStatus" class="status" aria-live="polite">检查公开的 GitHub Release，不会自动下载或安装。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="checkUpdatesBtn" type="button">检查更新</button><button id="openReleaseBtn" class="lrc-btn" type="button" hidden>查看更新</button></div>
+    </section>
+    <section class="card settings-card settings-about">
+      <h2>关于 MusicDesk</h2>
+      <p>MusicDesk · 本地音乐播放器与曲目信息工具</p>
+      <p>音乐文件在本机处理；在线检索、下载和转换通过你连接的电脑服务完成。</p>
+      <p><a href="https://github.com/shengpeiyap/music_downloader" rel="noopener">项目主页与更新记录</a></p>
+      <button id="openSettingsHelpBtn" class="lrc-btn" type="button">使用帮助与快捷键</button>
+    </section>
+  </div>
+
   <div class="footer">MusicDesk · 在本机运行，上传的文件不会发送到外部服务。</div>
 </main>
 
@@ -615,9 +655,90 @@ $('forgetApiBtn').addEventListener('click', () => {
 });
 
 $('androidOpenApiSettings').addEventListener('click', () => {
-  switchTab('online');
+  switchTab('settings');
   $('androidApiConnectCard').scrollIntoView({behavior: 'smooth', block: 'start'});
 });
+
+function refreshAndroidSettingsFolders() {
+  if (!window.AndroidMusic) return;
+  let folders = [];
+  try { folders = JSON.parse(AndroidMusic.getSavedFolders() || '[]'); } catch (_) {}
+  const container = $('androidSettingsFolders');
+  if (!folders.length) {
+    container.innerHTML = '<p class="status">尚未授权音乐文件夹。添加文件夹后，应用会在下次打开时恢复曲库。</p>';
+    return;
+  }
+  container.innerHTML = folders.map((folder, index) => `<div class="settings-row"><div><strong>${escapeHTML(folder.name || '音乐文件夹')}</strong><div class="settings-about">${folder.authorized ? '已授权 · 可在启动时恢复' : '授权已失效 · 需要重新选择'}</div></div><div class="settings-folder-actions"><button type="button" class="settings-rescan-btn" data-index="${index}">${folder.authorized ? '重新扫描' : '重新授权'}</button><button type="button" class="settings-remove-folder-btn lrc-btn" data-index="${index}">移除</button></div></div>`).join('');
+  container.querySelectorAll('.settings-rescan-btn').forEach(button => button.addEventListener('click', () => {
+    const folder = folders[Number(button.dataset.index)];
+    if (!folder.authorized) { AndroidMusic.pickFolder(); return; }
+    const started = AndroidMusic.rescanSavedFolder(folder.uri) === 'true';
+    button.textContent = started ? '正在扫描…' : '请重新授权';
+    if (!started) refreshAndroidSettingsFolders();
+  }));
+  container.querySelectorAll('.settings-remove-folder-btn').forEach(button => button.addEventListener('click', () => {
+    const folder = folders[Number(button.dataset.index)];
+    if (AndroidMusic.removeSavedFolder(folder.uri) === 'true') refreshAndroidSettingsFolders();
+  }));
+}
+
+function refreshAndroidPermissionStatus() {
+  if (!window.AndroidMusic) return;
+  $('notificationPermissionStatus').textContent = AndroidMusic.hasNotificationPermission() === 'true'
+    ? '已允许通知；锁屏播放控制由 Android 系统管理。'
+    : '通知已关闭；播放时可能看不到锁屏/通知栏控制。';
+}
+
+function refreshAndroidSettings() {
+  if (!window.AndroidMusic) return;
+  $('appVersionLabel').textContent = `当前版本：${AndroidMusic.getAppVersion()}`;
+  refreshAndroidSettingsFolders();
+  refreshAndroidPermissionStatus();
+}
+window.refreshAndroidSettings = refreshAndroidSettings;
+
+function compareVersionStrings(left, right) {
+  const parse = value => String(value || '').replace(/^[^\d]*/, '').split(/[.+-]/).map(part => parseInt(part, 10)).filter(Number.isFinite);
+  const a = parse(left), b = parse(right);
+  if (!a.length || !b.length) return null;
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const difference = (a[index] || 0) - (b[index] || 0);
+    if (difference) return difference;
+  }
+  return 0;
+}
+
+window.onAndroidUpdateCheck = raw => {
+  let result;
+  try { result = JSON.parse(raw); } catch (_) { result = null; }
+  if (!result || !result.ok) {
+    $('updateStatus').textContent = `检查失败：${result && result.error || '无法读取 GitHub Release'}`;
+    return;
+  }
+  $('appVersionLabel').textContent = `当前版本：${result.current}`;
+  const comparison = compareVersionStrings(result.latest, result.current);
+  $('updateStatus').textContent = comparison === null
+    ? `GitHub 最新版本：${result.latest || '未知'}。请打开发布页确认是否适用于 Android。`
+    : comparison > 0 ? `发现新版本 ${result.latest}。请在发布页确认 Android 安装包后手动下载并安装。`
+      : `当前版本已是最新版本：${result.current}`;
+  $('openReleaseBtn').hidden = !result.url || comparison === 0;
+  $('openReleaseBtn').dataset.url = result.url || '';
+};
+
+$('addAndroidFolderBtn').addEventListener('click', () => { if (window.AndroidMusic) AndroidMusic.pickFolder(); });
+$('manageNotificationBtn').addEventListener('click', () => { if (window.AndroidMusic) AndroidMusic.openNotificationSettings(); });
+$('manageAppPermissionsBtn').addEventListener('click', () => { if (window.AndroidMusic) AndroidMusic.openAppSettings(); });
+$('checkUpdatesBtn').addEventListener('click', () => {
+  if (!window.AndroidMusic) return;
+  $('updateStatus').textContent = '正在检查 GitHub Release…';
+  $('openReleaseBtn').hidden = true;
+  AndroidMusic.checkForUpdates();
+});
+$('openReleaseBtn').addEventListener('click', () => {
+  const url = $('openReleaseBtn').dataset.url;
+  if (url && window.AndroidMusic) AndroidMusic.openReleasePage(url);
+});
+$('openSettingsHelpBtn').addEventListener('click', () => $('helpDialog').showModal());
 
 function responseFilename(response, fallback) {
   const header = response.headers.get('Content-Disposition') || '';
@@ -837,16 +958,11 @@ window.addEventListener('pagehide', () => persistAndroidPlayback(true));
 function switchTab(tabName) {
   document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-  if (tabName === 'online') {
-    document.querySelectorAll('.tab-btn')[0].classList.add('active');
-    $('tab-online').classList.add('active');
-  } else if (tabName === 'custom') {
-    document.querySelectorAll('.tab-btn')[1].classList.add('active');
-    $('tab-custom').classList.add('active');
-  } else {
-    document.querySelectorAll('.tab-btn')[2].classList.add('active');
-    $('tab-local').classList.add('active');
-  }
+  if (!['online', 'custom', 'local', 'settings'].includes(tabName) || (tabName === 'settings' && !window.AndroidMusic)) tabName = 'local';
+  const tabIndex = {online: 0, custom: 1, local: 2, settings: 3}[tabName];
+  document.querySelectorAll('.tab-btn')[tabIndex].classList.add('active');
+  $(`tab-${tabName}`).classList.add('active');
+  if (tabName === 'settings') refreshAndroidSettings();
   updateMobileTabLabel(tabName);
   $('navTabs').classList.remove('mobile-open');
   $('navMobileBtn').setAttribute('aria-expanded', 'false');
@@ -1903,6 +2019,7 @@ window.onAndroidFolderPicked = (raw, isFinal = true, wasCapped = false) => {
       ? `曲库已就绪，共 ${localTracks.length} 首歌曲。${wasCapped ? '已达到单次导入上限。' : ''}`
       : '文件夹中没有新的支持格式音频，请选择包含音乐的文件夹。';
     showAndroidNotice(4500);
+    if (window.AndroidMusic) refreshAndroidSettingsFolders();
   } else {
     $('androidScopeNote').textContent = `正在载入曲库…已处理 ${localTracks.length} 首`;
     $('androidScopeNote').style.display = 'block';
@@ -2603,6 +2720,7 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   $('androidOnlineNote').style.display = 'block';
   $('androidCustomNote').style.display = 'block';
   $('androidApiConnectCard').style.display = 'block';
+  refreshAndroidSettings();
   if (androidApiConfig) {
     $('apiServerUrl').value = androidApiConfig.url || '';
     $('apiPairingToken').value = androidApiConfig.token || '';

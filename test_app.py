@@ -265,9 +265,15 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('id="libraryFilterTabs"', page)
         self.assertIn('id="playerLyricsViewBtn"', page)
         self.assertIn('id="androidMiniPlayer"', page)
+        self.assertIn('id="tab-settings"', page)
+        self.assertIn('id="androidSettingsNav"', page)
         self.assertIn('function renderQueue()', page)
         self.assertIn('private String readArtwork(Uri source)', activity)
         self.assertNotIn('track.put("cover"', activity)
+        for bridge_method in ('getAppVersion()', 'getSavedFolders()', 'removeSavedFolder(String value)', 'rescanSavedFolder(String value)', 'hasNotificationPermission()', 'openNotificationSettings()', 'openAppSettings()', 'checkForUpdates()', 'openReleasePage(String value)'):
+            self.assertIn(bridge_method, activity)
+        for setting_id in ('androidSettingsFolders', 'notificationPermissionStatus', 'checkUpdatesBtn', 'openSettingsHelpBtn'):
+            self.assertIn(f'id="{setting_id}"', page)
 
     def test_i18n_script_is_included_and_bundled_for_portable_build(self):
         root = Path(__file__).parent
