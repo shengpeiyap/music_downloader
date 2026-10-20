@@ -1277,8 +1277,20 @@ $('downloadBtn').addEventListener('click', async () => {
       const source = currentMetadata.url && currentMetadata.provider !== 'spotify' && !currentMetadata.keyword_search
         ? currentMetadata.url
         : `ytsearch1:${currentMetadata.artist || ''} ${currentMetadata.title || ''}`.trim();
-      const result = await downloadWithAndroidYtDlp(source, currentMetadata);
-      $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}${result.warning ? `；${result.warning}` : ''}`;
+      let downloadMetadata = {...currentMetadata};
+      let lyricStatus = '未找到歌词，将不嵌入歌词';
+      try {
+        const lyricResult = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
+        const lyrics = lyricResult.synced_lyrics || lyricResult.lyrics || '';
+        if (lyrics) {
+          downloadMetadata.lyrics = lyrics;
+          lyricStatus = lyricResult.synced_lyrics ? '已嵌入同步 LRC 歌词' : '已嵌入普通歌词（来源无时间戳）';
+        }
+      } catch (_) {
+        // Lyrics are optional; a lyrics service failure must not block audio download.
+      }
+      const result = await downloadWithAndroidYtDlp(source, downloadMetadata);
+      $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}；${lyricStatus}${result.warning ? `；${result.warning}` : ''}`;
       $('sourceStatus').textContent = '本机 yt-dlp 下载后会转换为 MP3，并写入可用的曲目信息与封面标签。';
       return;
     }

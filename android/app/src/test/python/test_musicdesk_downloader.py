@@ -13,6 +13,28 @@ SPEC.loader.exec_module(musicdesk_downloader)
 
 
 class DownloaderTests(unittest.TestCase):
+    def test_parses_lrc_timestamps_for_id3_synchronised_lyrics(self):
+        parsed = musicdesk_downloader._parse_lrc_timestamps(
+            "[00:02.5]later\n[00:01.23][00:03.00]repeat\nuntimed"
+        )
+        self.assertEqual(parsed, [("repeat", 1230), ("later", 2500), ("repeat", 3000)])
+
+    def test_lrc_parser_skips_timestamp_only_lines_and_plain_lyrics(self):
+        self.assertEqual(
+            musicdesk_downloader._parse_lrc_timestamps("[00:00.00]\nplain lyric"), []
+        )
+
+    def test_parsed_lrc_can_be_serialized_as_id3_sylt(self):
+        from mutagen.id3 import ID3, SYLT
+
+        frame = SYLT(
+            encoding=3, lang="eng", format=2, type=1, desc="",
+            text=musicdesk_downloader._parse_lrc_timestamps("[00:01.25]line"),
+        )
+        tags = ID3()
+        tags.add(frame)
+        self.assertEqual(tags.getall("SYLT")[0].text, [("line", 1250)])
+
     def test_packages_local_audio_without_reencoding_and_writes_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "track.mp3"
@@ -105,10 +127,35 @@ class DownloaderTests(unittest.TestCase):
         ]) as request:
             result = json.loads(musicdesk_downloader.lookup_lyrics("Song", "Artist"))
         self.assertEqual(result["lyrics"], "[00:01.00]line")
+        self.assertEqual(result["synced_lyrics"], "[00:01.00]line")
         self.assertEqual(result["provider"], "LRCLIB")
         self.assertEqual(request.call_count, 2)
         self.assertIn("/api/get?", request.call_args_list[0].args[0])
         self.assertIn("/api/search?", request.call_args_list[1].args[0])
+
+    def test_lyrics_lookup_retries_search_by_title_when_artist_query_misses(self):
+        with patch.object(musicdesk_downloader, "_json_request", side_effect=[
+            RuntimeError("exact match unavailable"),
+            [],
+            [{"trackName": "Song", "artistName": "Different Artist", "syncedLyrics": "[00:01.00]line"}],
+        ]) as request:
+            result = json.loads(musicdesk_downloader.lookup_lyrics("Song", "Artist"))
+        self.assertEqual(result["lyrics"], "[00:01.00]line")
+        self.assertEqual(request.call_count, 3)
+        self.assertIn("q=Artist+Song", request.call_args_list[1].args[0])
+        self.assertIn("q=Song", request.call_args_list[2].args[0])
+
+    def test_lyrics_lookup_extracts_song_from_youtube_music_video_title(self):
+        with patch.object(musicdesk_downloader, "_json_request", side_effect=[
+            RuntimeError("full video title did not match"),
+            {"trackName": "アンコール", "syncedLyrics": "[00:01.00]line"},
+        ]) as request:
+            result = json.loads(musicdesk_downloader.lookup_lyrics(
+                "YOASOBI 「アンコール」 Official Music Video", "YOASOBI, Echoes"
+            ))
+        self.assertEqual(result["lyrics"], "[00:01.00]line")
+        self.assertIn("track_name=%E3%82%A2%E3%83%B3%E3%82%B3%E3%83%BC%E3%83%AB", request.call_args_list[1].args[0])
+        self.assertIn("artist_name=YOASOBI", request.call_args_list[1].args[0])
 
     def test_search_metadata_overrides_source_fields_for_download_tags(self):
         info, cover = musicdesk_downloader._combine_metadata(

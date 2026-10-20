@@ -139,7 +139,7 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         if audio.tags is None:
             audio.add_tags()
         tags = audio.tags
-        for frame in ("TIT2", "TPE1", "TALB", "TPE2", "TDRC", "APIC", "USLT"):
+        for frame in ("TIT2", "TPE1", "TALB", "TPE2", "TDRC", "APIC", "USLT", "SYLT"):
             tags.delall(frame)
         tags.add(TIT2(encoding=3, text=str(title)))
         if artist: tags.add(TPE1(encoding=3, text=artist))
@@ -147,8 +147,11 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         if album_artist: tags.add(TPE2(encoding=3, text=str(album_artist)))
         if year: tags.add(TDRC(encoding=3, text=year))
         if lyrics:
-            from mutagen.id3 import USLT
+            from mutagen.id3 import SYLT, USLT
             tags.add(USLT(encoding=3, text=str(lyrics)))
+            synced = _parse_lrc_timestamps(str(lyrics))
+            if synced:
+                tags.add(SYLT(encoding=3, lang="eng", format=2, type=1, desc="", text=synced))
         if image: tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=image))
     elif isinstance(audio, MP4):
         if audio.tags is None:
@@ -198,6 +201,28 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         return False
     audio.save()
     return True
+
+
+_LRC_TIMESTAMP = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
+
+
+def _parse_lrc_timestamps(lyrics: str):
+    """Return ID3 SYLT (text, milliseconds) entries from timestamped LRC."""
+    entries = []
+    for line in lyrics.splitlines():
+        timestamps = list(_LRC_TIMESTAMP.finditer(line))
+        if not timestamps:
+            continue
+        text = line[timestamps[-1].end():].strip()
+        if not text:
+            continue
+        for match in timestamps:
+            fraction = (match.group(3) or "").ljust(3, "0")[:3]
+            milliseconds = (int(match.group(1)) * 60 + int(match.group(2))) * 1000
+            if fraction:
+                milliseconds += int(fraction)
+            entries.append((text, milliseconds))
+    return sorted(entries, key=lambda entry: entry[1])
 
 
 def package_audio_file(source_path: str, output_path: str, metadata_json: str, cover_path: str = ""):
@@ -351,36 +376,116 @@ def _lyrics_normalize(value: str):
     return _normalize_match(value)
 
 
+def _lyrics_title_variants(title: str):
+    """Produce likely recording titles from video-style yt-dlp titles."""
+    title = " ".join((title or "").split())
+    variants = []
+
+    def add(value):
+        value = " ".join((value or "").strip().split()).strip(" -–—:：|")
+        if value and _lyrics_normalize(value) not in {_lyrics_normalize(item) for item in variants}:
+            variants.append(value)
+
+    add(title)
+    for left, right in (("「", "」"), ("『", "』"), ("《", "》"), ("“", "”"), ('"', '"'), ("'", "'")):
+        start = title.find(left)
+        end = title.find(right, start + len(left)) if start >= 0 else -1
+        if start >= 0 and end > start + len(left):
+            add(title[start + len(left):end])
+
+    without_video_suffix = re.sub(
+        r"\s*(?:[-|｜:：]\s*)?(?:(?:official|オフィシャル)\s*)?(?:music\s*video|video|mv|audio|lyric(?:s)?(?:\s*video)?|ミュージックビデオ|公式(?:\s*動画)?)\s*$",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    )
+    add(without_video_suffix)
+    return variants
+
+
+def _lyrics_artist_variants(artist: str):
+    artist = " ".join((artist or "").split()).strip()
+    if not artist or artist.casefold() in {"未知艺人", "unknown artist"}:
+        return []
+    variants = [artist]
+    for part in re.split(r"\s*[,;|]\s*", artist):
+        part = re.sub(r"\s*[-–—]\s*(?:topic|official channel)$", "", part, flags=re.IGNORECASE).strip()
+        if part and _lyrics_normalize(part) not in {_lyrics_normalize(item) for item in variants}:
+            variants.append(part)
+    return variants
+
+
 def lookup_lyrics(title: str, artist: str = "") -> str:
     """Look up synced or plain lyrics directly from LRCLIB without the PC API."""
     title = (title or "").strip()
     artist = (artist or "").strip()
     if not title:
         raise ValueError("请先读取歌曲信息。")
-    clean_artist = "" if artist.casefold() in {"未知艺人", "unknown artist"} or _lyrics_normalize(artist) == _lyrics_normalize(title) else artist
-    params = {"track_name": title}
-    if clean_artist:
-        params["artist_name"] = clean_artist
-    try:
-        data = _json_request("https://lrclib.net/api/get?" + urllib.parse.urlencode(params), timeout=8)
-        lyrics = (data.get("syncedLyrics") or data.get("plainLyrics") or "").strip()
-        if lyrics:
-            return json.dumps({"lyrics": lyrics, "provider": "LRCLIB"}, ensure_ascii=False)
-    except Exception:
-        pass
+    title_variants = _lyrics_title_variants(title)
+    artist_variants = [item for item in _lyrics_artist_variants(artist)
+                       if _lyrics_normalize(item) != _lyrics_normalize(title)]
+    clean_artist = artist_variants[0] if artist_variants else ""
 
-    query = " ".join(part for part in (clean_artist, title) if part)
-    try:
-        results = _json_request("https://lrclib.net/api/search?" + urllib.parse.urlencode({"q": query}), timeout=8)
-    except Exception as error:
-        raise ValueError("LRCLIB 暂时无法访问；请稍后重试或连接电脑服务。") from error
-    if not isinstance(results, list):
-        results = []
-    normalized_title = _lyrics_normalize(title)
-    candidates = [item for item in results if _lyrics_normalize(item.get("trackName")) == normalized_title]
-    if not candidates:
-        candidates = [item for item in results if normalized_title and normalized_title in _lyrics_normalize(item.get("trackName"))]
-    if clean_artist:
+    def lyrics_result(data):
+        if not isinstance(data, dict):
+            return ""
+        synced = (data.get("syncedLyrics") or "").strip()
+        lyrics = (synced or data.get("plainLyrics") or "").strip()
+        if lyrics:
+            return json.dumps({"lyrics": lyrics, "synced_lyrics": synced, "provider": "LRCLIB"}, ensure_ascii=False)
+        return ""
+
+    # First retain the original exact lookup, then try a quoted/cleaned song
+    # title with the primary performer (e.g. a YouTube MV title and channel).
+    exact_pairs = [(title, clean_artist)]
+    if len(title_variants) > 1:
+        primary_artist = artist_variants[1] if len(artist_variants) > 1 else clean_artist
+        exact_pairs.extend((variant, primary_artist) for variant in title_variants[1:])
+    for candidate_title, candidate_artist in exact_pairs:
+        params = {"track_name": candidate_title}
+        if candidate_artist:
+            params["artist_name"] = candidate_artist
+        try:
+            result = lyrics_result(_json_request(
+                "https://lrclib.net/api/get?" + urllib.parse.urlencode(params), timeout=8
+            ))
+            if result:
+                return result
+        except Exception:
+            continue
+
+    search_pairs = [(clean_artist, title)] if clean_artist else []
+    search_pairs.extend((artist_variants[1], variant) for variant in title_variants[1:] if len(artist_variants) > 1)
+    search_pairs.extend(("", variant) for variant in title_variants)
+    search_queries = list(dict.fromkeys(
+        " ".join(part for part in pair if part).strip() for pair in search_pairs
+    ))
+    normalized_titles = {_lyrics_normalize(item) for item in title_variants}
+    candidates = []
+    search_succeeded = False
+    search_error = None
+    for search_query in search_queries:
+        try:
+            results = _json_request(
+                "https://lrclib.net/api/search?" + urllib.parse.urlencode({"q": search_query}), timeout=8
+            )
+            search_succeeded = True
+        except Exception as error:
+            search_error = error
+            continue
+        if not isinstance(results, list):
+            continue
+        candidates = [item for item in results if _lyrics_normalize(item.get("trackName")) in normalized_titles]
+        if not candidates:
+            candidates = [item for item in results if any(
+                normalized and normalized in _lyrics_normalize(item.get("trackName"))
+                for normalized in normalized_titles
+            )]
+        if candidates:
+            break
+    if not candidates and not search_succeeded and search_error:
+        raise ValueError("LRCLIB 暂时无法访问；请稍后重试或连接电脑服务。") from search_error
+    if clean_artist and candidates:
         matched = [item for item in candidates if _lyrics_normalize(clean_artist) in _lyrics_normalize(item.get("artistName"))]
         if matched:
             candidates = matched
@@ -391,10 +496,11 @@ def lookup_lyrics(title: str, artist: str = "") -> str:
         bool(item.get("plainLyrics")),
         bool(item.get("albumName")),
     ))
-    lyrics = (best.get("syncedLyrics") or best.get("plainLyrics") or "").strip()
+    synced_lyrics = (best.get("syncedLyrics") or "").strip()
+    lyrics = (synced_lyrics or best.get("plainLyrics") or "").strip()
     if not lyrics:
         raise ValueError("公开歌词库中没有找到这首歌的歌词。")
-    return json.dumps({"lyrics": lyrics, "provider": "LRCLIB"}, ensure_ascii=False)
+    return json.dumps({"lyrics": lyrics, "synced_lyrics": synced_lyrics, "provider": "LRCLIB"}, ensure_ascii=False)
 
 
 def _resolve_info(source: str, download: bool):
