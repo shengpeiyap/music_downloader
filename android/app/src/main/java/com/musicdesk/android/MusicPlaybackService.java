@@ -28,6 +28,7 @@ public final class MusicPlaybackService extends Service {
     public static final String EXTRA_POSITION = "position";
     public static final String EXTRA_DURATION = "duration";
     public static final String EXTRA_ARTWORK = "artwork";
+    public static final String EXTRA_MODE = "mode";
 
     private static final String CHANNEL_ID = "musicdesk-playback";
     private static final int NOTIFICATION_ID = 7101;
@@ -39,6 +40,7 @@ public final class MusicPlaybackService extends Service {
     private long position;
     private long duration;
     private boolean playing;
+    private String mode = "sequential";
 
     @Override public void onCreate() {
         super.onCreate();
@@ -50,6 +52,11 @@ public final class MusicPlaybackService extends Service {
             @Override public void onPause() { sendCommand("pause"); }
             @Override public void onSkipToNext() { sendCommand("next"); }
             @Override public void onSkipToPrevious() { sendCommand("previous"); }
+            @Override public void onSeekTo(long time) {
+                Intent intent = new Intent(ACTION_MEDIA_COMMAND).setPackage(getPackageName())
+                        .putExtra(EXTRA_COMMAND, "seek_to").putExtra(EXTRA_POSITION, time);
+                sendBroadcast(intent);
+            }
         });
         mediaSession.setActive(true);
     }
@@ -70,6 +77,7 @@ public final class MusicPlaybackService extends Service {
             playing = intent.getBooleanExtra(EXTRA_PLAYING, false);
             position = Math.max(0, (long) (intent.getDoubleExtra(EXTRA_POSITION, 0) * 1000));
             duration = Math.max(0, (long) (intent.getDoubleExtra(EXTRA_DURATION, 0) * 1000));
+            mode = intent.getStringExtra(EXTRA_MODE) == null ? "sequential" : intent.getStringExtra(EXTRA_MODE);
             updateSession();
             Notification notification = buildNotification();
             if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
@@ -92,10 +100,12 @@ public final class MusicPlaybackService extends Service {
         mediaSession.setMetadata(metadata.build());
         long actions = PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
                 | PlaybackState.ACTION_PLAY_PAUSE | PlaybackState.ACTION_SKIP_TO_NEXT
-                | PlaybackState.ACTION_SKIP_TO_PREVIOUS;
-        mediaSession.setPlaybackState(new PlaybackState.Builder().setActions(actions)
+                | PlaybackState.ACTION_SKIP_TO_PREVIOUS | PlaybackState.ACTION_SEEK_TO;
+        PlaybackState.Builder state = new PlaybackState.Builder().setActions(actions)
                 .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED, position, playing ? 1f : 0f)
-                .build());
+                .setBufferedPosition(duration);
+        state.addCustomAction(new PlaybackState.CustomAction.Builder("toggle_mode", modeLabel(), modeIcon()).build());
+        mediaSession.setPlaybackState(state.build());
     }
 
     private Bitmap decodeArtwork(String dataUrl) {
@@ -125,13 +135,27 @@ public final class MusicPlaybackService extends Service {
                 .addAction(action("previous", "上一首", android.R.drawable.ic_media_previous))
                 .addAction(action(playing ? "pause" : "play", playing ? "暂停" : "播放",
                         playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play))
-                .addAction(action("next", "下一首", android.R.drawable.ic_media_next));
+                .addAction(action("next", "下一首", android.R.drawable.ic_media_next))
+                .addAction(action("toggle_mode", modeLabel(), modeIcon()));
         if (Build.VERSION.SDK_INT >= 24 && !album.isEmpty()) builder.setSubText(album);
         Bitmap cover = decodeArtwork(artwork);
         if (cover != null) builder.setLargeIcon(cover);
         if (Build.VERSION.SDK_INT >= 21) builder.setStyle(new Notification.MediaStyle()
                 .setMediaSession(mediaSession.getSessionToken()).setShowActionsInCompactView(0, 1, 2));
         return builder.build();
+    }
+
+    private String modeLabel() {
+        switch (mode) {
+            case "repeat-one": return "单曲循环";
+            case "repeat-all": return "列表循环";
+            case "shuffle": return "随机播放";
+            default: return "顺序播放";
+        }
+    }
+
+    private int modeIcon() {
+        return "shuffle".equals(mode) ? R.drawable.ic_playback_shuffle : R.drawable.ic_playback_repeat;
     }
 
     private Notification.Action action(String command, String label, int icon) {

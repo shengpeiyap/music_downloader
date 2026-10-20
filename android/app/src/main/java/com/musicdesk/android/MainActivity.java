@@ -73,7 +73,8 @@ public final class MainActivity extends Activity {
         @Override public void onReceive(Context context, Intent intent) {
             String command = intent.getStringExtra(MusicPlaybackService.EXTRA_COMMAND);
             if (webView != null && command != null) {
-                webView.evaluateJavascript("window.onAndroidMediaCommand && window.onAndroidMediaCommand(" + JSONObject.quote(command) + ")", null);
+                long position = intent.getLongExtra(MusicPlaybackService.EXTRA_POSITION, -1);
+                webView.evaluateJavascript("window.onAndroidMediaCommand && window.onAndroidMediaCommand(" + JSONObject.quote(command) + "," + position + ")", null);
             }
         }
     };
@@ -635,6 +636,7 @@ public final class MainActivity extends Activity {
                         .putExtra(MusicPlaybackService.EXTRA_PLAYING, state.optBoolean("playing"))
                         .putExtra(MusicPlaybackService.EXTRA_POSITION, state.optDouble("position", 0))
                         .putExtra(MusicPlaybackService.EXTRA_DURATION, state.optDouble("duration", 0))
+                        .putExtra(MusicPlaybackService.EXTRA_MODE, state.optString("mode", "sequential"))
                         .putExtra(MusicPlaybackService.EXTRA_ARTWORK, state.optString("artwork"));
                 if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
             } catch (Exception ignored) { }

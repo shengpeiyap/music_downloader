@@ -149,6 +149,34 @@ class DownloaderTests(unittest.TestCase):
             write_metadata.assert_called_once()
             self.assertEqual(write_metadata.call_args.args[1]["artist"], "Catalog Artist")
 
+    def test_download_falls_back_to_ytdlp_thumbnail_when_catalog_cover_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            audio_file = Path(directory) / "sample.m4a"
+
+            class FakeYoutubeDL:
+                def __init__(self, options): pass
+                def __enter__(self): return self
+                def __exit__(self, *_args): return False
+                def extract_info(self, _source, download):
+                    audio_file.write_bytes(b"audio")
+                    return {"title": "Sample", "thumbnail": "https://example.test/ytdlp.jpg",
+                            "requested_downloads": [{"filepath": str(audio_file)}]}
+                @staticmethod
+                def prepare_filename(_info): return str(audio_file)
+
+            valid_cover = (b"thumbnail", "image/jpeg", Path("cover.jpg"))
+            with patch.object(musicdesk_downloader.yt_dlp, "YoutubeDL", FakeYoutubeDL), \
+                 patch.object(musicdesk_downloader, "_metadata_cover", side_effect=[None, valid_cover]) as cover_lookup, \
+                 patch.object(musicdesk_downloader, "_write_metadata", return_value=True) as write_metadata:
+                result = json.loads(musicdesk_downloader.download_audio_with_metadata(
+                    "https://example.test/song", directory,
+                    json.dumps({"cover": "https://coverartarchive.org/release/missing/front-500"}),
+                ))
+
+            self.assertTrue(result["cover_embedded"])
+            self.assertEqual(cover_lookup.call_args_list[1].args[0], "https://example.test/ytdlp.jpg")
+            self.assertEqual(write_metadata.call_args.args[2], valid_cover)
+
     def test_returns_untagged_file_when_container_is_not_supported(self):
         with tempfile.TemporaryDirectory() as directory:
             audio_file = Path(directory) / "sample.webm"

@@ -411,7 +411,19 @@ def download_audio_with_metadata(source: str, work_dir: str, supplied_metadata_j
             raise RuntimeError("下载结束，但没有找到生成的音频文件。")
 
     tag_info, cover_source = _combine_metadata(info, supplied_metadata_json)
-    cover = _metadata_cover(str(cover_source), destination)
+    # MusicBrainz/CAA entries may return a valid-looking URL even when no front
+    # cover exists. If that request fails, try the source's yt-dlp thumbnail.
+    cover_candidates = [cover_source, info.get("thumbnail") or ""]
+    cover = None
+    attempted = set()
+    for candidate in cover_candidates:
+        candidate = str(candidate or "")
+        if not candidate or candidate in attempted:
+            continue
+        attempted.add(candidate)
+        cover = _metadata_cover(candidate, destination)
+        if cover:
+            break
     try:
         tagged = _write_metadata(audio_path, tag_info, cover)
     except Exception:

@@ -1171,10 +1171,11 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
       if (/^spotify:/i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。');
       const d = await lookupWithAndroidMusicBrainz(lookupValue);
       currentMetadata = {...d, provider: 'MusicBrainz', keyword_search: true};
+      const cover = await resolveAndroidCover(currentMetadata);
       $('title').textContent = d.title;
       $('artist').textContent = d.artist;
       $('provider').textContent = '手机直连 MusicBrainz';
-      $('cover').src = d.cover || DEFAULT_COVER;
+      $('cover').src = cover || DEFAULT_COVER;
       $('result').style.display = 'flex';
       $('lookupStatus').textContent = 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。';
       return;
@@ -1359,6 +1360,28 @@ function formatEditorTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   const whole = Math.floor(seconds);
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+async function resolveAndroidCover(metadata) {
+  const usable = url => new Promise(resolve => {
+    if (!url) return resolve(false);
+    const image = new Image();
+    image.onload = () => resolve(image.naturalWidth > 0);
+    image.onerror = () => resolve(false);
+    image.src = url;
+  });
+  if (await usable(metadata.cover)) return metadata.cover;
+  try {
+    const query = `ytsearch1:${metadata.artist || ''} ${metadata.title || ''}`.trim();
+    const fallback = await lookupWithAndroidYtDlp(query);
+    if (await usable(fallback.thumbnail)) {
+      metadata.cover = fallback.thumbnail;
+      metadata.cover_provider = 'yt-dlp';
+      return fallback.thumbnail;
+    }
+  } catch (_) { /* Keep the default artwork when both sources miss. */ }
+  metadata.cover = '';
+  return '';
 }
 
 function formatLrcTimestamp(seconds) {
@@ -2503,7 +2526,7 @@ function syncAndroidMediaSession(force = false) {
     title: track.title || '未知标题', artist: track.artist || '未知歌手', album: track.album || '',
     playing: !player.paused, position: Number(player.currentTime) || 0,
     duration: Number.isFinite(player.duration) ? player.duration : 0,
-    artwork: track.cover || ''
+    artwork: track.cover || '', mode: playbackMode
   }));
 }
 
@@ -2818,12 +2841,20 @@ $('playbackSeek').addEventListener('input', event => {
   })
 );
 
-window.onAndroidMediaCommand = command => {
+window.onAndroidMediaCommand = (command, position) => {
   const player = $('localAudioPlayer');
   if (command === 'play') player.play().catch(() => syncPlayerControls());
   else if (command === 'pause') player.pause();
   else if (command === 'next') nextLocalTrack();
   else if (command === 'previous') previousLocalTrack();
+  else if (command === 'seek_to' && Number.isFinite(position) && position >= 0) player.currentTime = position / 1000;
+  else if (command === 'toggle_mode') {
+    playbackMode = PLAYBACK_MODES[(PLAYBACK_MODES.indexOf(playbackMode) + 1) % PLAYBACK_MODES.length];
+    updatePlaybackOrder();
+    syncPlayerControls();
+    persistAndroidPlayback(true);
+    syncAndroidMediaSession(true);
+  }
 };
 
 function renderLocalLyrics(lrcText) {
