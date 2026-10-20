@@ -15,6 +15,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
+import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -27,6 +28,8 @@ import android.webkit.WebResourceRequest;
 import android.widget.Toast;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
+import com.arthenica.ffmpegkit.FFmpegKit;
+import com.arthenica.ffmpegkit.ReturnCode;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import org.json.JSONArray;
@@ -42,6 +45,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.UUID;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.HashMap;
@@ -54,12 +58,16 @@ public final class MainActivity extends Activity {
     private static final String PREFS_NAME = "musicdesk-library";
     private static final String PREF_SAVED_FOLDERS = "saved-folder-uris";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 4105;
+    private static final int CUSTOM_OUTPUT_REQUEST = 4106;
+    private static final int CONVERT_OUTPUT_REQUEST = 4107;
 
     private WebView webView;
     private ValueCallback<Uri[]> fileSelectionCallback;
     private OutputStream downloadOutput;
     private Uri downloadUri;
     private File pendingNativeDownload;
+    private File pendingCustomOutput;
+    private File pendingConversionOutput;
     private String pendingNativeDownloadWarning = "";
     private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
@@ -67,6 +75,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService nativeDownloadExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, JSONObject> cachedTracks = new HashMap<>();
+    private final Map<String, Uri> selectedDocumentUris = new HashMap<>();
     private boolean mediaReceiverRegistered;
     private volatile boolean playbackActive;
     private final BroadcastReceiver mediaCommandReceiver = new BroadcastReceiver() {
@@ -194,11 +203,50 @@ public final class MainActivity extends Activity {
             return;
         }
         if (requestCode == FILE_CHOOSER_REQUEST) {
+            Uri[] selectedUris = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+            if (selectedUris != null) {
+                synchronized (selectedDocumentUris) {
+                    for (Uri uri : selectedUris) {
+                        String name = queryDisplayName(uri);
+                        if (!name.isEmpty()) selectedDocumentUris.put(name, uri);
+                    }
+                    while (selectedDocumentUris.size() > 32) {
+                        selectedDocumentUris.remove(selectedDocumentUris.keySet().iterator().next());
+                    }
+                }
+            }
             if (fileSelectionCallback != null) {
-                fileSelectionCallback.onReceiveValue(
-                        WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                fileSelectionCallback.onReceiveValue(selectedUris);
                 fileSelectionCallback = null;
             }
+            return;
+        }
+        if (requestCode == CUSTOM_OUTPUT_REQUEST) {
+            File source = pendingCustomOutput;
+            pendingCustomOutput = null;
+            if (source == null) return;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                source.delete();
+                File parent = source.getParentFile();
+                if (parent != null) parent.delete();
+                notifyCustomPackageComplete("已取消保存封装文件。", "");
+                return;
+            }
+            copyCustomOutputToDocument(source, data.getData());
+            return;
+        }
+        if (requestCode == CONVERT_OUTPUT_REQUEST) {
+            File source = pendingConversionOutput;
+            pendingConversionOutput = null;
+            if (source == null) return;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                source.delete();
+                File parent = source.getParentFile();
+                if (parent != null) parent.delete();
+                notifyAndroidConvertComplete("已取消保存转换文件。", "");
+                return;
+            }
+            copyConversionOutputToDocument(source, data.getData());
             return;
         }
         if (requestCode == FOLDER_CHOOSER_REQUEST) {
@@ -241,6 +289,112 @@ public final class MainActivity extends Activity {
         if (webView == null) return;
         webView.evaluateJavascript("window.onAndroidNativeLyricsComplete && window.onAndroidNativeLyricsComplete("
                 + JSONObject.quote(error) + "," + JSONObject.quote(result) + ")", null);
+    }
+
+    private void notifyCustomPackageComplete(String error, String filename) {
+        if (webView != null) webView.evaluateJavascript("window.onAndroidCustomPackageComplete && window.onAndroidCustomPackageComplete("
+                + JSONObject.quote(error) + "," + JSONObject.quote(filename) + ")", null);
+    }
+
+    private void notifyAndroidConvertComplete(String error, String filename) {
+        if (webView != null) webView.evaluateJavascript("window.onAndroidConvertComplete && window.onAndroidConvertComplete("
+                + JSONObject.quote(error) + "," + JSONObject.quote(filename) + ")", null);
+    }
+
+    private void notifyLocalTagsComplete(String error, String tags, String artwork) {
+        if (webView != null) webView.evaluateJavascript("window.onAndroidLocalTagsComplete && window.onAndroidLocalTagsComplete("
+                + JSONObject.quote(error) + "," + JSONObject.quote(tags) + "," + JSONObject.quote(artwork) + ")", null);
+    }
+
+    private String queryDisplayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) return cursor.getString(0);
+        } catch (RuntimeException ignored) { }
+        return "";
+    }
+
+    private void copyCustomOutputToDocument(File source, Uri destination) {
+        nativeDownloadExecutor.execute(() -> {
+            String error = "";
+            String filename = source.getName();
+            try (InputStream input = new java.io.FileInputStream(source);
+                 OutputStream output = getContentResolver().openOutputStream(destination, "wt")) {
+                if (output == null) throw new IOException("无法创建目标文件");
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            } catch (Exception failure) {
+                error = failure.getMessage() == null ? "保存封装文件失败。" : failure.getMessage();
+                try { DocumentsContract.deleteDocument(getContentResolver(), destination); } catch (Exception ignored) { }
+            } finally { source.delete(); }
+            String resultError = error;
+            String resultFilename = filename;
+            runOnUiThread(() -> {
+                File parent = source.getParentFile();
+                if (parent != null) parent.delete();
+                notifyCustomPackageComplete(resultError, resultFilename);
+            });
+        });
+    }
+
+    private void saveCustomOutput(File source) {
+        pendingCustomOutput = source;
+        runOnUiThread(() -> {
+            String ext = source.getName().contains(".") ? source.getName().substring(source.getName().lastIndexOf('.')).toLowerCase() : "";
+            String mime = ext.equals(".m4a") ? "audio/mp4" : ext.equals(".mp3") ? "audio/mpeg"
+                    : ext.equals(".flac") ? "audio/flac" : ext.equals(".ogg") || ext.equals(".opus") ? "audio/ogg" : "audio/*";
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(mime).putExtra(Intent.EXTRA_TITLE, safeDownloadFilename(source.getName()));
+            try { startActivityForResult(intent, CUSTOM_OUTPUT_REQUEST); }
+            catch (RuntimeException failure) {
+                pendingCustomOutput = null;
+                source.delete();
+                notifyCustomPackageComplete("无法打开保存位置选择器。", "");
+            }
+        });
+    }
+
+    private void saveConversionOutput(File source) {
+        pendingConversionOutput = source;
+        runOnUiThread(() -> {
+            String sourceName = source.getName();
+            int dot = sourceName.lastIndexOf('.');
+            String ext = dot < 0 ? "" : sourceName.substring(dot).toLowerCase();
+            String mime = ext.equals(".m4a") ? "audio/mp4" : ext.equals(".mp3") ? "audio/mpeg"
+                    : ext.equals(".flac") ? "audio/flac" : ext.equals(".ogg") ? "audio/ogg" : "audio/wav";
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(mime).putExtra(Intent.EXTRA_TITLE, safeDownloadFilename(source.getName()));
+            try { startActivityForResult(intent, CONVERT_OUTPUT_REQUEST); }
+            catch (RuntimeException failure) {
+                pendingConversionOutput = null;
+                source.delete();
+                notifyAndroidConvertComplete("无法打开保存位置选择器。", "");
+            }
+        });
+    }
+
+    private void copyConversionOutputToDocument(File source, Uri destination) {
+        nativeDownloadExecutor.execute(() -> {
+            String error = "";
+            String filename = source.getName();
+            try (InputStream input = new java.io.FileInputStream(source);
+                 OutputStream output = getContentResolver().openOutputStream(destination, "wt")) {
+                if (output == null) throw new IOException("无法创建目标文件");
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            } catch (Exception failure) {
+                error = failure.getMessage() == null ? "保存转换文件失败。" : failure.getMessage();
+                try { DocumentsContract.deleteDocument(getContentResolver(), destination); } catch (Exception ignored) { }
+            } finally { source.delete(); }
+            String resultError = error;
+            String resultFilename = filename;
+            runOnUiThread(() -> {
+                File parent = source.getParentFile();
+                if (parent != null) parent.delete();
+                notifyAndroidConvertComplete(resultError, resultFilename);
+            });
+        });
     }
 
     private void copyNativeDownloadToDocument(File source, Uri destination) {
@@ -449,6 +603,185 @@ public final class MainActivity extends Activity {
     }
 
     private final class AndroidMusicBridge {
+        @JavascriptInterface
+        public String readLocalTags(String audioName) {
+            Uri sourceUri;
+            synchronized (selectedDocumentUris) { sourceUri = selectedDocumentUris.get(audioName); }
+            if (sourceUri == null) return "请重新选择音频文件后读取标签。";
+            nativeDownloadExecutor.execute(() -> {
+                File temp = new File(getCacheDir(), "musicdesk-tag-read-" + UUID.randomUUID() + extensionOf(audioName));
+                try {
+                    copyContentToFile(sourceUri, temp);
+                    if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
+                    String tags = Python.getInstance().getModule("musicdesk_downloader")
+                            .callAttr("read_local_audio_tags", temp.getAbsolutePath()).toString();
+                    String artwork = readArtwork(sourceUri);
+                    runOnUiThread(() -> notifyLocalTagsComplete("", tags, artwork));
+                } catch (Throwable failure) {
+                    String message = failure.getMessage() == null ? "读取音频标签失败。" : failure.getMessage();
+                    runOnUiThread(() -> notifyLocalTagsComplete(message, "{}", ""));
+                } finally { temp.delete(); }
+            });
+            return "";
+        }
+
+        @JavascriptInterface
+        public String packageAudio(String audioName, String coverName, String coverDataUrl, String metadataJson,
+                                   String outputName, String outputFormat, double trimStart, double trimEnd) {
+            Uri sourceUri;
+            Uri coverUri;
+            synchronized (selectedDocumentUris) {
+                sourceUri = selectedDocumentUris.get(audioName);
+                coverUri = coverName == null || coverName.isEmpty() ? null : selectedDocumentUris.get(coverName);
+            }
+            if (sourceUri == null) return "请重新选择要封装的音频文件。";
+            nativeDownloadExecutor.execute(() -> {
+                File work = new File(getCacheDir(), "musicdesk-package-" + UUID.randomUUID());
+                File input = new File(work, safeDownloadFilename(audioName));
+                File converted = null;
+                File cover = null;
+                File output = null;
+                try {
+                    if (!work.mkdirs()) throw new IOException("无法创建临时目录");
+                    copyContentToFile(sourceUri, input);
+                    String sourceExt = extensionOf(audioName);
+                    String sourceFormat = sourceExt.startsWith(".") ? sourceExt.substring(1) : sourceExt;
+                    boolean needsTrim = trimStart > 0.01 || trimEnd > trimStart + 0.05;
+                    boolean needsTranscode = !sourceFormat.equalsIgnoreCase(outputFormat) || needsTrim;
+                    if (coverUri != null) {
+                        cover = new File(work, "cover" + extensionOf(coverName));
+                        copyContentToFile(coverUri, cover);
+                    } else if (coverDataUrl != null && coverDataUrl.startsWith("data:") && coverDataUrl.contains(",")) {
+                        String mime = coverDataUrl.substring(5, coverDataUrl.indexOf(';')).toLowerCase();
+                        String encoded = coverDataUrl.substring(coverDataUrl.indexOf(',') + 1);
+                        cover = new File(work, mime.equals("image/png") ? "cover.png" : "cover.jpg");
+                        try (FileOutputStream stream = new FileOutputStream(cover)) {
+                            stream.write(android.util.Base64.decode(encoded, android.util.Base64.DEFAULT));
+                        }
+                    }
+                    String ext = sourceExt.isEmpty() ? ".audio" : sourceExt;
+                    output = new File(work, safeDownloadFilename(outputName));
+                    String requestedExt = "." + outputFormat.toLowerCase();
+                    if (!output.getName().toLowerCase().endsWith(requestedExt)) {
+                        output = new File(work, safeDownloadFilename(outputName) + requestedExt);
+                    }
+                    File tagSource = input;
+                    if (needsTranscode) {
+                        converted = new File(work, "converted" + requestedExt);
+                        transcodeAudio(input, converted, outputFormat, trimStart, needsTrim ? trimEnd : 0);
+                        tagSource = converted;
+                    }
+                    if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
+                    Python.getInstance().getModule("musicdesk_downloader").callAttr("package_audio_file",
+                            tagSource.getAbsolutePath(), output.getAbsolutePath(), metadataJson == null ? "{}" : metadataJson,
+                            cover == null ? "" : cover.getAbsolutePath());
+                    File packaged = output;
+                    runOnUiThread(() -> saveCustomOutput(packaged));
+                } catch (Throwable failure) {
+                    if (output != null) output.delete();
+                    String message = failure.getMessage() == null ? "本机封装失败。" : failure.getMessage();
+                    runOnUiThread(() -> notifyCustomPackageComplete(message, ""));
+                } finally {
+                    input.delete();
+                    if (converted != null) converted.delete();
+                    if (cover != null) cover.delete();
+                    work.delete();
+                }
+            });
+            return "";
+        }
+
+        @JavascriptInterface
+        public String convertAudio(String audioName, String outputFormat) {
+            Uri sourceUri;
+            synchronized (selectedDocumentUris) { sourceUri = selectedDocumentUris.get(audioName); }
+            if (sourceUri == null) return "请重新选择要转换的音频文件。";
+            if (!isSupportedAudioFormat(outputFormat)) return "不支持的导出格式。";
+            Uri selectedUri = sourceUri;
+            nativeDownloadExecutor.execute(() -> {
+                File work = new File(getCacheDir(), "musicdesk-convert-" + UUID.randomUUID());
+                File input = new File(work, safeDownloadFilename(audioName));
+                File output = null;
+                try {
+                    if (!work.mkdirs()) throw new IOException("无法创建临时目录");
+                    copyContentToFile(selectedUri, input);
+                    String base = audioName == null ? "converted" : audioName.replaceFirst("(?i)\\.[^.]+$", "");
+                    output = new File(work, safeDownloadFilename(base + "." + outputFormat.toLowerCase()));
+                    transcodeAudio(input, output, outputFormat, 0, 0);
+                    File converted = output;
+                    runOnUiThread(() -> saveConversionOutput(converted));
+                } catch (Throwable failure) {
+                    String message = failure.getMessage() == null ? "音频转换失败。" : failure.getMessage();
+                    if (output != null) output.delete();
+                    runOnUiThread(() -> notifyAndroidConvertComplete(message, ""));
+                } finally {
+                    input.delete();
+                    work.delete();
+                }
+            });
+            return "";
+        }
+
+        private boolean isSupportedAudioFormat(String format) {
+            return "mp3".equalsIgnoreCase(format) || "m4a".equalsIgnoreCase(format)
+                    || "flac".equalsIgnoreCase(format) || "wav".equalsIgnoreCase(format)
+                    || "ogg".equalsIgnoreCase(format);
+        }
+
+        private void transcodeAudio(File input, File output, String format, double trimStart, double trimEnd) throws IOException {
+            ArrayList<String> args = new ArrayList<>();
+            args.add("-y");
+            args.add("-i");
+            args.add(input.getAbsolutePath());
+            if (trimStart > 0.01) {
+                args.add("-ss");
+                args.add(String.format(java.util.Locale.US, "%.3f", trimStart));
+            }
+            if (trimEnd > trimStart + 0.05) {
+                args.add("-t");
+                args.add(String.format(java.util.Locale.US, "%.3f", trimEnd - trimStart));
+            }
+            args.add("-map"); args.add("0:a:0");
+            args.add("-map_metadata"); args.add("0");
+            args.add("-vn");
+            if ("mp3".equalsIgnoreCase(format)) {
+                args.add("-c:a"); args.add("libmp3lame"); args.add("-q:a"); args.add("2");
+            } else if ("m4a".equalsIgnoreCase(format)) {
+                args.add("-c:a"); args.add("aac"); args.add("-b:a"); args.add("192k");
+            } else if ("flac".equalsIgnoreCase(format)) {
+                args.add("-c:a"); args.add("flac");
+            } else if ("wav".equalsIgnoreCase(format)) {
+                args.add("-c:a"); args.add("pcm_s16le");
+            } else if ("ogg".equalsIgnoreCase(format)) {
+                args.add("-c:a"); args.add("libvorbis"); args.add("-q:a"); args.add("5");
+            } else {
+                throw new IOException("不支持的导出格式：" + format);
+            }
+            args.add(output.getAbsolutePath());
+            com.arthenica.ffmpegkit.FFmpegSession session = FFmpegKit.executeWithArguments(args.toArray(new String[0]));
+            if (!ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile() || output.length() == 0) {
+                String details = session.getOutput();
+                if (details != null && details.length() > 500) details = details.substring(details.length() - 500);
+                throw new IOException("FFmpeg 转换失败。" + (details == null || details.trim().isEmpty() ? "" : "\n" + details));
+            }
+        }
+
+        private void copyContentToFile(Uri uri, File destination) throws IOException {
+            try (InputStream input = getContentResolver().openInputStream(uri);
+                 FileOutputStream output = new FileOutputStream(destination)) {
+                if (input == null) throw new IOException("无法读取选择的文件。");
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            }
+        }
+
+        private String extensionOf(String filename) {
+            if (filename == null) return "";
+            int dot = filename.lastIndexOf('.');
+            return dot < 0 ? "" : filename.substring(dot);
+        }
+
         @JavascriptInterface
         public String getAppVersion() {
             try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }

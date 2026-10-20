@@ -13,6 +13,40 @@ SPEC.loader.exec_module(musicdesk_downloader)
 
 
 class DownloaderTests(unittest.TestCase):
+    def test_packages_local_audio_without_reencoding_and_writes_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "track.mp3"
+            output = Path(directory) / "packaged.mp3"
+            source.write_bytes(b"source audio bytes")
+            with patch.object(musicdesk_downloader, "_write_metadata", return_value=True) as write_tags:
+                result = musicdesk_downloader.package_audio_file(
+                    str(source), str(output), json.dumps({"title": "New title"})
+                )
+            self.assertEqual(result, str(output))
+            self.assertEqual(output.read_bytes(), source.read_bytes())
+            self.assertEqual(write_tags.call_args.args[1], {"title": "New title"})
+
+    def test_package_refuses_empty_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "empty.mp3"
+            source.touch()
+            with self.assertRaisesRegex(ValueError, "为空"):
+                musicdesk_downloader.package_audio_file(str(source), str(Path(directory) / "out.mp3"), "{}")
+
+    def test_reads_local_tags_for_android_custom_form(self):
+        class FakeAudio(dict):
+            pass
+
+        with patch.object(musicdesk_downloader.mutagen, "File", return_value=FakeAudio({
+            "title": ["Song"], "artist": ["Artist"], "album": ["Album"],
+            "albumartist": ["Album Artist"], "date": ["2024-09-01"], "lyrics": ["[00:01.00]line"],
+        })):
+            result = json.loads(musicdesk_downloader.read_local_audio_tags("unused.mp3"))
+        self.assertEqual(result["title"], "Song")
+        self.assertEqual(result["albumartist"], "Album Artist")
+        self.assertEqual(result["year"], "2024-09-01")
+        self.assertEqual(result["lyrics"], "[00:01.00]line")
+
     def test_rejects_unsupported_source_without_starting_ytdlp(self):
         with patch.object(musicdesk_downloader.yt_dlp, "YoutubeDL") as youtube_dl:
             with self.assertRaisesRegex(ValueError, "只支持"):

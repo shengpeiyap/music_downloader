@@ -1313,6 +1313,13 @@ $('convert').addEventListener('submit', async e => {
   $('convertBtn').disabled = true;
   $('convertStatus').textContent = '正在本机转换…';
   try {
+    if (window.AndroidMusic && file) {
+      const immediateError = AndroidMusic.convertAudio(file.name, $('format').value);
+      if (immediateError) throw Error(immediateError);
+      $('convertBtn').dataset.androidPending = '1';
+      $('convertStatus').textContent = '正在 Android 设备本机转换…';
+      return;
+    }
     const body = new FormData();
     if (file) body.append('file', file);
     if (desktopAudio) body.append('local_audio_id', desktopAudio.url.split('/').pop());
@@ -1324,9 +1331,15 @@ $('convert').addEventListener('submit', async e => {
   } catch(err) {
     $('convertStatus').textContent = err.message;
   } finally {
-    $('convertBtn').disabled = false;
+    if (!$('convertBtn').dataset.androidPending) $('convertBtn').disabled = false;
   }
 });
+
+window.onAndroidConvertComplete = (error, filename) => {
+  delete $('convertBtn').dataset.androidPending;
+  $('convertBtn').disabled = false;
+  $('convertStatus').textContent = error || `转换完成，已保存为 ${filename}`;
+};
 
 let selectedDesktopConvertAudio = null;
 $('audio').addEventListener('click', event => {
@@ -1795,10 +1808,21 @@ $('customAudioInput').addEventListener('change', async (e) => {
     setCustomAudioPreview('');
     return;
   }
+  if (window.AndroidMusic) {
+    const ext = (file.name.match(/\.([^.]+)$/) || [])[1];
+    if (ext && Array.from($('tagFormat').options).some(option => option.value.toLowerCase() === ext.toLowerCase())) {
+      $('tagFormat').value = ext.toLowerCase();
+    }
+  }
   setCustomAudioPreview(file, true);
   $('customCoverPreview').dataset.embeddedCover = '';
 
   $('customStatus').textContent = '正在读取并解析音频标签元数据...';
+  if (window.AndroidMusic) {
+    const immediateError = AndroidMusic.readLocalTags(file.name);
+    if (immediateError) $('customStatus').textContent = immediateError;
+    return;
+  }
   const formData = new FormData();
   formData.append('file', file);
 
@@ -1918,6 +1942,29 @@ $('customTagForm').addEventListener('submit', async (e) => {
 
   try {
     const embeddedCover = $('customCoverPreview').dataset.embeddedCover;
+    if (window.AndroidMusic && audioFile) {
+      const trimStart = Number($('customTrimStart').value || 0);
+      const duration = $('customAudioPreview').duration || 0;
+      const rangeEnd = Number($('customTrimEnd').value || 0);
+      const trimEnd = duration > 0 && rangeEnd < duration - 0.1 ? rangeEnd : 0;
+      const coverDataUrl = !coverFile && embeddedCover.startsWith('data:') ? embeddedCover : '';
+      const metadata = {
+        title: $('tagTitle').value.trim(), artist: $('tagArtist').value.trim(),
+        album: $('tagAlbum').value.trim(), album_artist: $('tagAlbumArtist').value.trim(),
+        release_year: $('tagYear').value.trim(), lyrics: $('tagLyrics').value
+      };
+      let outputName = `${metadata.artist ? metadata.artist + ' - ' : ''}${metadata.title || audioFile.name.replace(/\.[^.]+$/, '')}`;
+      if ($('filenameAppendEnabled').checked && $('filenameAppend').value.trim()) outputName += ` ${$('filenameAppend').value.trim()}`;
+      outputName += `.${$('tagFormat').value}`;
+      const immediateError = AndroidMusic.packageAudio(
+        audioFile.name, coverFile ? coverFile.name : '', coverDataUrl,
+        JSON.stringify(metadata), outputName, $('tagFormat').value, trimStart, trimEnd
+      );
+      if (immediateError) throw Error(immediateError);
+      $('saveTagBtn').dataset.androidPending = '1';
+      $('customStatus').textContent = '正在本机写入音频标签…';
+      return;
+    }
     if (!coverFile && embeddedCover) {
       const coverBlob = await fetch(embeddedCover).then(response => response.blob());
       formData.append('cover_file', coverBlob, 'embedded-cover');
@@ -1937,9 +1984,36 @@ $('customTagForm').addEventListener('submit', async (e) => {
   } catch (err) {
     $('customStatus').textContent = err.message;
   } finally {
-    $('saveTagBtn').disabled = false;
+    if (!$('saveTagBtn').dataset.androidPending) $('saveTagBtn').disabled = false;
   }
 });
+
+window.onAndroidCustomPackageComplete = (error, filename) => {
+  delete $('saveTagBtn').dataset.androidPending;
+  $('saveTagBtn').disabled = false;
+  $('customStatus').textContent = error || `本机封装完成，已保存为 ${filename}`;
+};
+
+window.onAndroidLocalTagsComplete = (error, tagsJson, artwork) => {
+  if (error) { $('customStatus').textContent = error; return; }
+  try {
+    const data = JSON.parse(tagsJson || '{}');
+    $('tagTitle').value = data.title || '';
+    $('tagArtist').value = data.artist || '';
+    $('tagAlbum').value = data.album || '';
+    $('tagAlbumArtist').value = data.albumartist || '';
+    $('tagYear').value = (data.year || '').slice(0, 4);
+    $('tagLyrics').value = data.lyrics || '';
+    if (artwork) {
+      $('customCoverPreview').src = artwork;
+      $('customCoverPreview').dataset.embeddedCover = artwork;
+    }
+    customSelectedLyricKey = '';
+    renderCustomLyricsPreview();
+    $('tagSearch').value = data.artist && data.title ? `${data.artist} - ${data.title}` : data.title || '';
+    $('customStatus').textContent = '已从所选音频读取标签。可以修改后本机封装。';
+  } catch (_) { $('customStatus').textContent = '解析本机音频标签失败。'; }
+};
 
 // ===== 本地离线播放器 Tab 逻辑 =====
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|flac|wav|ogg)$/i;

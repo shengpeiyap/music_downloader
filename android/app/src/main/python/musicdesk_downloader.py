@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import shutil
 import threading
 import time
 import unicodedata
@@ -195,6 +196,49 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         return False
     audio.save()
     return True
+
+
+def package_audio_file(source_path: str, output_path: str, metadata_json: str, cover_path: str = ""):
+    """Copy an audio file and write its tags locally without changing its codec/container."""
+    source = Path(source_path)
+    output = Path(output_path)
+    if not source.is_file() or source.stat().st_size == 0:
+        raise ValueError("所选音频文件为空或无法读取。")
+    info = json.loads(metadata_json or "{}")
+    if not isinstance(info, dict):
+        raise ValueError("标签数据格式无效。")
+    cover = None
+    if cover_path:
+        cover_file = Path(cover_path)
+        if cover_file.is_file():
+            data = cover_file.read_bytes()
+            mime = "image/png" if cover_file.suffix.lower() == ".png" else "image/jpeg"
+            cover = (data, mime, str(cover_file))
+    shutil.copyfile(source, output)
+    try:
+        if not _write_metadata(output, info, cover):
+            raise ValueError("此音频格式暂不支持写入标签。")
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+    return str(output)
+
+
+def read_local_audio_tags(source_path: str):
+    audio = mutagen.File(str(source_path), easy=True)
+    if audio is None:
+        raise ValueError("无法识别此音频格式的标签。")
+    def first(*keys):
+        for key in keys:
+            values = audio.get(key)
+            if values:
+                return str(values[0])
+        return ""
+    return json.dumps({
+        "title": first("title"), "artist": first("artist"), "album": first("album"),
+        "albumartist": first("albumartist", "album artist"), "year": first("date", "year"),
+        "lyrics": first("lyrics", "unsyncedlyrics"),
+    }, ensure_ascii=False)
 
 
 def _json_request(url: str, timeout: int = 12):

@@ -31,3 +31,7 @@ chaquopy {
     }
 }
 
+dependencies {
+    implementation("com.arthenica:ffmpeg-kit-next:9.0.1")
+}
+
