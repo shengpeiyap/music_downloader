@@ -1916,7 +1916,14 @@ $('tagSearchBtn').addEventListener('click', async () => {
     $('tagAlbum').value = d.album || '';
     $('tagAlbumArtist').value = d.albumartist || d.artist || '';
     $('tagYear').value = d.year || '';
-    $('tagLyrics').value = d.lyrics || '';
+    let lyrics = d.lyrics || '';
+    if (!lyrics && window.AndroidMusic) {
+      try {
+        const lyricResult = await lookupLyricsOnAndroid(d.title || '', d.artist || '');
+        lyrics = lyricResult.lyrics || '';
+      } catch (_) {}
+    }
+    $('tagLyrics').value = lyrics;
     customSelectedLyricKey = '';
     renderCustomLyricsPreview();
     $('customCoverPreview').dataset.embeddedCover = d.cover || '';
@@ -2026,8 +2033,10 @@ window.onAndroidCustomPackageComplete = (error, filename) => {
   $('customStatus').textContent = error || `本机封装完成，已保存为 ${filename}`;
 };
 
-window.onAndroidLocalTagsComplete = (error, tagsJson, artwork) => {
+window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
   if (error) { $('customStatus').textContent = error; return; }
+  const selectedFile = $('customAudioInput').files[0];
+  if (audioName && selectedFile && selectedFile.name !== audioName) return;
   try {
     const data = JSON.parse(tagsJson || '{}');
     $('tagTitle').value = data.title || '';
@@ -2044,6 +2053,24 @@ window.onAndroidLocalTagsComplete = (error, tagsJson, artwork) => {
     renderCustomLyricsPreview();
     $('tagSearch').value = data.artist && data.title ? `${data.artist} - ${data.title}` : data.title || '';
     $('customStatus').textContent = '已从所选音频读取标签。可以修改后本机封装。';
+    if (!data.lyrics && data.title && data.title !== '未知曲目') {
+      $('customStatus').textContent = '音频没有内嵌歌词，正在尝试从 LRCLIB 获取…';
+      lookupLyricsOnAndroid(data.title, data.artist || '').then(result => {
+        const currentFile = $('customAudioInput').files[0];
+        if (audioName && (!currentFile || currentFile.name !== audioName)) return;
+        const lyrics = result.lyrics || '';
+        if (!lyrics) throw new Error('公开歌词库中没有找到这首歌的歌词。');
+        $('tagLyrics').value = lyrics;
+        renderCustomLyricsPreview();
+        $('customStatus').textContent = result.synced_lyrics
+          ? '已从 LRCLIB 载入同步 LRC；点击“保存并打包导出文件”即可内嵌。'
+          : '已载入纯文本歌词（无时间戳）；点击“保存并打包导出文件”即可内嵌。';
+      }).catch(lyricError => {
+        const currentFile = $('customAudioInput').files[0];
+        if (audioName && (!currentFile || currentFile.name !== audioName)) return;
+        $('customStatus').textContent = `已读取音频标签，但未能补全歌词：${lyricError.message}`;
+      });
+    }
   } catch (_) { $('customStatus').textContent = '解析本机音频标签失败。'; }
 };
 

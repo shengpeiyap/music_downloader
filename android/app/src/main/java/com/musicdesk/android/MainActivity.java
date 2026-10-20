@@ -301,9 +301,10 @@ public final class MainActivity extends Activity {
                 + JSONObject.quote(error) + "," + JSONObject.quote(filename) + ")", null);
     }
 
-    private void notifyLocalTagsComplete(String error, String tags, String artwork) {
+    private void notifyLocalTagsComplete(String error, String tags, String artwork, String audioName) {
         if (webView != null) webView.evaluateJavascript("window.onAndroidLocalTagsComplete && window.onAndroidLocalTagsComplete("
-                + JSONObject.quote(error) + "," + JSONObject.quote(tags) + "," + JSONObject.quote(artwork) + ")", null);
+                + JSONObject.quote(error) + "," + JSONObject.quote(tags) + "," + JSONObject.quote(artwork) + ","
+                + JSONObject.quote(audioName) + ")", null);
     }
 
     private String queryDisplayName(Uri uri) {
@@ -616,10 +617,10 @@ public final class MainActivity extends Activity {
                     String tags = Python.getInstance().getModule("musicdesk_downloader")
                             .callAttr("read_local_audio_tags", temp.getAbsolutePath()).toString();
                     String artwork = readArtwork(sourceUri);
-                    runOnUiThread(() -> notifyLocalTagsComplete("", tags, artwork));
+                    runOnUiThread(() -> notifyLocalTagsComplete("", tags, artwork, audioName));
                 } catch (Throwable failure) {
                     String message = failure.getMessage() == null ? "读取音频标签失败。" : failure.getMessage();
-                    runOnUiThread(() -> notifyLocalTagsComplete(message, "{}", ""));
+                    runOnUiThread(() -> notifyLocalTagsComplete(message, "{}", "", audioName));
                 } finally { temp.delete(); }
             });
             return "";
