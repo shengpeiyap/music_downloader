@@ -550,6 +550,7 @@
 </main>
 
 <script src="i18n.js"></script>
+<script src="library_sort.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -2295,12 +2296,12 @@ function renderLocalPlaylist(filterText = "") {
   $('libraryFilterTabs').querySelectorAll('[data-category]').forEach(button =>
     button.classList.toggle('active', button.dataset.category === libraryCategory));
   $('libraryGroupBack').style.display = libraryGroup ? 'block' : 'none';
-  const searched = localTracks.filter(t =>
+  const searched = window.sortLibraryTracks(localTracks.filter(t =>
     t.title.toLowerCase().includes(filterText.toLowerCase()) ||
     t.artist.toLowerCase().includes(filterText.toLowerCase()) ||
     (t.album || '').toLowerCase().includes(filterText.toLowerCase()) ||
     (t.folderPath || '').toLowerCase().includes(filterText.toLowerCase())
-  );
+  ));
   const categoryFields = {artists: 'artist', albums: 'album', folders: 'folderPath'};
   if (categoryFields[libraryCategory] && !libraryGroup) {
     const field = categoryFields[libraryCategory];

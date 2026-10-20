@@ -13,6 +13,7 @@ import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Base64;
 
@@ -56,6 +57,9 @@ public final class MusicPlaybackService extends Service {
                 Intent intent = new Intent(ACTION_MEDIA_COMMAND).setPackage(getPackageName())
                         .putExtra(EXTRA_COMMAND, "seek_to").putExtra(EXTRA_POSITION, time);
                 sendBroadcast(intent);
+            }
+            @Override public void onCustomAction(String action, Bundle extras) {
+                if ("toggle_mode".equals(action)) sendCommand("toggle_mode");
             }
         });
         mediaSession.setActive(true);
