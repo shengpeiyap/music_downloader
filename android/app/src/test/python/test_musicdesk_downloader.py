@@ -148,10 +148,12 @@ class DownloaderTests(unittest.TestCase):
     def test_download_embeds_tags_and_thumbnail_status_in_result(self):
         with tempfile.TemporaryDirectory() as directory:
             audio_file = Path(directory) / "sample.m4a"
+            captured_options = {}
 
             class FakeYoutubeDL:
                 def __init__(self, options):
                     self.options = options
+                    captured_options.update(options)
 
                 def __enter__(self):
                     return self
@@ -179,9 +181,17 @@ class DownloaderTests(unittest.TestCase):
             self.assertEqual(result["title"], "Catalog Track")
             self.assertTrue(result["metadata_embedded"])
             self.assertTrue(result["cover_embedded"])
+            self.assertTrue(captured_options["writethumbnail"])
+            self.assertEqual(result["cover_path"], "cover.jpg")
+            self.assertEqual(result["tag_metadata"]["artist"], "Catalog Artist")
+            self.assertEqual(result["tag_metadata"]["title"], "Catalog Track")
             thumbnail.assert_called_once()
             write_metadata.assert_called_once()
             self.assertEqual(write_metadata.call_args.args[1]["artist"], "Catalog Artist")
+
+    def test_detects_webp_thumbnail_for_android_cover_conversion(self):
+        image = b"RIFF" + (4).to_bytes(4, "little") + b"WEBP"
+        self.assertEqual(musicdesk_downloader._image_mime(image), "image/webp")
 
     def test_download_falls_back_to_ytdlp_thumbnail_when_catalog_cover_fails(self):
         with tempfile.TemporaryDirectory() as directory:

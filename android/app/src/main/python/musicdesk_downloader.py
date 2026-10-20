@@ -46,11 +46,13 @@ def _image_mime(data: bytes):
         return "image/jpeg"
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
     return None
 
 
 def _download_thumbnail(url: str, destination: Path):
-    if not url or not url.startswith("https://"):
+    if not url or not url.startswith(("https://", "http://")):
         return None
     try:
         request = Request(url, headers={"User-Agent": "MusicDesk/0.1"})
@@ -59,7 +61,7 @@ def _download_thumbnail(url: str, destination: Path):
         mime = _image_mime(data)
         if not mime or len(data) > 12 * 1024 * 1024:
             return None
-        suffix = ".jpg" if mime == "image/jpeg" else ".png"
+        suffix = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[mime]
         cover_path = destination / ("cover" + suffix)
         cover_path.write_bytes(data)
         return data, mime, cover_path
@@ -158,7 +160,7 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         _set_text_tag(tags, "aART", album_artist)
         _set_text_tag(tags, "\xa9day", year)
         _set_text_tag(tags, "\xa9lyr", lyrics)
-        if image:
+        if image and mime in {"image/jpeg", "image/png"}:
             image_format = MP4Cover.FORMAT_JPEG if mime == "image/jpeg" else MP4Cover.FORMAT_PNG
             tags["covr"] = [MP4Cover(image, imageformat=image_format)]
     elif isinstance(audio, FLAC):
@@ -439,6 +441,7 @@ def download_audio_with_metadata(source: str, work_dir: str, supplied_metadata_j
         "ignoreerrors": False,
         "cachedir": False,
         "restrictfilenames": False,
+        "writethumbnail": True,
     }
 
     with yt_dlp.YoutubeDL(options) as downloader:
@@ -468,10 +471,34 @@ def download_audio_with_metadata(source: str, work_dir: str, supplied_metadata_j
         cover = _metadata_cover(candidate, destination)
         if cover:
             break
+    if not cover:
+        for thumbnail_path in sorted(destination.iterdir()):
+            if thumbnail_path == audio_path or thumbnail_path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+                continue
+            try:
+                image = thumbnail_path.read_bytes()
+            except OSError:
+                continue
+            mime = _image_mime(image)
+            if mime and len(image) <= 12 * 1024 * 1024:
+                cover = (image, mime, thumbnail_path)
+                break
     try:
         tagged = _write_metadata(audio_path, tag_info, cover)
     except Exception:
         # Preserve a valid downloaded audio file if a container rejects optional tags.
         tagged = False
     title = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", "_", str(tag_info.get("title") or audio_path.stem)).strip()
-    return json.dumps({"path": str(audio_path), "title": title, "metadata_embedded": tagged, "cover_embedded": bool(tagged and cover)}, ensure_ascii=False)
+    tag_metadata = {
+        "title": tag_info.get("track") or tag_info.get("title") or title,
+        "artist": _artist(tag_info),
+        "album": tag_info.get("album") or tag_info.get("series") or "",
+        "album_artist": tag_info.get("album_artist") or tag_info.get("album_artists") or _artist(tag_info),
+        "release_year": tag_info.get("release_year") or tag_info.get("release_date") or tag_info.get("upload_date") or "",
+        "lyrics": tag_info.get("lyrics") or "",
+    }
+    return json.dumps({
+        "path": str(audio_path), "title": title, "metadata_embedded": tagged,
+        "cover_embedded": bool(tagged and cover), "cover_path": str(cover[2]) if cover else "",
+        "tag_metadata": tag_metadata,
+    }, ensure_ascii=False)

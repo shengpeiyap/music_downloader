@@ -766,6 +766,16 @@ public final class MainActivity extends Activity {
             }
         }
 
+        private void transcodeCoverToJpeg(File input, File output) throws IOException {
+            String[] args = new String[]{"-y", "-i", input.getAbsolutePath(), "-frames:v", "1", "-q:v", "2", output.getAbsolutePath()};
+            com.arthenica.ffmpegkit.FFmpegSession session = FFmpegKit.executeWithArguments(args);
+            if (!ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile() || output.length() == 0) {
+                String details = session.getOutput();
+                if (details != null && details.length() > 300) details = details.substring(details.length() - 300);
+                throw new IOException("封面转换失败。" + (details == null || details.trim().isEmpty() ? "" : "\n" + details));
+            }
+        }
+
         private void copyContentToFile(Uri uri, File destination) throws IOException {
             try (InputStream input = getContentResolver().openInputStream(uri);
                  FileOutputStream output = new FileOutputStream(destination)) {
@@ -1126,9 +1136,51 @@ public final class MainActivity extends Activity {
                     JSONObject data = new JSONObject(result);
                     File downloaded = new File(data.optString("path", ""));
                     if (!downloaded.isFile() || downloaded.length() == 0) throw new IOException("下载器没有生成有效音频文件。");
-                    String warning = data.optBoolean("metadata_embedded", false) ? "" : "音频已保存，但此格式未能写入曲名/歌手等标签。";
-                    if (data.optBoolean("metadata_embedded", false) && !data.optBoolean("cover_embedded", false)) warning = "音频标签已写入，但封面未能获取或嵌入。";
-                    saveNativeDownload(downloaded, warning);
+                    JSONObject tagMetadata = data.optJSONObject("tag_metadata");
+                    if (tagMetadata == null) tagMetadata = new JSONObject(metadataJson == null ? "{}" : metadataJson);
+
+                    File audioForTagging = downloaded;
+                    File converted = null;
+                    if (!".mp3".equalsIgnoreCase(extensionOf(downloaded.getName()))) {
+                        converted = new File(workDir, downloaded.getName().replaceFirst("(?i)\\.[^.]+$", "") + "-converted.mp3");
+                        transcodeAudio(downloaded, converted, "mp3", 0, 0);
+                        audioForTagging = converted;
+                    }
+
+                    String artist = tagMetadata.optString("artist", "").trim();
+                    String title = tagMetadata.optString("title", data.optString("title", "MusicDesk-download")).trim();
+                    String outputBase = (artist.isEmpty() ? "" : artist + " - ") + title;
+                    File tagged = new File(workDir, safeDownloadFilename(outputBase) + ".mp3");
+                    if (tagged.equals(downloaded) || tagged.equals(audioForTagging)) {
+                        tagged = new File(workDir, "MusicDesk-" + UUID.randomUUID() + ".mp3");
+                    }
+
+                    String coverPath = data.optString("cover_path", "");
+                    File cover = coverPath.isEmpty() ? null : new File(coverPath);
+                    File jpegCover = null;
+                    String warning = "";
+                    if (cover != null && cover.isFile()) {
+                        jpegCover = new File(workDir, "cover-musicdesk.jpg");
+                        try {
+                            transcodeCoverToJpeg(cover, jpegCover);
+                            cover = jpegCover;
+                        } catch (IOException coverFailure) {
+                            jpegCover.delete();
+                            cover = null;
+                            warning = "音频已转为 MP3，但封面转换失败，未能嵌入。";
+                        }
+                    } else {
+                        cover = null;
+                        warning = "音频已转为 MP3，但未能获取封面。";
+                    }
+
+                    if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
+                    Python.getInstance().getModule("musicdesk_downloader").callAttr("package_audio_file",
+                            audioForTagging.getAbsolutePath(), tagged.getAbsolutePath(), tagMetadata.toString(),
+                            cover == null ? "" : cover.getAbsolutePath());
+                    downloaded.delete();
+                    if (converted != null) converted.delete();
+                    saveNativeDownload(tagged, warning);
                 } catch (Throwable failure) {
                     String message = failure.getMessage();
                     if (message == null || message.trim().isEmpty()) message = "本机 yt-dlp 下载失败。";

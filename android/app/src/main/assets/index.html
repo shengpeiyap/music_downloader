@@ -1268,7 +1268,7 @@ $('downloadBtn').addEventListener('click', async () => {
   const preferredEngine = $('enginePriority').value;
   const useAndroidYtDlp = !!window.AndroidMusic && preferredEngine === 'ytdlp';
   $('lookupStatus').textContent = useAndroidYtDlp
-    ? '正在使用手机内置 yt-dlp 下载音频…'
+    ? '正在使用手机内置 yt-dlp 下载并转换为 MP3…'
     : `正在按优先级 (${preferredEngine}) 下载音频并自动内嵌 LRC 歌词，请稍候...`;
   $('sourceStatus').textContent = '';
 
@@ -1279,7 +1279,7 @@ $('downloadBtn').addEventListener('click', async () => {
         : `ytsearch1:${currentMetadata.artist || ''} ${currentMetadata.title || ''}`.trim();
       const result = await downloadWithAndroidYtDlp(source, currentMetadata);
       $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}${result.warning ? `；${result.warning}` : ''}`;
-      $('sourceStatus').textContent = '本机 yt-dlp 保存来源格式并写入可用标签和封面；格式转换、内嵌歌词及 SpotDL 仍由电脑服务提供。';
+      $('sourceStatus').textContent = '本机 yt-dlp 下载后会转换为 MP3，并写入可用的曲目信息与封面标签。';
       return;
     }
     const payload = { ...currentMetadata, preferred_engine: preferredEngine };
