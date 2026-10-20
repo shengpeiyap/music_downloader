@@ -237,6 +237,7 @@ class LocalTagMetadataTests(unittest.TestCase):
     def test_android_webview_mvp_has_mobile_audio_picker_and_bundled_web_assets(self):
         root = Path(__file__).parent
         page = (root / "index.html").read_text(encoding="utf-8")
+        android_page = (root / "android/app/src/main/assets/index.html").read_text(encoding="utf-8")
         activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
         gradle = (root / "android/app/build.gradle.kts").read_text(encoding="utf-8")
         self.assertIn('id="audioFilesInput"', page)
@@ -259,7 +260,9 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("$('viewLrcBtn').disabled = false", page)
         self.assertIn("AndroidMusic.lookupWithYtDlp(source)", page)
         self.assertIn("AndroidMusic.downloadWithYtDlp(source, JSON.stringify(metadata || {}))", page)
-        self.assertEqual((root / "android/app/src/main/assets/index.html").read_bytes(), (root / "index.html").read_bytes())
+        self.assertIn('id="androidApiConnectCard"', android_page)
+        self.assertIn("function shouldProcessOnAndroid()", android_page)
+        self.assertIn("解析、歌词、下载、转换和封装任务由电脑处理", android_page)
         self.assertEqual((root / "android/app/src/main/assets/default_song_img.png").read_bytes(), (root / "default_song_img.png").read_bytes())
         self.assertEqual((root / "android/app/src/main/assets/i18n.js").read_bytes(), (root / "i18n.js").read_bytes())
         self.assertIn('id="languageSelect"', page)
