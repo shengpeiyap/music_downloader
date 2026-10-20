@@ -45,6 +45,19 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(result["url"], "https://example.test/track")
         self.assertEqual(result["duration"], 123)
 
+    def test_search_metadata_overrides_source_fields_for_download_tags(self):
+        info, cover = musicdesk_downloader._combine_metadata(
+            {"title": "YouTube title", "artist": "Channel", "thumbnail": "https://example.test/source.jpg"},
+            json.dumps({"title": "Catalog title", "artist": "Catalog artist", "album": "Catalog album", "albumartist": "Album artist", "year": "2021", "lyrics": "[00:01.00]line", "cover": "data:image/jpeg;base64,/9j/"}),
+        )
+        self.assertEqual(info["title"], "Catalog title")
+        self.assertEqual(info["artist"], "Catalog artist")
+        self.assertEqual(info["album"], "Catalog album")
+        self.assertEqual(info["album_artist"], "Album artist")
+        self.assertEqual(info["release_year"], "2021")
+        self.assertEqual(info["lyrics"], "[00:01.00]line")
+        self.assertEqual(cover, "data:image/jpeg;base64,/9j/")
+
     def test_writes_available_tags_to_mutagen_comment_container(self):
         class FakeAudio:
             def __init__(self):
@@ -95,14 +108,15 @@ class DownloaderTests(unittest.TestCase):
             with patch.object(musicdesk_downloader.yt_dlp, "YoutubeDL", FakeYoutubeDL), \
                  patch.object(musicdesk_downloader, "_download_thumbnail", return_value=(b"cover", "image/jpeg", Path("cover.jpg"))) as thumbnail, \
                  patch.object(musicdesk_downloader, "_write_metadata", return_value=True) as write_metadata:
-                result = json.loads(musicdesk_downloader.download_audio("https://example.test/song", directory))
+                result = json.loads(musicdesk_downloader.download_audio_with_metadata("https://example.test/song", directory, json.dumps({"title": "Catalog Track", "artist": "Catalog Artist"})))
 
             self.assertEqual(result["path"], str(audio_file))
-            self.assertEqual(result["title"], "Sample _ Track")
+            self.assertEqual(result["title"], "Catalog Track")
             self.assertTrue(result["metadata_embedded"])
             self.assertTrue(result["cover_embedded"])
             thumbnail.assert_called_once()
             write_metadata.assert_called_once()
+            self.assertEqual(write_metadata.call_args.args[1]["artist"], "Catalog Artist")
 
     def test_returns_untagged_file_when_container_is_not_supported(self):
         with tempfile.TemporaryDirectory() as directory:

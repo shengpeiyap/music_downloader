@@ -57,6 +57,45 @@ def _download_thumbnail(url: str, destination: Path):
         return None
 
 
+def _metadata_cover(value: str, destination: Path):
+    if not isinstance(value, str) or not value:
+        return None
+    if value.startswith("data:"):
+        header, separator, encoded = value.partition(",")
+        if not separator or not header.endswith(";base64"):
+            return None
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except (ValueError, base64.binascii.Error):
+            return None
+        mime = _image_mime(data)
+        if not mime or len(data) > 12 * 1024 * 1024:
+            return None
+        cover_path = destination / ("cover.jpg" if mime == "image/jpeg" else "cover.png")
+        cover_path.write_bytes(data)
+        return data, mime, cover_path
+    return _download_thumbnail(value, destination)
+
+
+def _combine_metadata(info: dict, supplied_json: str):
+    supplied = json.loads(supplied_json or "{}")
+    if not isinstance(supplied, dict):
+        supplied = {}
+    result = dict(info)
+    for key, source_keys in {
+        "title": ("title",),
+        "artist": ("artist",),
+        "album": ("album",),
+        "album_artist": ("albumartist", "album_artist"),
+        "release_year": ("year", "release_year"),
+        "lyrics": ("lyrics",),
+    }.items():
+        value = next((supplied.get(source_key) for source_key in source_keys if supplied.get(source_key)), None)
+        if value:
+            result[key] = value
+    return result, supplied.get("cover") or supplied.get("thumbnail") or info.get("thumbnail") or ""
+
+
 def _set_text_tag(tags, key, value):
     if value:
         tags[key] = [str(value)]
@@ -175,6 +214,11 @@ def extract_metadata(source: str) -> str:
 
 
 def download_audio(source: str, work_dir: str) -> str:
+    """Backward-compatible entry point using only source-provided metadata."""
+    return download_audio_with_metadata(source, work_dir, "{}")
+
+
+def download_audio_with_metadata(source: str, work_dir: str, supplied_metadata_json: str) -> str:
     """Download one item and embed available title/artist/album/cover tags."""
     source = _validate_source(source)
     destination = Path(work_dir).resolve()
@@ -203,11 +247,12 @@ def download_audio(source: str, work_dir: str) -> str:
         if audio_path is None:
             raise RuntimeError("下载结束，但没有找到生成的音频文件。")
 
-    cover = _download_thumbnail(str(info.get("thumbnail") or ""), destination)
+    tag_info, cover_source = _combine_metadata(info, supplied_metadata_json)
+    cover = _metadata_cover(str(cover_source), destination)
     try:
-        tagged = _write_metadata(audio_path, info, cover)
+        tagged = _write_metadata(audio_path, tag_info, cover)
     except Exception:
         # Preserve a valid downloaded audio file if a container rejects optional tags.
         tagged = False
-    title = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", "_", str(info.get("title") or audio_path.stem)).strip()
+    title = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", "_", str(tag_info.get("title") or audio_path.stem)).strip()
     return json.dumps({"path": str(audio_path), "title": title, "metadata_embedded": tagged, "cover_embedded": bool(tagged and cover)}, ensure_ascii=False)

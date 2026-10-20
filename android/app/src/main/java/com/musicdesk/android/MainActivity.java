@@ -735,7 +735,7 @@ public final class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public String downloadWithYtDlp(String source) {
+        public String downloadWithYtDlp(String source, String metadataJson) {
             if (source == null || source.trim().isEmpty()) return "没有可下载的曲目链接或搜索词。";
             nativeDownloadExecutor.execute(() -> {
                 File workDir = new File(getCacheDir(), "musicdesk-native-download");
@@ -743,7 +743,7 @@ public final class MainActivity extends Activity {
                 try {
                     if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
                     String result = Python.getInstance().getModule("musicdesk_downloader")
-                            .callAttr("download_audio", source, workDir.getAbsolutePath()).toString();
+                            .callAttr("download_audio_with_metadata", source, workDir.getAbsolutePath(), metadataJson == null ? "{}" : metadataJson).toString();
                     JSONObject data = new JSONObject(result);
                     File downloaded = new File(data.optString("path", ""));
                     if (!downloaded.isFile() || downloaded.length() == 0) throw new IOException("下载器没有生成有效音频文件。");

@@ -803,7 +803,7 @@ async function saveApiResponse(response, fallbackName) {
   return filename;
 }
 
-function downloadWithAndroidYtDlp(source) {
+function downloadWithAndroidYtDlp(source, metadata) {
   return new Promise((resolve, reject) => {
     let settled = false;
     window.onAndroidNativeDownloadComplete = (error, filename, warning) => {
@@ -814,7 +814,7 @@ function downloadWithAndroidYtDlp(source) {
       else resolve({filename, warning});
     };
     try {
-      const error = AndroidMusic.downloadWithYtDlp(source);
+      const error = AndroidMusic.downloadWithYtDlp(source, JSON.stringify(metadata || {}));
       if (error) {
         settled = true;
         window.onAndroidNativeDownloadComplete = null;
@@ -1182,7 +1182,7 @@ $('downloadBtn').addEventListener('click', async () => {
       const source = currentMetadata.url && currentMetadata.provider !== 'spotify' && !currentMetadata.keyword_search
         ? currentMetadata.url
         : `ytsearch1:${currentMetadata.artist || ''} ${currentMetadata.title || ''}`.trim();
-      const result = await downloadWithAndroidYtDlp(source);
+      const result = await downloadWithAndroidYtDlp(source, currentMetadata);
       $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}${result.warning ? `；${result.warning}` : ''}`;
       $('sourceStatus').textContent = '本机 yt-dlp 保存来源格式并写入可用标签和封面；格式转换、内嵌歌词及 SpotDL 仍由电脑服务提供。';
       return;

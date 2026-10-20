@@ -253,7 +253,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("def extract_metadata(source: str)", downloader)
         self.assertIn("def download_audio(source: str, work_dir: str)", downloader)
         self.assertIn("AndroidMusic.lookupWithYtDlp(source)", page)
-        self.assertIn("AndroidMusic.downloadWithYtDlp(source)", page)
+        self.assertIn("AndroidMusic.downloadWithYtDlp(source, JSON.stringify(metadata || {}))", page)
         self.assertEqual((root / "android/app/src/main/assets/index.html").read_bytes(), (root / "index.html").read_bytes())
         self.assertEqual((root / "android/app/src/main/assets/default_song_img.png").read_bytes(), (root / "default_song_img.png").read_bytes())
         self.assertEqual((root / "android/app/src/main/assets/i18n.js").read_bytes(), (root / "i18n.js").read_bytes())
