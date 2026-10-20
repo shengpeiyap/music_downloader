@@ -60,6 +60,7 @@ public final class MainActivity extends Activity {
     private OutputStream downloadOutput;
     private Uri downloadUri;
     private File pendingNativeDownload;
+    private String pendingNativeDownloadWarning = "";
     private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor();
@@ -171,7 +172,7 @@ public final class MainActivity extends Activity {
                 pendingNativeDownload = null;
                 if (resultCode != RESULT_OK || data == null || data.getData() == null) {
                     source.delete();
-                    notifyNativeDownloadComplete("已取消保存文件。", "");
+                    notifyNativeDownloadComplete("已取消保存文件。", "", "");
                     return;
                 }
                 copyNativeDownloadToDocument(source, data.getData());
@@ -223,10 +224,10 @@ public final class MainActivity extends Activity {
         webView.evaluateJavascript("window.onAndroidDownloadReady && window.onAndroidDownloadReady(" + JSONObject.quote(error) + ")", null);
     }
 
-    private void notifyNativeDownloadComplete(String error, String filename) {
+    private void notifyNativeDownloadComplete(String error, String filename, String warning) {
         if (webView == null) return;
         webView.evaluateJavascript("window.onAndroidNativeDownloadComplete && window.onAndroidNativeDownloadComplete("
-                + JSONObject.quote(error) + "," + JSONObject.quote(filename) + ")", null);
+                + JSONObject.quote(error) + "," + JSONObject.quote(filename) + "," + JSONObject.quote(warning) + ")", null);
     }
 
     private void notifyNativeMetadataComplete(String error, String metadata) {
@@ -254,11 +255,12 @@ public final class MainActivity extends Activity {
             }
             String resultError = error;
             String resultFilename = filename;
-            runOnUiThread(() -> notifyNativeDownloadComplete(resultError, resultFilename));
+            runOnUiThread(() -> notifyNativeDownloadComplete(resultError, resultFilename, pendingNativeDownloadWarning));
         });
     }
 
-    private void saveNativeDownload(File source) {
+    private void saveNativeDownload(File source, String warning) {
+        pendingNativeDownloadWarning = warning == null ? "" : warning;
         pendingNativeDownload = source;
         runOnUiThread(() -> {
             String filename = source.getName();
@@ -275,7 +277,7 @@ public final class MainActivity extends Activity {
             catch (RuntimeException failure) {
                 pendingNativeDownload = null;
                 source.delete();
-                notifyNativeDownloadComplete("无法打开保存位置选择器。", "");
+                notifyNativeDownloadComplete("无法打开保存位置选择器。", "", "");
             }
         });
     }
@@ -745,12 +747,14 @@ public final class MainActivity extends Activity {
                     JSONObject data = new JSONObject(result);
                     File downloaded = new File(data.optString("path", ""));
                     if (!downloaded.isFile() || downloaded.length() == 0) throw new IOException("下载器没有生成有效音频文件。");
-                    saveNativeDownload(downloaded);
+                    String warning = data.optBoolean("metadata_embedded", false) ? "" : "音频已保存，但此格式未能写入曲名/歌手等标签。";
+                    if (data.optBoolean("metadata_embedded", false) && !data.optBoolean("cover_embedded", false)) warning = "音频标签已写入，但封面未能获取或嵌入。";
+                    saveNativeDownload(downloaded, warning);
                 } catch (Throwable failure) {
                     String message = failure.getMessage();
                     if (message == null || message.trim().isEmpty()) message = "本机 yt-dlp 下载失败。";
                     String error = message;
-                    runOnUiThread(() -> notifyNativeDownloadComplete(error, ""));
+                    runOnUiThread(() -> notifyNativeDownloadComplete(error, "", ""));
                 }
             });
             return "";

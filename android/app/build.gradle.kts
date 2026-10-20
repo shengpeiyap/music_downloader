@@ -25,7 +25,9 @@ chaquopy {
         version = "3.14"
         pip {
             install("yt-dlp==2026.08.19")
+            install("mutagen==1.48.1")
             install("yt-dlp-ejs")
         }
     }
 }
+

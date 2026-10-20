@@ -45,7 +45,29 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(result["url"], "https://example.test/track")
         self.assertEqual(result["duration"], 123)
 
-    def test_downloads_one_result_and_returns_file_metadata(self):
+    def test_writes_available_tags_to_mutagen_comment_container(self):
+        class FakeAudio:
+            def __init__(self):
+                self.tags = {}
+                self.saved = False
+
+            def save(self):
+                self.saved = True
+
+        audio = FakeAudio()
+        with patch.object(musicdesk_downloader.mutagen, "File", return_value=audio):
+            result = musicdesk_downloader._write_metadata(Path("sample.ogg"), {
+                "title": "Sample", "artist": "Artist", "album": "Album", "release_date": "20240615",
+            }, None)
+
+        self.assertTrue(result)
+        self.assertEqual(audio.tags["title"], ["Sample"])
+        self.assertEqual(audio.tags["artist"], ["Artist"])
+        self.assertEqual(audio.tags["album"], ["Album"])
+        self.assertEqual(audio.tags["date"], ["2024"])
+        self.assertTrue(audio.saved)
+
+    def test_download_embeds_tags_and_thumbnail_status_in_result(self):
         with tempfile.TemporaryDirectory() as directory:
             audio_file = Path(directory) / "sample.m4a"
 
@@ -60,20 +82,35 @@ class DownloaderTests(unittest.TestCase):
                     return False
 
                 def extract_info(self, source, download):
-                    self.request = (source, download)
                     audio_file.write_bytes(b"audio")
-                    return {"title": "Sample / Track", "requested_downloads": [{"filepath": str(audio_file)}]}
+                    return {
+                        "title": "Sample / Track", "artist": "Artist", "thumbnail": "https://example.test/cover.jpg",
+                        "requested_downloads": [{"filepath": str(audio_file)}],
+                    }
 
                 @staticmethod
                 def prepare_filename(_info):
                     return str(audio_file)
 
-            with patch.object(musicdesk_downloader.yt_dlp, "YoutubeDL", FakeYoutubeDL):
+            with patch.object(musicdesk_downloader.yt_dlp, "YoutubeDL", FakeYoutubeDL), \
+                 patch.object(musicdesk_downloader, "_download_thumbnail", return_value=(b"cover", "image/jpeg", Path("cover.jpg"))) as thumbnail, \
+                 patch.object(musicdesk_downloader, "_write_metadata", return_value=True) as write_metadata:
                 result = json.loads(musicdesk_downloader.download_audio("https://example.test/song", directory))
 
             self.assertEqual(result["path"], str(audio_file))
             self.assertEqual(result["title"], "Sample _ Track")
-            self.assertEqual(audio_file.read_bytes(), b"audio")
+            self.assertTrue(result["metadata_embedded"])
+            self.assertTrue(result["cover_embedded"])
+            thumbnail.assert_called_once()
+            write_metadata.assert_called_once()
+
+    def test_returns_untagged_file_when_container_is_not_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            audio_file = Path(directory) / "sample.webm"
+            audio_file.write_bytes(b"audio")
+            with patch.object(musicdesk_downloader.mutagen, "File", return_value=None):
+                result = musicdesk_downloader._write_metadata(audio_file, {"title": "Sample"}, None)
+        self.assertFalse(result)
 
 
 if __name__ == "__main__":
