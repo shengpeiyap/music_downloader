@@ -25,6 +25,8 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
 import android.widget.Toast;
+import com.chaquo.python.Python;
+import com.chaquo.python.android.AndroidPlatform;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import org.json.JSONArray;
@@ -57,10 +59,12 @@ public final class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileSelectionCallback;
     private OutputStream downloadOutput;
     private Uri downloadUri;
+    private File pendingNativeDownload;
     private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService nativeDownloadExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, JSONObject> cachedTracks = new HashMap<>();
     private boolean mediaReceiverRegistered;
     private volatile boolean playbackActive;
@@ -162,6 +166,17 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == DOWNLOAD_DESTINATION_REQUEST) {
+            if (pendingNativeDownload != null) {
+                File source = pendingNativeDownload;
+                pendingNativeDownload = null;
+                if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                    source.delete();
+                    notifyNativeDownloadComplete("已取消保存文件。", "");
+                    return;
+                }
+                copyNativeDownloadToDocument(source, data.getData());
+                return;
+            }
             if (resultCode != RESULT_OK || data == null || data.getData() == null) {
                 notifyDownloadReady("已取消保存文件。");
                 return;
@@ -206,6 +221,63 @@ public final class MainActivity extends Activity {
     private void notifyDownloadReady(String error) {
         if (webView == null) return;
         webView.evaluateJavascript("window.onAndroidDownloadReady && window.onAndroidDownloadReady(" + JSONObject.quote(error) + ")", null);
+    }
+
+    private void notifyNativeDownloadComplete(String error, String filename) {
+        if (webView == null) return;
+        webView.evaluateJavascript("window.onAndroidNativeDownloadComplete && window.onAndroidNativeDownloadComplete("
+                + JSONObject.quote(error) + "," + JSONObject.quote(filename) + ")", null);
+    }
+
+    private void notifyNativeMetadataComplete(String error, String metadata) {
+        if (webView == null) return;
+        webView.evaluateJavascript("window.onAndroidNativeMetadataComplete && window.onAndroidNativeMetadataComplete("
+                + JSONObject.quote(error) + "," + JSONObject.quote(metadata) + ")", null);
+    }
+
+    private void copyNativeDownloadToDocument(File source, Uri destination) {
+        nativeDownloadExecutor.execute(() -> {
+            String error = "";
+            String filename = source.getName();
+            try (InputStream input = new java.io.FileInputStream(source);
+                 OutputStream output = getContentResolver().openOutputStream(destination, "wt")) {
+                if (output == null) throw new IOException("无法创建目标文件");
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            } catch (Exception failure) {
+                error = failure.getMessage() == null ? "保存下载文件失败。" : failure.getMessage();
+                try { DocumentsContract.deleteDocument(getContentResolver(), destination); }
+                catch (Exception ignored) { }
+            } finally {
+                source.delete();
+            }
+            String resultError = error;
+            String resultFilename = filename;
+            runOnUiThread(() -> notifyNativeDownloadComplete(resultError, resultFilename));
+        });
+    }
+
+    private void saveNativeDownload(File source) {
+        pendingNativeDownload = source;
+        runOnUiThread(() -> {
+            String filename = source.getName();
+            String extension = filename.contains(".") ? filename.substring(filename.lastIndexOf('.')).toLowerCase() : "";
+            String mime = extension.equals(".m4a") || extension.equals(".mp4") ? "audio/mp4"
+                    : extension.equals(".mp3") ? "audio/mpeg"
+                    : extension.equals(".ogg") || extension.equals(".opus") ? "audio/ogg"
+                    : extension.equals(".wav") ? "audio/wav" : "application/octet-stream";
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType(mime);
+            intent.putExtra(Intent.EXTRA_TITLE, safeDownloadFilename(filename));
+            try { startActivityForResult(intent, DOWNLOAD_DESTINATION_REQUEST); }
+            catch (RuntimeException failure) {
+                pendingNativeDownload = null;
+                source.delete();
+                notifyNativeDownloadComplete("无法打开保存位置选择器。", "");
+            }
+        });
     }
 
     private JSONArray scanTree(Uri tree) {
@@ -642,6 +714,57 @@ public final class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String lookupWithYtDlp(String source) {
+            if (source == null || source.trim().isEmpty()) return "请输入 YouTube 分享链接或关键词。";
+            nativeDownloadExecutor.execute(() -> {
+                try {
+                    if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
+                    String result = Python.getInstance().getModule("musicdesk_downloader")
+                            .callAttr("extract_metadata", source).toString();
+                    runOnUiThread(() -> notifyNativeMetadataComplete("", result));
+                } catch (Throwable failure) {
+                    String message = failure.getMessage();
+                    if (message == null || message.trim().isEmpty()) message = "本机曲目搜索失败。";
+                    String error = message;
+                    runOnUiThread(() -> notifyNativeMetadataComplete(error, ""));
+                }
+            });
+            return "";
+        }
+
+        @JavascriptInterface
+        public String downloadWithYtDlp(String source) {
+            if (source == null || source.trim().isEmpty()) return "没有可下载的曲目链接或搜索词。";
+            nativeDownloadExecutor.execute(() -> {
+                File workDir = new File(getCacheDir(), "musicdesk-native-download");
+                deleteChildren(workDir);
+                try {
+                    if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
+                    String result = Python.getInstance().getModule("musicdesk_downloader")
+                            .callAttr("download_audio", source, workDir.getAbsolutePath()).toString();
+                    JSONObject data = new JSONObject(result);
+                    File downloaded = new File(data.optString("path", ""));
+                    if (!downloaded.isFile() || downloaded.length() == 0) throw new IOException("下载器没有生成有效音频文件。");
+                    saveNativeDownload(downloaded);
+                } catch (Throwable failure) {
+                    String message = failure.getMessage();
+                    if (message == null || message.trim().isEmpty()) message = "本机 yt-dlp 下载失败。";
+                    String error = message;
+                    runOnUiThread(() -> notifyNativeDownloadComplete(error, ""));
+                }
+            });
+            return "";
+        }
+
+        private void deleteChildren(File directory) {
+            File[] files = directory.listFiles();
+            if (files != null) for (File file : files) {
+                if (file.isDirectory()) deleteChildren(file);
+                file.delete();
+            }
+        }
+
+        @JavascriptInterface
         public synchronized String writeDownloadChunk(String base64Data) {
             if (downloadOutput == null) return "保存目标已关闭。";
             try {
@@ -736,6 +859,7 @@ public final class MainActivity extends Activity {
         folderExecutor.shutdownNow();
         audioExecutor.shutdownNow();
         updateExecutor.shutdownNow();
+        nativeDownloadExecutor.shutdownNow();
         if (downloadOutput != null) {
             try { downloadOutput.close(); } catch (IOException ignored) {}
             downloadOutput = null;

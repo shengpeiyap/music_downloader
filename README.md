@@ -57,7 +57,7 @@
 - **远程连接桌面 MusicDesk LAN API**：输入电脑 LAN IP + 一次性配对密钥 →
   在 Android 中即可调用桌面的在线元数据、歌词、下载、格式转换、自定义标签封装
 
-> Android 端音频播放完全本机；**涉及网络检索、下载、格式转换的功能需要桌面上的 MusicDesk 服务在同一信任 Wi-Fi 下打开。**
+> Android 端音频播放完全本机。未连接电脑时，Android 内置 yt-dlp 可在手机搜索 YouTube 关键词、读取曲目信息并下载来源格式音频；SpotDL、Spotify 曲目信息、歌词、MP3 转换和自定义封装仍需同一信任 Wi-Fi 下的电脑服务。YouTube 可能因其 JavaScript 挑战而无法解析，届时请使用电脑服务。
 
 ---
 
@@ -115,7 +115,7 @@ build_windows.bat         :: 构建 dist\MusicDesk-portable.zip
 > - `MusicDesk.exe --port 8765`  手动指定 HTTP 端口
 
 ### 📱 构建 Android APK
-前置：JDK 17、Android SDK Platform 36。
+前置：JDK 17、Android SDK Platform 36、Python 3.14。当前 Android 构建使用 Chaquopy 内置 Python 和 yt-dlp，最低 Android 版本为 API 24，APK 仅打包 `arm64-v8a`；Python 运行时和依赖会增加 APK 体积。
 ```sh
 cd android
 ./gradlew assembleRelease       # Windows 用 gradlew.bat

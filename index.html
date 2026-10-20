@@ -249,7 +249,7 @@
   <div id="tab-online" class="tab-content active">
     <h1>音乐资料，<br>由你整理。</h1>
     <p class="intro">从分享链接查看公开曲目信息，或把你拥有使用权的音频转换成常见格式。轻量、私密，文件在本机处理。</p>
-    <p id="androidOnlineNote" class="android-scope-note">连接同一 Wi‑Fi 上运行的 MusicDesk 电脑，即可使用在线服务。</p>
+    <p id="androidOnlineNote" class="android-scope-note">曲目信息与歌词需连接电脑服务；yt-dlp 下载可在本机运行。</p>
     <div class="grid">
       <section class="card"><h2>曲目信息搜索</h2><p class="hint">粘贴 Spotify / YouTube 分享链接，或搜索“作者 - 标题”及单独标题</p>
         <form id="lookup"><label for="share">分享链接或关键词</label><input id="share" type="text" placeholder="Spotify 链接，或 作者 - 标题 / 标题" required><button id="lookupBtn">读取 / 搜索曲目信息</button></form>
@@ -512,7 +512,7 @@
     <p class="intro">管理电脑服务连接、曲库访问权限和应用信息。</p>
     <section id="androidApiConnectCard" class="card android-api-connect settings-card">
       <h2>电脑服务连接</h2>
-      <p class="hint">在线解析、下载和格式转换需要连接同一 Wi‑Fi 下运行的电脑端 MusicDesk。</p>
+      <p class="hint">曲目信息、歌词、格式转换和 SpotDL 下载使用电脑服务；yt-dlp 音频下载可由手机内置引擎执行。</p>
       <label for="apiServerUrl">电脑服务地址</label>
       <input id="apiServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.20:8765" autocomplete="url">
       <label for="apiPairingToken" style="margin-top:12px">一次性配对密钥</label>
@@ -597,8 +597,8 @@ function updateApiConnectionMessage(connected, message = '') {
   const saved = !!androidApiConfig;
   $('apiConnectionStatus').textContent = message || (connected ? `已连接：${androidApiConfig.url}` : saved ? `已保存：${androidApiConfig.url}（点按钮测试连接）` : '尚未连接');
   $('androidOnlineNote').textContent = connected
-    ? `已连接电脑服务：${androidApiConfig.url}。在线解析、下载与转换可用。`
-    : saved ? `已保存电脑地址 ${androidApiConfig.url}；请测试连接后使用在线功能。` : '连接同一 Wi‑Fi 上运行的 MusicDesk 电脑，即可使用在线服务。';
+    ? `已连接电脑服务：${androidApiConfig.url}。在线资料、歌词、SpotDL 下载与转换可用；yt-dlp 可在手机本机下载。`
+    : saved ? `已保存电脑地址 ${androidApiConfig.url}；请测试连接后使用在线资料和歌词。yt-dlp 下载在手机本机执行。` : '曲目信息与歌词需连接电脑服务；yt-dlp 下载可在本机运行。';
   $('androidCustomNote').firstChild.textContent = connected
     ? '自定义封装已连接电脑服务。'
     : '自定义封装暂不可用；连接并验证电脑 API 后开放。';
@@ -606,13 +606,24 @@ function updateApiConnectionMessage(connected, message = '') {
 
 function updateAndroidApiGates() {
   if (!window.AndroidMusic) return;
+  document.querySelectorAll('#lookup input, #lookup button').forEach(control => { control.disabled = false; });
+  $('enginePriority').disabled = !androidApiConnected;
+  $('viewLrcBtn').disabled = !androidApiConnected;
+  $('downloadBtn').disabled = false;
+  if (!androidApiConnected) $('enginePriority').value = 'ytdlp';
+  updateAndroidDownloadButtonLabel();
   const gated = document.querySelectorAll(
-    '#lookup input, #lookup button, #enginePriority, #viewLrcBtn, #downloadBtn, ' +
     '#convert input, #convert select, #convert button, ' +
     '#customTagForm input, #customTagForm select, #customTagForm textarea, #customTagForm button'
   );
   gated.forEach(control => { control.disabled = !androidApiConnected; });
 }
+
+function updateAndroidDownloadButtonLabel() {
+  if (!window.AndroidMusic) return;
+  $('downloadBtn').textContent = $('enginePriority').value === 'ytdlp' ? '下载音频（本机）' : '下载 MP3';
+}
+$('enginePriority').addEventListener('change', updateAndroidDownloadButtonLabel);
 
 async function testAndroidApiConnection(config, showProgress = true) {
   if (showProgress) updateApiConnectionMessage(false, '正在测试电脑服务…');
@@ -790,6 +801,59 @@ async function saveApiResponse(response, fallbackName) {
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
   return filename;
+}
+
+function downloadWithAndroidYtDlp(source) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    window.onAndroidNativeDownloadComplete = (error, filename) => {
+      if (settled) return;
+      settled = true;
+      window.onAndroidNativeDownloadComplete = null;
+      if (error) reject(new Error(error));
+      else resolve(filename);
+    };
+    try {
+      const error = AndroidMusic.downloadWithYtDlp(source);
+      if (error) {
+        settled = true;
+        window.onAndroidNativeDownloadComplete = null;
+        reject(new Error(error));
+      }
+    } catch (error) {
+      settled = true;
+      window.onAndroidNativeDownloadComplete = null;
+      reject(error);
+    }
+  });
+}
+
+function lookupWithAndroidYtDlp(source) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    window.onAndroidNativeMetadataComplete = (error, metadata) => {
+      if (settled) return;
+      settled = true;
+      window.onAndroidNativeMetadataComplete = null;
+      if (error) reject(new Error(error));
+      else {
+        try { resolve(JSON.parse(metadata)); }
+        catch (_) { reject(new Error('手机端返回了无法读取的曲目信息。')); }
+      }
+    };
+    try {
+      const error = AndroidMusic.lookupWithYtDlp(source);
+      if (error) {
+        settled = true;
+        window.onAndroidNativeMetadataComplete = null;
+        reject(new Error(error));
+      }
+    } catch (error) {
+      settled = true;
+      window.onAndroidNativeMetadataComplete = null;
+      reject(error);
+    }
+  });
 }
 
 const DEFAULT_COVER = 'default_song_img.png';
@@ -1047,6 +1111,19 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
   $('lyricsViewer').style.display = 'none';$('playerBox').style.display = 'none';
 
   try {
+    if (window.AndroidMusic && !androidApiConnected) {
+      if (/spotify\.com\//i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；本机 yt-dlp 支持 YouTube 链接和关键词搜索。');
+      const source = isKeywordSearch ? `ytsearch1:${lookupValue}` : lookupValue;
+      const d = await lookupWithAndroidYtDlp(source);
+      currentMetadata = {...d, provider: 'yt-dlp', keyword_search: isKeywordSearch};
+      $('title').textContent = d.title;
+      $('artist').textContent = d.artist;
+      $('provider').textContent = isKeywordSearch ? '手机 yt-dlp 搜索' : '手机 yt-dlp';
+      $('cover').src = d.thumbnail || DEFAULT_COVER;
+      $('result').style.display = 'flex';
+      $('lookupStatus').textContent = '已由手机 yt-dlp 读取曲目信息，可直接下载音频。';
+      return;
+    }
     const r = await requestMusicDeskApi(isKeywordSearch ? '/api/search_metadata' : '/api/metadata', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -1094,10 +1171,22 @@ $('downloadBtn').addEventListener('click', async () => {
   if (!currentMetadata) return;
   $('downloadBtn').disabled = true;
   const preferredEngine = $('enginePriority').value;
-  $('lookupStatus').textContent = `正在按优先级 (${preferredEngine}) 下载音频并自动内嵌 LRC 歌词，请稍候...`;
+  const useAndroidYtDlp = !!window.AndroidMusic && preferredEngine === 'ytdlp';
+  $('lookupStatus').textContent = useAndroidYtDlp
+    ? '正在使用手机内置 yt-dlp 下载音频…'
+    : `正在按优先级 (${preferredEngine}) 下载音频并自动内嵌 LRC 歌词，请稍候...`;
   $('sourceStatus').textContent = '';
 
   try {
+    if (useAndroidYtDlp) {
+      const source = currentMetadata.url && currentMetadata.provider !== 'spotify' && !currentMetadata.keyword_search
+        ? currentMetadata.url
+        : `ytsearch1:${currentMetadata.artist || ''} ${currentMetadata.title || ''}`.trim();
+      const filename = await downloadWithAndroidYtDlp(source);
+      $('lookupStatus').textContent = `本机下载完成，已保存音频：${filename}`;
+      $('sourceStatus').textContent = '本机 yt-dlp 当前保存来源音频格式；MP3 转换、内嵌歌词及 SpotDL 仍由电脑服务提供。';
+      return;
+    }
     const payload = { ...currentMetadata, preferred_engine: preferredEngine };
     const r = await requestMusicDeskApi('/api/download', {
       method: 'POST',

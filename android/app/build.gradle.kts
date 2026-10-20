@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("com.chaquo.python")
 }
 
 android {
@@ -8,10 +9,23 @@ android {
 
     defaultConfig {
         applicationId = "com.musicdesk.android"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.14"
+        pip {
+            install("yt-dlp==2026.08.19")
+            install("yt-dlp-ejs")
+        }
+    }
 }
