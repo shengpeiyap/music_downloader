@@ -914,6 +914,21 @@ function lookupWithAndroidYtDlp(source) {
   });
 }
 
+async function searchAndroidKeywordWithFallback(query) {
+  try {
+    return {metadata: await lookupWithAndroidMusicBrainz(query), provider: 'MusicBrainz'};
+  } catch (musicBrainzError) {
+    try {
+      const metadata = await lookupWithAndroidYtDlp(`ytsearch1:${query}`);
+      return {metadata, provider: 'yt-dlp', musicBrainzError};
+    } catch (ytDlpError) {
+      const mbMessage = musicBrainzError && musicBrainzError.message ? musicBrainzError.message : String(musicBrainzError);
+      const ytMessage = ytDlpError && ytDlpError.message ? ytDlpError.message : String(ytDlpError);
+      throw new Error(`MusicBrainz 搜索失败（${mbMessage}）；yt-dlp 备用搜索也失败（${ytMessage}）。`);
+    }
+  }
+}
+
 const DEFAULT_COVER = 'default_song_img.png';
 document.addEventListener('error', event => {
   const image = event.target;
@@ -1171,15 +1186,19 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
   try {
     if (window.AndroidMusic && isKeywordSearch) {
       if (/^spotify:/i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。');
-      const d = await lookupWithAndroidMusicBrainz(lookupValue);
-      currentMetadata = {...d, provider: 'MusicBrainz', keyword_search: true};
-      const cover = await resolveAndroidCover(currentMetadata);
+      const searchResult = await searchAndroidKeywordWithFallback(lookupValue);
+      const d = searchResult.metadata;
+      const usedMusicBrainz = searchResult.provider === 'MusicBrainz';
+      currentMetadata = {...d, provider: searchResult.provider, keyword_search: true};
+      const cover = usedMusicBrainz ? await resolveAndroidCover(currentMetadata) : d.thumbnail || '';
       $('title').textContent = d.title;
       $('artist').textContent = d.artist;
-      $('provider').textContent = '手机直连 MusicBrainz';
+      $('provider').textContent = usedMusicBrainz ? '手机直连 MusicBrainz' : '手机 yt-dlp 备用搜索';
       $('cover').src = cover || DEFAULT_COVER;
       $('result').style.display = 'flex';
-      $('lookupStatus').textContent = 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。';
+      $('lookupStatus').textContent = usedMusicBrainz
+        ? 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。'
+        : 'MusicBrainz 没有匹配结果，已自动改用手机 yt-dlp 搜索。';
       return;
     }
     if (window.AndroidMusic && !androidApiConnected) {
