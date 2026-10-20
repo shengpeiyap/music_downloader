@@ -249,7 +249,7 @@
   <div id="tab-online" class="tab-content active">
     <h1>音乐资料，<br>由你整理。</h1>
     <p class="intro">从分享链接查看公开曲目信息，或把你拥有使用权的音频转换成常见格式。轻量、私密，文件在本机处理。</p>
-    <p id="androidOnlineNote" class="android-scope-note">曲目信息与歌词需连接电脑服务；yt-dlp 下载可在本机运行。</p>
+    <p id="androidOnlineNote" class="android-scope-note">MusicBrainz 曲目信息、LRCLIB 歌词和 yt-dlp 下载可由手机联网使用。</p>
     <div class="grid">
       <section class="card"><h2>曲目信息搜索</h2><p class="hint">粘贴 Spotify / YouTube 分享链接，或搜索“作者 - 标题”及单独标题</p>
         <form id="lookup"><label for="share">分享链接或关键词</label><input id="share" type="text" placeholder="Spotify 链接，或 作者 - 标题 / 标题" required><button id="lookupBtn">读取 / 搜索曲目信息</button></form>
@@ -540,7 +540,7 @@
     <section class="card settings-card settings-about">
       <h2>关于 MusicDesk</h2>
       <p>MusicDesk · 本地音乐播放器与曲目信息工具</p>
-      <p>音乐文件在本机处理；在线检索、下载和转换通过你连接的电脑服务完成。</p>
+      <p>Android 可直接联网检索 MusicBrainz 曲目信息和 LRCLIB 歌词；格式转换与自定义封装仍需电脑服务。</p>
       <p><a href="https://github.com/shengpeiyap/music_downloader" rel="noopener">项目主页与更新记录</a></p>
       <button id="openSettingsHelpBtn" class="lrc-btn" type="button">使用帮助与快捷键</button>
     </section>
@@ -597,8 +597,8 @@ function updateApiConnectionMessage(connected, message = '') {
   const saved = !!androidApiConfig;
   $('apiConnectionStatus').textContent = message || (connected ? `已连接：${androidApiConfig.url}` : saved ? `已保存：${androidApiConfig.url}（点按钮测试连接）` : '尚未连接');
   $('androidOnlineNote').textContent = connected
-    ? `已连接电脑服务：${androidApiConfig.url}。在线资料、歌词、SpotDL 下载与转换可用；yt-dlp 可在手机本机下载。`
-    : saved ? `已保存电脑地址 ${androidApiConfig.url}；请测试连接后使用在线资料和歌词。yt-dlp 下载在手机本机执行。` : '曲目信息与歌词需连接电脑服务；yt-dlp 下载可在本机运行。';
+    ? `已连接电脑服务：${androidApiConfig.url}。曲目信息和歌词可由手机直接查询；SpotDL 下载与转换可用。`
+    : saved ? `已保存电脑地址 ${androidApiConfig.url}；yt-dlp、MusicBrainz 曲目信息和 LRCLIB 歌词可由手机联网使用。` : 'yt-dlp 下载、MusicBrainz 曲目信息和 LRCLIB 歌词可由手机联网使用；转换与自定义封装需电脑服务。';
   $('androidCustomNote').firstChild.textContent = connected
     ? '自定义封装已连接电脑服务。'
     : '自定义封装暂不可用；连接并验证电脑 API 后开放。';
@@ -608,7 +608,7 @@ function updateAndroidApiGates() {
   if (!window.AndroidMusic) return;
   document.querySelectorAll('#lookup input, #lookup button').forEach(control => { control.disabled = false; });
   $('enginePriority').disabled = !androidApiConnected;
-  $('viewLrcBtn').disabled = !androidApiConnected;
+  $('viewLrcBtn').disabled = false;
   $('downloadBtn').disabled = false;
   if (!androidApiConnected) $('enginePriority').value = 'ytdlp';
   updateAndroidDownloadButtonLabel();
@@ -823,6 +823,62 @@ function downloadWithAndroidYtDlp(source, metadata) {
     } catch (error) {
       settled = true;
       window.onAndroidNativeDownloadComplete = null;
+      reject(error);
+    }
+  });
+}
+
+function lookupWithAndroidMusicBrainz(query) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    window.onAndroidNativeMetadataComplete = (error, metadata) => {
+      if (settled) return;
+      settled = true;
+      window.onAndroidNativeMetadataComplete = null;
+      if (error) reject(new Error(error));
+      else {
+        try { resolve(JSON.parse(metadata)); }
+        catch (_) { reject(new Error('MusicBrainz 返回了无法读取的曲目信息。')); }
+      }
+    };
+    try {
+      const error = AndroidMusic.searchMusicBrainz(query);
+      if (error) {
+        settled = true;
+        window.onAndroidNativeMetadataComplete = null;
+        reject(new Error(error));
+      }
+    } catch (error) {
+      settled = true;
+      window.onAndroidNativeMetadataComplete = null;
+      reject(error);
+    }
+  });
+}
+
+function lookupLyricsOnAndroid(title, artist) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    window.onAndroidNativeLyricsComplete = (error, result) => {
+      if (settled) return;
+      settled = true;
+      window.onAndroidNativeLyricsComplete = null;
+      if (error) reject(new Error(error));
+      else {
+        try { resolve(JSON.parse(result)); }
+        catch (_) { reject(new Error('LRCLIB 返回了无法读取的歌词。')); }
+      }
+    };
+    try {
+      const error = AndroidMusic.lookupLyrics(title, artist || '');
+      if (error) {
+        settled = true;
+        window.onAndroidNativeLyricsComplete = null;
+        reject(new Error(error));
+      }
+    } catch (error) {
+      settled = true;
+      window.onAndroidNativeLyricsComplete = null;
       reject(error);
     }
   });
@@ -1111,8 +1167,20 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
   $('lyricsViewer').style.display = 'none';$('playerBox').style.display = 'none';
 
   try {
+    if (window.AndroidMusic && isKeywordSearch) {
+      if (/^spotify:/i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。');
+      const d = await lookupWithAndroidMusicBrainz(lookupValue);
+      currentMetadata = {...d, provider: 'MusicBrainz', keyword_search: true};
+      $('title').textContent = d.title;
+      $('artist').textContent = d.artist;
+      $('provider').textContent = '手机直连 MusicBrainz';
+      $('cover').src = d.cover || DEFAULT_COVER;
+      $('result').style.display = 'flex';
+      $('lookupStatus').textContent = 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。';
+      return;
+    }
     if (window.AndroidMusic && !androidApiConnected) {
-      if (/spotify\.com\//i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；本机 yt-dlp 支持 YouTube 链接和关键词搜索。');
+      if (/spotify\.com\//i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。');
       const source = isKeywordSearch ? `ytsearch1:${lookupValue}` : lookupValue;
       const d = await lookupWithAndroidYtDlp(source);
       currentMetadata = {...d, provider: 'yt-dlp', keyword_search: isKeywordSearch};
@@ -1152,6 +1220,11 @@ $('viewLrcBtn').addEventListener('click', async () => {
   viewer.style.display = 'block';
   $('lrcContainer').innerHTML = '正在检索并载入 LRC 歌词…';
   try {
+    if (window.AndroidMusic) {
+      const result = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
+      renderLyricsView(result.lyrics || '');
+      return;
+    }
     const r = await requestMusicDeskApi('/api/lyrics_text', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},

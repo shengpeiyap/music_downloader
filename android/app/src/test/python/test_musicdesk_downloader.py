@@ -45,6 +45,37 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(result["url"], "https://example.test/track")
         self.assertEqual(result["duration"], 123)
 
+    def test_searches_musicbrainz_and_returns_album_year_and_cover(self):
+        response = {"recordings": [{
+            "title": "Song", "score": 100,
+            "artist-credit": [{"name": "Artist", "artist": {"name": "Artist"}}],
+            "releases": [{
+                "id": "release-id", "title": "Album", "date": "2020-03-12",
+                "release-group": {"primary-type": "Album", "secondary-types": []},
+            }],
+        }]}
+        with patch.object(musicdesk_downloader, "_musicbrainz_json", return_value=response) as request:
+            result = json.loads(musicdesk_downloader.search_musicbrainz("Artist - Song"))
+
+        self.assertEqual(result["title"], "Song")
+        self.assertEqual(result["artist"], "Artist")
+        self.assertEqual(result["album"], "Album")
+        self.assertEqual(result["year"], "2020")
+        self.assertEqual(result["cover"], "https://coverartarchive.org/release/release-id/front-500")
+        self.assertIn("fmt=json", request.call_args.args[0])
+
+    def test_lyrics_lookup_uses_exact_then_search_fallback(self):
+        with patch.object(musicdesk_downloader, "_json_request", side_effect=[
+            RuntimeError("exact match unavailable"),
+            [{"trackName": "Song", "artistName": "Artist", "syncedLyrics": "[00:01.00]line", "plainLyrics": "line"}],
+        ]) as request:
+            result = json.loads(musicdesk_downloader.lookup_lyrics("Song", "Artist"))
+        self.assertEqual(result["lyrics"], "[00:01.00]line")
+        self.assertEqual(result["provider"], "LRCLIB")
+        self.assertEqual(request.call_count, 2)
+        self.assertIn("/api/get?", request.call_args_list[0].args[0])
+        self.assertIn("/api/search?", request.call_args_list[1].args[0])
+
     def test_search_metadata_overrides_source_fields_for_download_tags(self):
         info, cover = musicdesk_downloader._combine_metadata(
             {"title": "YouTube title", "artist": "Channel", "thumbnail": "https://example.test/source.jpg"},

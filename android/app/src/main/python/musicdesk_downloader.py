@@ -3,12 +3,21 @@ from __future__ import annotations
 import base64
 import json
 import re
+import threading
+import time
+import unicodedata
+import urllib.parse
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 import mutagen
 import yt_dlp
+
+
+_MB_LOCK = threading.Lock()
+_MB_LAST_REQUEST = 0.0
+_USER_AGENT = "MusicDesk/0.1 (https://github.com/shengpeiyap/music_downloader)"
 
 
 def _validate_source(source: str) -> str:
@@ -186,6 +195,160 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         return False
     audio.save()
     return True
+
+
+def _json_request(url: str, timeout: int = 12):
+    request = Request(url, headers={"User-Agent": _USER_AGENT, "Accept": "application/json"})
+    with urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _musicbrainz_json(url: str):
+    global _MB_LAST_REQUEST
+    # MusicBrainz requires no more than one request per second per client/IP.
+    with _MB_LOCK:
+        delay = 1.05 - (time.monotonic() - _MB_LAST_REQUEST)
+        if delay > 0:
+            time.sleep(delay)
+        try:
+            return _json_request(url)
+        finally:
+            _MB_LAST_REQUEST = time.monotonic()
+
+
+def _split_metadata_query(query: str):
+    query = " ".join((query or "").split())
+    match = re.match(r"^(.+?)\s+[-–—]\s+(.+)$", query)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    return "", query
+
+
+def _musicbrainz_artist_credit(credit):
+    parts = []
+    for item in credit or []:
+        if isinstance(item, str):
+            parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        artist = item.get("artist") or {}
+        name = item.get("name") or artist.get("name") or ""
+        if name:
+            parts.append(str(name))
+        if item.get("joinphrase") and parts:
+            parts[-1] += str(item["joinphrase"])
+    return "".join(parts).strip()
+
+
+def _normalize_match(value: str):
+    folded = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return "".join(character for character in folded if character.isalnum())
+
+
+def search_musicbrainz(query: str) -> str:
+    """Find title, artist, album, year, and cover directly from MusicBrainz."""
+    artist, title = _split_metadata_query(query)
+    if not title:
+        raise ValueError("请输入“作者 - 标题”或歌曲标题。")
+    escape = lambda value: value.replace("\\", "\\\\").replace('"', r'\"')
+    terms = [f'recording:"{escape(title)}"']
+    if artist:
+        terms.append(f'artist:"{escape(artist)}"')
+    params = urllib.parse.urlencode({"query": " AND ".join(terms), "fmt": "json", "limit": 15})
+    data = _musicbrainz_json("https://musicbrainz.org/ws/2/recording/?" + params)
+    recordings = data.get("recordings", []) if isinstance(data, dict) else []
+    if not recordings:
+        raise ValueError("MusicBrainz 没有找到匹配曲目；可以试试“作者 - 标题”格式。")
+
+    wanted_title = _normalize_match(title)
+    wanted_artist = _normalize_match(artist)
+    recordings.sort(key=lambda item: (
+        _normalize_match(item.get("title")) == wanted_title,
+        bool(wanted_artist and wanted_artist in _normalize_match(_musicbrainz_artist_credit(item.get("artist-credit")))),
+        int(item.get("score") or 0),
+    ), reverse=True)
+    selected = recordings[0]
+    found_title = selected.get("title") or title
+    found_artist = _musicbrainz_artist_credit(selected.get("artist-credit")) or artist
+    releases = selected.get("releases") or []
+    releases = [release for release in releases if isinstance(release, dict)]
+    releases.sort(key=lambda release: (
+        (release.get("release-group") or {}).get("primary-type") == "Album",
+        not any(kind.casefold() in {"live", "remix"} for kind in (release.get("release-group") or {}).get("secondary-types", [])),
+        bool(release.get("date")),
+    ), reverse=True)
+    album = ""
+    year = ""
+    cover = None
+    for release in releases:
+        album = release.get("title") or album
+        year = str(release.get("date") or "")[:4] or year
+        release_id = release.get("id")
+        if release_id:
+            cover = f"https://coverartarchive.org/release/{release_id}/front-500"
+            break
+    return json.dumps({
+        "title": found_title,
+        "artist": found_artist or "未知艺人",
+        "album": album,
+        "albumartist": found_artist,
+        "year": year,
+        "cover": cover,
+        "provider": "MusicBrainz",
+        "url": "",
+        "keyword_search": True,
+    }, ensure_ascii=False)
+
+
+def _lyrics_normalize(value: str):
+    return _normalize_match(value)
+
+
+def lookup_lyrics(title: str, artist: str = "") -> str:
+    """Look up synced or plain lyrics directly from LRCLIB without the PC API."""
+    title = (title or "").strip()
+    artist = (artist or "").strip()
+    if not title:
+        raise ValueError("请先读取歌曲信息。")
+    clean_artist = "" if artist.casefold() in {"未知艺人", "unknown artist"} or _lyrics_normalize(artist) == _lyrics_normalize(title) else artist
+    params = {"track_name": title}
+    if clean_artist:
+        params["artist_name"] = clean_artist
+    try:
+        data = _json_request("https://lrclib.net/api/get?" + urllib.parse.urlencode(params), timeout=8)
+        lyrics = (data.get("syncedLyrics") or data.get("plainLyrics") or "").strip()
+        if lyrics:
+            return json.dumps({"lyrics": lyrics, "provider": "LRCLIB"}, ensure_ascii=False)
+    except Exception:
+        pass
+
+    query = " ".join(part for part in (clean_artist, title) if part)
+    try:
+        results = _json_request("https://lrclib.net/api/search?" + urllib.parse.urlencode({"q": query}), timeout=8)
+    except Exception as error:
+        raise ValueError("LRCLIB 暂时无法访问；请稍后重试或连接电脑服务。") from error
+    if not isinstance(results, list):
+        results = []
+    normalized_title = _lyrics_normalize(title)
+    candidates = [item for item in results if _lyrics_normalize(item.get("trackName")) == normalized_title]
+    if not candidates:
+        candidates = [item for item in results if normalized_title and normalized_title in _lyrics_normalize(item.get("trackName"))]
+    if clean_artist:
+        matched = [item for item in candidates if _lyrics_normalize(clean_artist) in _lyrics_normalize(item.get("artistName"))]
+        if matched:
+            candidates = matched
+    if not candidates:
+        raise ValueError("公开歌词库中没有找到这首歌的歌词。")
+    best = max(candidates, key=lambda item: (
+        bool(item.get("syncedLyrics")),
+        bool(item.get("plainLyrics")),
+        bool(item.get("albumName")),
+    ))
+    lyrics = (best.get("syncedLyrics") or best.get("plainLyrics") or "").strip()
+    if not lyrics:
+        raise ValueError("公开歌词库中没有找到这首歌的歌词。")
+    return json.dumps({"lyrics": lyrics, "provider": "LRCLIB"}, ensure_ascii=False)
 
 
 def _resolve_info(source: str, download: bool):

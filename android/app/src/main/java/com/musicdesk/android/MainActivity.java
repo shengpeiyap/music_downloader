@@ -236,6 +236,12 @@ public final class MainActivity extends Activity {
                 + JSONObject.quote(error) + "," + JSONObject.quote(metadata) + ")", null);
     }
 
+    private void notifyNativeLyricsComplete(String error, String result) {
+        if (webView == null) return;
+        webView.evaluateJavascript("window.onAndroidNativeLyricsComplete && window.onAndroidNativeLyricsComplete("
+                + JSONObject.quote(error) + "," + JSONObject.quote(result) + ")", null);
+    }
+
     private void copyNativeDownloadToDocument(File source, Uri destination) {
         nativeDownloadExecutor.execute(() -> {
             String error = "";
@@ -729,6 +735,44 @@ public final class MainActivity extends Activity {
                     if (message == null || message.trim().isEmpty()) message = "本机曲目搜索失败。";
                     String error = message;
                     runOnUiThread(() -> notifyNativeMetadataComplete(error, ""));
+                }
+            });
+            return "";
+        }
+
+        @JavascriptInterface
+        public String searchMusicBrainz(String query) {
+            if (query == null || query.trim().isEmpty()) return "请输入歌曲名或“作者 - 标题”。";
+            nativeDownloadExecutor.execute(() -> {
+                try {
+                    if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
+                    String result = Python.getInstance().getModule("musicdesk_downloader")
+                            .callAttr("search_musicbrainz", query).toString();
+                    runOnUiThread(() -> notifyNativeMetadataComplete("", result));
+                } catch (Throwable failure) {
+                    String message = failure.getMessage();
+                    if (message == null || message.trim().isEmpty()) message = "MusicBrainz 曲目检索失败。";
+                    String error = message;
+                    runOnUiThread(() -> notifyNativeMetadataComplete(error, ""));
+                }
+            });
+            return "";
+        }
+
+        @JavascriptInterface
+        public String lookupLyrics(String title, String artist) {
+            if (title == null || title.trim().isEmpty()) return "请先读取歌曲信息。";
+            nativeDownloadExecutor.execute(() -> {
+                try {
+                    if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
+                    String result = Python.getInstance().getModule("musicdesk_downloader")
+                            .callAttr("lookup_lyrics", title, artist == null ? "" : artist).toString();
+                    runOnUiThread(() -> notifyNativeLyricsComplete("", result));
+                } catch (Throwable failure) {
+                    String message = failure.getMessage();
+                    if (message == null || message.trim().isEmpty()) message = "歌词检索失败。";
+                    String error = message;
+                    runOnUiThread(() -> notifyNativeLyricsComplete(error, ""));
                 }
             });
             return "";
