@@ -598,11 +598,11 @@ function updateApiConnectionMessage(connected, message = '') {
   const saved = !!androidApiConfig;
   $('apiConnectionStatus').textContent = message || (connected ? `已连接：${androidApiConfig.url}` : saved ? `已保存：${androidApiConfig.url}（点按钮测试连接）` : '尚未连接');
   $('androidOnlineNote').textContent = connected
-    ? `已连接电脑服务：${androidApiConfig.url}。曲目信息和歌词可由手机直接查询；SpotDL 下载与转换可用。`
-    : saved ? `已保存电脑地址 ${androidApiConfig.url}；yt-dlp、MusicBrainz 曲目信息和 LRCLIB 歌词可由手机联网使用。` : 'yt-dlp 下载、MusicBrainz 曲目信息和 LRCLIB 歌词可由手机联网使用；转换与自定义封装需电脑服务。';
+    ? `已连接电脑服务：${androidApiConfig.url}。本机音频转换可离线使用；曲目信息、歌词和 SpotDL 下载也已开放。`
+    : saved ? `已保存电脑地址 ${androidApiConfig.url}；本机音频转换、yt-dlp 下载及 MusicBrainz/LRCLIB 查询可用，联网电脑服务功能需先验证连接。` : '本机音频转换、yt-dlp 下载及 MusicBrainz/LRCLIB 查询可直接使用；需要电脑服务的联网补全和 SpotDL 功能需连接匹配的 API。';
   $('androidCustomNote').firstChild.textContent = connected
-    ? '自定义封装已连接电脑服务。'
-    : '自定义封装暂不可用；连接并验证电脑 API 后开放。';
+    ? '自定义封装可在手机本机完成；联网补全和 SpotDL 已连接电脑服务。'
+    : '选择本地音频后，可在手机本机编辑标签、裁剪、转换格式并封装导出；联网补全需连接匹配的电脑 API。';
 }
 
 function updateAndroidApiGates() {
@@ -613,11 +613,12 @@ function updateAndroidApiGates() {
   $('downloadBtn').disabled = false;
   if (!androidApiConnected) $('enginePriority').value = 'ytdlp';
   updateAndroidDownloadButtonLabel();
-  const gated = document.querySelectorAll(
-    '#convert input, #convert select, #convert button, ' +
-    '#customTagForm input, #customTagForm select, #customTagForm textarea, #customTagForm button'
-  );
-  gated.forEach(control => { control.disabled = !androidApiConnected; });
+  // Android handles conversion and custom tagging natively. Only the optional
+  // remote metadata search and SpotDL source require a verified desktop API.
+  document.querySelectorAll('#convert input, #convert select, #convert button')
+    .forEach(control => { control.disabled = false; });
+  $('tagSearchBtn').disabled = !androidApiConnected;
+  $('customEngine').disabled = !androidApiConnected;
 }
 
 function updateAndroidDownloadButtonLabel() {
