@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parent
 def create_portable_archive(
     package_dir: Path = ROOT / "dist" / "MusicDesk",
     archive_path: Path = ROOT / "dist" / "MusicDesk-portable.zip",
+    *,
+    require_js_runtime: bool = False,
 ) -> Path:
     package_dir = Path(package_dir)
     archive_path = Path(archive_path)
@@ -29,7 +31,10 @@ def create_portable_archive(
             bundled_runtime = True
             break
     if not bundled_runtime:
-        print("Warning: no JavaScript runtime found; YouTube downloads require Deno, Node.js 22+, or QuickJS.")
+        message = "便携版需要 Deno、Node.js 或 QuickJS 才能完整支持 YouTube 下载。"
+        if require_js_runtime:
+            raise RuntimeError(message + "请安装其中一个运行时后重新打包。")
+        print("Warning: portable YouTube downloads require Deno, Node.js, or QuickJS.")
 
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
@@ -40,5 +45,5 @@ def create_portable_archive(
 
 
 if __name__ == "__main__":
-    output = create_portable_archive()
+    output = create_portable_archive(require_js_runtime=True)
     print(f"Portable package: {output}")

@@ -514,6 +514,12 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> tuple
         return latest, source_url
     
     log_downloader_failure("yt-dlp", proc)
+    failure_text = f"{proc.stderr or ''}\n{proc.stdout or ''}".lower()
+    if any(marker in failure_text for marker in ("javascript runtime", "js runtime", "javascript challenge")):
+        raise RuntimeError(
+            "YouTube 下载需要 Deno 或 Node.js 来处理 JavaScript 验证。请更新便携版，"
+            "或在电脑安装 Deno/Node.js 后重启 MusicDesk。"
+        )
     print(f"[yt-dlp 抓取失败]")
     sys.stdout.flush()
     return None, ""

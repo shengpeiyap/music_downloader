@@ -132,6 +132,31 @@ class DesktopLauncherTests(unittest.TestCase):
                 })
                 self.assertIsNone(archive.testzip())
 
+    def test_portable_archive_bundles_a_javascript_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "MusicDesk"
+            package.mkdir()
+            (package / "MusicDesk.exe").write_bytes(b"app")
+            runtime = root / "deno.exe"
+            runtime.write_bytes(b"runtime")
+            with patch("package_portable.shutil.which", side_effect=lambda name: str(runtime) if name == "deno" else None):
+                archive_path = create_portable_archive(package, root / "package.zip", require_js_runtime=True)
+
+            import zipfile
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertIn("deno.exe", archive.namelist())
+                self.assertEqual(archive.read("deno.exe"), b"runtime")
+
+    def test_portable_release_requires_a_javascript_runtime(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch("package_portable.shutil.which", return_value=None):
+            package = Path(directory) / "MusicDesk"
+            package.mkdir()
+            (package / "MusicDesk.exe").write_bytes(b"app")
+            with self.assertRaisesRegex(RuntimeError, "需要 Deno、Node.js 或 QuickJS"):
+                create_portable_archive(package, Path(directory) / "package.zip", require_js_runtime=True)
+
     def test_portable_executable_defaults_to_native_webview_window(self):
         launcher = (Path(__file__).parent / "launcher.py").read_text(encoding="utf-8")
         self.assertIn('"--browser",\n        action="store_true"', launcher)
@@ -637,12 +662,10 @@ class FetchMediaStreamTests(unittest.TestCase):
              patch("app.get_ytdlp_js_runtime_args", return_value=["--js-runtimes", "node:C:/Tools/node.exe"]), \
              patch("app.subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="", stderr="No supported JavaScript runtime")) as run, \
              redirect_stdout(StringIO()) as output:
-            path, source_url = fetch_with_ytdlp(
-                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "Track", "Artist", Path(directory)
-            )
-
-        self.assertIsNone(path)
-        self.assertEqual(source_url, "")
+            with self.assertRaisesRegex(RuntimeError, "YouTube 下载需要 Deno 或 Node.js"):
+                fetch_with_ytdlp(
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "Track", "Artist", Path(directory)
+                )
         self.assertIn("--js-runtimes", run.call_args.args[0])
         self.assertIn("[yt-dlp 失败详情] No supported JavaScript runtime", output.getvalue())
 

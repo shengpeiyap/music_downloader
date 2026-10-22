@@ -913,6 +913,11 @@ function lookupWithAndroidYtDlp(source) {
   });
 }
 
+function androidDownloadSource(metadata) {
+  if (metadata && metadata.url && metadata.provider !== 'spotify') return metadata.url;
+  return `ytsearch1:${metadata && metadata.artist || ''} ${metadata && metadata.title || ''}`.trim();
+}
+
 const DEFAULT_COVER = 'default_song_img.png';
 document.addEventListener('error', event => {
   const image = event.target;
@@ -1254,9 +1259,7 @@ $('downloadBtn').addEventListener('click', async () => {
 
   try {
     if (useAndroidYtDlp) {
-      const source = currentMetadata.url && currentMetadata.provider !== 'spotify' && !currentMetadata.keyword_search
-        ? currentMetadata.url
-        : `ytsearch1:${currentMetadata.artist || ''} ${currentMetadata.title || ''}`.trim();
+      const source = androidDownloadSource(currentMetadata);
       const result = await downloadWithAndroidYtDlp(source, currentMetadata);
       $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}${result.warning ? `；${result.warning}` : ''}`;
       $('sourceStatus').textContent = '本机 yt-dlp 保存来源格式并写入可用标签和封面；格式转换、内嵌歌词及 SpotDL 仍由电脑服务提供。';

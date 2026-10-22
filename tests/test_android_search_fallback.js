@@ -4,10 +4,13 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'assets', 'index.html'), 'utf8');
+const desktopHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const match = html.match(/async function searchAndroidKeywordWithFallback\(query\) \{[\s\S]*?\n\}/);
 assert.ok(match, 'Android keyword fallback function exists');
 const downloadSourceMatch = html.match(/function androidDownloadSource\(metadata\) \{[\s\S]*?\n\}/);
 assert.ok(downloadSourceMatch, 'Android download reuses the selected search result URL');
+const desktopDownloadSourceMatch = desktopHtml.match(/function androidDownloadSource\(metadata\) \{[\s\S]*?\n\}/);
+assert.ok(desktopDownloadSourceMatch, 'desktop web assets keep the same selected-result download behavior');
 
 async function runFallback(musicBrainz, ytDlp) {
   const context = {
@@ -21,8 +24,10 @@ async function runFallback(musicBrainz, ytDlp) {
 (async () => {
   const sourceContext = {};
   const getDownloadSource = vm.runInNewContext(`${downloadSourceMatch[0]}; androidDownloadSource`, sourceContext);
+  const getDesktopDownloadSource = vm.runInNewContext(`${desktopDownloadSourceMatch[0]}; androidDownloadSource`, {});
   assert.equal(getDownloadSource({url: 'https://youtu.be/selected-result', provider: 'yt-dlp', keyword_search: true}), 'https://youtu.be/selected-result');
   assert.equal(getDownloadSource({title: 'Song', artist: 'Artist', provider: 'MusicBrainz'}), 'ytsearch1:Artist Song');
+  assert.equal(getDesktopDownloadSource({url: 'https://youtu.be/selected-result', provider: 'yt-dlp', keyword_search: true}), 'https://youtu.be/selected-result');
 
   let ytDlpCalls = 0;
   const fallback = await runFallback(
