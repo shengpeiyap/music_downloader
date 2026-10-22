@@ -159,7 +159,12 @@ public final class MusicPlaybackService extends Service {
     }
 
     private int modeIcon() {
-        return "shuffle".equals(mode) ? R.drawable.ic_playback_shuffle : R.drawable.ic_playback_repeat;
+        switch (mode) {
+            case "shuffle": return R.drawable.ic_playback_shuffle;
+            case "repeat-one": return R.drawable.ic_playback_repeat_one;
+            case "repeat-all": return R.drawable.ic_playback_repeat;
+            default: return R.drawable.ic_playback_sequential;
+        }
     }
 
     private Notification.Action action(String command, String label, int icon) {
