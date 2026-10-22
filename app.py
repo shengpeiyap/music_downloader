@@ -102,7 +102,7 @@ def search_ytdlp_metadata(query: str) -> dict:
     """Use yt-dlp's search result as a metadata fallback when public catalogs miss."""
     search_url = "ytsearch1:" + " ".join(query.split())
     command = find_executable("yt-dlp") + get_ytdlp_js_runtime_args() + [
-        "--dump-json", "--flat-playlist", "--no-warnings", "--no-playlist", search_url,
+        "--dump-json", "--no-warnings", "--no-playlist", search_url,
     ]
     process = subprocess.run(
         command,
@@ -137,7 +137,19 @@ def search_ytdlp_metadata(query: str) -> dict:
 
     release_date = str(info.get("release_date") or info.get("upload_date") or "")
     year = release_date[:4] if len(release_date) >= 4 else str(info.get("release_year") or "")
-    thumbnail = str(info.get("thumbnail") or "") or None
+    thumbnail = str(info.get("thumbnail") or "").strip()
+    thumbnails = info.get("thumbnails")
+    if not thumbnail and isinstance(thumbnails, list):
+        candidates = [item for item in thumbnails if isinstance(item, dict) and item.get("url")]
+        if candidates:
+            best = max(candidates, key=lambda item: (item.get("width") or 0) * (item.get("height") or 0))
+            thumbnail = str(best["url"]).strip()
+    if not thumbnail:
+        video_id = str(info.get("id") or "").strip()
+        if video_id and ("youtube" in str(info.get("extractor_key") or info.get("ie_key") or "").lower()
+                         or urllib.parse.urlparse(url).hostname in {"youtube.com", "www.youtube.com", "youtu.be"}):
+            thumbnail = f"https://i.ytimg.com/vi/{urllib.parse.quote(video_id)}/hqdefault.jpg"
+    thumbnail = thumbnail or None
     return {
         "title": title,
         "artist": artist or "未知艺人",

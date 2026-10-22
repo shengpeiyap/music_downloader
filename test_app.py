@@ -499,7 +499,10 @@ class LocalTagMetadataTests(unittest.TestCase):
     def test_ytdlp_metadata_search_returns_selected_video_and_thumbnail(self):
         info = {
             "title": "Own World (각자의 세계)", "uploader": "SEOYUL", "id": "video-id",
-            "extractor_key": "Youtube", "thumbnail": "https://img.test/cover.jpg",
+            "extractor_key": "Youtube", "thumbnails": [
+                {"url": "https://img.test/small.jpg", "width": 120, "height": 90},
+                {"url": "https://img.test/cover.jpg", "width": 1280, "height": 720},
+            ],
         }
         with patch("app.find_executable", return_value=["yt-dlp"]), \
              patch("app.get_ytdlp_js_runtime_args", return_value=["--js-runtimes", "deno:C:/Tools/deno.exe"]), \
@@ -513,6 +516,18 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertEqual(result["thumbnail"], "https://img.test/cover.jpg")
         self.assertIn("ytsearch1:SEOYUL - Own World", run.call_args.args[0])
         self.assertIn("--js-runtimes", run.call_args.args[0])
+        self.assertNotIn("--flat-playlist", run.call_args.args[0])
+
+    def test_ytdlp_metadata_search_builds_youtube_thumbnail_if_missing(self):
+        info = {"title": "Song", "uploader": "Artist", "id": "video-id", "extractor_key": "Youtube"}
+        with patch("app.find_executable", return_value=["yt-dlp"]), \
+             patch("app.get_ytdlp_js_runtime_args", return_value=[]), \
+             patch("app.subprocess.run", return_value=SimpleNamespace(
+                 returncode=0, stdout=json.dumps(info), stderr=""
+             )):
+            result = search_ytdlp_metadata("Artist - Song")
+
+        self.assertEqual(result["cover"], "https://i.ytimg.com/vi/video-id/hqdefault.jpg")
 
     def test_custom_export_can_fetch_source_when_no_local_audio_was_selected(self):
         with tempfile.TemporaryDirectory() as directory:

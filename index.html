@@ -1213,7 +1213,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
     $('provider').textContent = isKeywordSearch
       ? (d.provider === 'yt-dlp' ? 'yt-dlp 备用搜索' : 'MusicBrainz 关键词搜索')
       : (d.provider === 'spotify' ? 'Spotify' : 'YouTube Music / YouTube');
-    $('cover').src = isKeywordSearch ? (d.cover || DEFAULT_COVER) : (d.thumbnail || DEFAULT_COVER);
+    $('cover').src = isKeywordSearch ? (d.cover || d.thumbnail || DEFAULT_COVER) : (d.thumbnail || DEFAULT_COVER);
     $('result').style.display = 'flex';
     $('lookupStatus').textContent = isKeywordSearch
       ? (d.provider === 'yt-dlp' ? 'MusicBrainz 没有匹配结果，已自动改用 yt-dlp 搜索；下载将使用该结果链接。' : '搜索完成，可继续查看歌词或下载。')
