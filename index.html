@@ -1207,12 +1207,17 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
     const d = await r.json();
     if(!r.ok) throw Error(d.error || '读取失败');
 
-    currentMetadata = isKeywordSearch ? {...d, provider: 'MusicBrainz 关键词搜索', url: '', keyword_search: true} : d;
+    currentMetadata = isKeywordSearch ? {...d, provider: d.provider || 'MusicBrainz 关键词搜索', keyword_search: true} : d;
     $('title').textContent = d.title;
     $('artist').textContent = d.artist;
-    $('provider').textContent = isKeywordSearch ? '关键词搜索' : (d.provider === 'spotify' ? 'Spotify' : 'YouTube Music / YouTube');
+    $('provider').textContent = isKeywordSearch
+      ? (d.provider === 'yt-dlp' ? 'yt-dlp 备用搜索' : 'MusicBrainz 关键词搜索')
+      : (d.provider === 'spotify' ? 'Spotify' : 'YouTube Music / YouTube');
     $('cover').src = isKeywordSearch ? (d.cover || DEFAULT_COVER) : (d.thumbnail || DEFAULT_COVER);
-    $('result').style.display = 'flex';$('lookupStatus').textContent = isKeywordSearch ? '搜索完成，可继续查看歌词或下载。' : '信息已读取。';
+    $('result').style.display = 'flex';
+    $('lookupStatus').textContent = isKeywordSearch
+      ? (d.provider === 'yt-dlp' ? 'MusicBrainz 没有匹配结果，已自动改用 yt-dlp 搜索；下载将使用该结果链接。' : '搜索完成，可继续查看歌词或下载。')
+      : '信息已读取。';
   } catch(err) {
     $('lookupStatus').textContent = err.message;
   } finally {

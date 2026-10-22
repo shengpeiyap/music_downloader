@@ -98,6 +98,60 @@ def parse_metadata_search_query(query: str) -> tuple[str, str]:
     return "未知艺人", query
 
 
+def search_ytdlp_metadata(query: str) -> dict:
+    """Use yt-dlp's search result as a metadata fallback when public catalogs miss."""
+    search_url = "ytsearch1:" + " ".join(query.split())
+    command = find_executable("yt-dlp") + get_ytdlp_js_runtime_args() + [
+        "--dump-json", "--flat-playlist", "--no-warnings", "--no-playlist", search_url,
+    ]
+    process = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=get_env_with_utf8(),
+        shell=False,
+        timeout=45,
+    )
+    if process.returncode != 0 or not process.stdout.strip():
+        details = (process.stderr or process.stdout or "").strip().splitlines()
+        detail = " ".join(details[-2:])[-400:]
+        raise ValueError(detail or "yt-dlp 没有找到匹配的视频。")
+
+    try:
+        info = json.loads(process.stdout.splitlines()[0])
+    except (json.JSONDecodeError, IndexError) as exc:
+        raise ValueError("yt-dlp 返回了无法读取的搜索结果。") from exc
+
+    title = str(info.get("track") or info.get("title") or "").strip()
+    artist = str(info.get("artist") or info.get("creator") or info.get("uploader") or info.get("channel") or "").strip()
+    url = str(info.get("webpage_url") or "").strip()
+    if not url:
+        video_id = str(info.get("id") or "").strip()
+        extractor = str(info.get("extractor_key") or info.get("ie_key") or "").lower()
+        if video_id and ("youtube" in extractor or not extractor):
+            url = f"https://www.youtube.com/watch?v={urllib.parse.quote(video_id)}"
+    if not title or not url:
+        raise ValueError("yt-dlp 搜索结果缺少歌曲标题或可用链接。")
+
+    release_date = str(info.get("release_date") or info.get("upload_date") or "")
+    year = release_date[:4] if len(release_date) >= 4 else str(info.get("release_year") or "")
+    thumbnail = str(info.get("thumbnail") or "") or None
+    return {
+        "title": title,
+        "artist": artist or "未知艺人",
+        "album": str(info.get("album") or ""),
+        "albumartist": artist or "未知艺人",
+        "year": year,
+        "lyrics": "",
+        "cover": thumbnail,
+        "thumbnail": thumbnail,
+        "url": url,
+        "provider": "yt-dlp",
+    }
+
+
 def lookup_metadata_by_keyword(query: str) -> dict:
     artist, title = parse_metadata_search_query(query)
     if not title:
@@ -109,9 +163,13 @@ def lookup_metadata_by_keyword(query: str) -> dict:
     if found_artist in {"未知艺人", "Unknown Artist", title} and lyric_track:
         found_artist = lyric_track.get("artistName") or found_artist
     if not any(metadata.get(field) for field in ("album", "year", "cover_url")) and not lyric_track:
-        raise ValueError("没有找到匹配的曲目信息，请换一种关键词试试。")
+        fallback = search_ytdlp_metadata(query)
+        fallback["lyrics"] = fetch_lrc_lyrics(fallback["title"], fallback["artist"])
+        return fallback
     if artist == "未知艺人" and found_artist in {"未知艺人", title}:
-        raise ValueError("没有找到匹配的曲目信息，请换一种关键词试试。")
+        fallback = search_ytdlp_metadata(query)
+        fallback["lyrics"] = fetch_lrc_lyrics(fallback["title"], fallback["artist"])
+        return fallback
 
     cover = None
     cover_url = metadata.get("cover_url")
@@ -137,6 +195,7 @@ def lookup_metadata_by_keyword(query: str) -> dict:
         "lyrics": ((lyric_track or {}).get("syncedLyrics") or (lyric_track or {}).get("plainLyrics")
                    or fetch_lrc_lyrics(title, found_artist)),
         "cover": cover,
+        "provider": "MusicBrainz",
     }
 
 

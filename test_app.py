@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, shift_lrc_timestamps
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
@@ -478,6 +478,41 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertEqual(result["artist"], "Yorushika")
         self.assertEqual(result["album"], "Elma")
         self.assertEqual(result["lyrics"], "[00:01.00]Lyric")
+
+    def test_keyword_lookup_falls_back_to_ytdlp_when_public_catalogs_miss(self):
+        fallback = {
+            "title": "Own World (각자의 세계)", "artist": "SEOYUL", "album": "",
+            "albumartist": "SEOYUL", "year": "", "lyrics": "", "cover": "https://img.test/cover.jpg",
+            "thumbnail": "https://img.test/cover.jpg", "url": "https://youtu.be/selected", "provider": "yt-dlp",
+        }
+        with patch("app.lookup_musicbrainz_metadata", return_value={
+            "artist": "未知艺人", "album": "", "year": "", "cover_url": None
+        }), patch("app.search_lrc_track", return_value=None), \
+             patch("app.search_ytdlp_metadata", return_value=fallback) as ytdlp, \
+             patch("app.fetch_lrc_lyrics", return_value=""):
+            result = lookup_metadata_by_keyword("SEOYUL - Own World")
+
+        ytdlp.assert_called_once_with("SEOYUL - Own World")
+        self.assertEqual(result["provider"], "yt-dlp")
+        self.assertEqual(result["url"], "https://youtu.be/selected")
+
+    def test_ytdlp_metadata_search_returns_selected_video_and_thumbnail(self):
+        info = {
+            "title": "Own World (각자의 세계)", "uploader": "SEOYUL", "id": "video-id",
+            "extractor_key": "Youtube", "thumbnail": "https://img.test/cover.jpg",
+        }
+        with patch("app.find_executable", return_value=["yt-dlp"]), \
+             patch("app.get_ytdlp_js_runtime_args", return_value=["--js-runtimes", "deno:C:/Tools/deno.exe"]), \
+             patch("app.subprocess.run", return_value=SimpleNamespace(
+                 returncode=0, stdout=json.dumps(info), stderr=""
+             )) as run:
+            result = search_ytdlp_metadata("SEOYUL - Own World")
+
+        self.assertEqual(result["url"], "https://www.youtube.com/watch?v=video-id")
+        self.assertEqual(result["artist"], "SEOYUL")
+        self.assertEqual(result["thumbnail"], "https://img.test/cover.jpg")
+        self.assertIn("ytsearch1:SEOYUL - Own World", run.call_args.args[0])
+        self.assertIn("--js-runtimes", run.call_args.args[0])
 
     def test_custom_export_can_fetch_source_when_no_local_audio_was_selected(self):
         with tempfile.TemporaryDirectory() as directory:
