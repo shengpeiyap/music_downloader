@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import zipfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,6 +36,7 @@ from musicdesk_core import (
     build_musicbrainz_search_query,
     limit_filename_length,
     make_tag_export_filename,
+    normalize_lyrics,
     parse_metadata_search_query,
     parse_lrc_timestamps,
     parse_share_url,
@@ -101,7 +103,7 @@ def read_music_metadata(path: str, filename: str) -> dict:
         "album": get_tag("album"),
         "albumartist": get_tag("albumartist"),
         "year": get_tag("year"),
-        "lyrics": get_tag("lyrics"),
+        "lyrics": normalize_lyrics(get_tag("lyrics")),
         "cover": cover,
     }
 
@@ -168,6 +170,7 @@ def search_ytdlp_metadata(query: str) -> dict:
         "cover": thumbnail,
         "thumbnail": thumbnail,
         "url": url,
+        "preview_url": url if urllib.parse.urlparse(url).hostname in {"youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"} else "",
         "provider": "yt-dlp",
     }
 
@@ -681,6 +684,12 @@ def process_and_export_media(
     output_dir: str | Path,
     *,
     cleanup_source: bool = True,
+    bitrate: str = "192",
+    lyrics_text: str = "",
+    track_num: str = "",
+    genre: str = "",
+    composer: str = "",
+    disc_num: str = "",
 ) -> Path:
     source = Path(source_path)
     cover = Path(cover_path)
@@ -694,6 +703,7 @@ def process_and_export_media(
 
     title = meta_info.get("title", "未知标题").strip()
     artist = meta_info.get("artist", "未知艺人").strip()
+    albumartist = meta_info.get("albumartist", "").strip() or artist
     album = meta_info.get("album", "").strip()
     year = meta_info.get("year", "").strip()
     track_num = meta_info.get("track_num", "").strip()
@@ -701,39 +711,103 @@ def process_and_export_media(
     destination_dir = Path(output_dir)
     destination_dir.mkdir(parents=True, exist_ok=True)
     base = SAFE_NAME.sub("_", f"{artist} - {title}").strip(" .") or "audio"
-    destination = destination_dir / limit_filename_length(f"{base}.mp3")
+    if fmt not in FORMATS:
+        raise ValueError("不支持的音频格式。")
+    bitrate_value = str(bitrate).strip()
+    if bitrate_value not in {"128", "192", "256", "320"}:
+        bitrate_value = "192"
+    destination = destination_dir / limit_filename_length(f"{base}.{fmt}")
 
     with tempfile.TemporaryDirectory(prefix="musicdesk-export-", dir=destination_dir) as work:
-        staged = Path(work) / "export.mp3"
+        staged = Path(work) / f"export.{fmt}"
+        codec_args = {
+            "mp3": ["-c:a", "libmp3lame", "-b:a", f"{bitrate_value}k"],
+            "m4a": ["-c:a", "aac", "-b:a", f"{bitrate_value}k"],
+            "ogg": ["-c:a", "libvorbis", "-b:a", f"{bitrate_value}k"],
+            "flac": ["-c:a", "flac"],
+            "wav": ["-c:a", "pcm_s16le"],
+        }[fmt]
         proc = subprocess.run(
-            [ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0", "-vn", str(staged)],
+            [ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0", "-vn", *codec_args, str(staged)],
             capture_output=True, timeout=300, env=get_env_with_utf8()
         )
         if proc.returncode or not staged.is_file():
-            raise ValueError("FFmpeg 处理音频失败")
+            detail = proc.stderr.decode("utf-8", errors="replace").strip() if proc.stderr else ""
+            raise ValueError("FFmpeg 处理音频失败" + (f"：{detail[-500:]}" if detail else ""))
 
-        from mutagen.id3 import APIC, ID3, TALB, TDRC, TRCK, TIT2, TPE1, TPE2, USLT
-
-        tags = ID3()
-        tags.add(TIT2(encoding=3, text=[title]))
-        tags.add(TPE1(encoding=3, text=[artist]))
-        tags.add(TPE2(encoding=3, text=[artist]))
-        if album:
-            tags.add(TALB(encoding=3, text=[album]))
-        if year:
-            tags.add(TDRC(encoding=3, text=[year]))
-        if track_num:
-            tags.add(TRCK(encoding=3, text=[track_num]))
-
-        lyrics_text = fetch_lrc_lyrics(title, artist)
-        if lyrics_text:
-            tags.add(USLT(encoding=3, lang='eng', desc='', text=lyrics_text))
-
-        if cover.is_file() and cover.stat().st_size > 0:
-            mime = "image/png" if cover.suffix.lower() == ".png" else "image/jpeg"
-            tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover.read_bytes()))
-
-        tags.save(staged, v2_version=3)
+        lyrics_text = normalize_lyrics(lyrics_text or fetch_lrc_lyrics(title, artist), str(meta_info.get("lyrics_format") or "auto"))
+        try:
+            from mutagen.id3 import APIC, TALB, TCOM, TCON, TDRC, TIT2, TPE1, TPE2, TRCK, TPOS, USLT
+            if fmt == "mp3":
+                from mutagen.id3 import ID3
+                tags = ID3()
+                tags.add(TIT2(encoding=3, text=title)); tags.add(TPE1(encoding=3, text=artist)); tags.add(TPE2(encoding=3, text=albumartist))
+                if album: tags.add(TALB(encoding=3, text=album))
+                if year: tags.add(TDRC(encoding=3, text=year))
+                if track_num: tags.add(TRCK(encoding=3, text=track_num))
+                if disc_num: tags.add(TPOS(encoding=3, text=disc_num))
+                if genre: tags.add(TCON(encoding=3, text=genre))
+                if composer: tags.add(TCOM(encoding=3, text=composer))
+                if lyrics_text: tags.add(USLT(encoding=3, lang="eng", desc="", text=lyrics_text))
+                if cover.is_file() and cover.stat().st_size > 0:
+                    mime = "image/png" if cover.suffix.lower() == ".png" else "image/jpeg"
+                    tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover.read_bytes()))
+                tags.save(staged, v2_version=3)
+            elif fmt == "wav":
+                from mutagen.wave import WAVE
+                from mutagen.id3 import ID3
+                audio = WAVE(staged)
+                if audio.tags is None: audio.add_tags()
+                tags = audio.tags
+                tags.add(TIT2(encoding=3, text=title)); tags.add(TPE1(encoding=3, text=artist)); tags.add(TPE2(encoding=3, text=albumartist))
+                if album: tags.add(TALB(encoding=3, text=album))
+                if year: tags.add(TDRC(encoding=3, text=year))
+                if track_num: tags.add(TRCK(encoding=3, text=track_num))
+                if disc_num: tags.add(TPOS(encoding=3, text=disc_num))
+                if genre: tags.add(TCON(encoding=3, text=genre))
+                if composer: tags.add(TCOM(encoding=3, text=composer))
+                if lyrics_text: tags.add(USLT(encoding=3, lang="eng", desc="", text=lyrics_text))
+                if cover.is_file() and cover.stat().st_size > 0:
+                    mime = "image/png" if cover.suffix.lower() == ".png" else "image/jpeg"
+                    tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover.read_bytes()))
+                audio.save()
+            else:
+                from mutagen import File as MutagenFile
+                from mutagen.mp4 import MP4, MP4Cover
+                from mutagen.flac import FLAC, Picture
+                audio = MutagenFile(staged, easy=False)
+                if audio is None:
+                    raise ValueError("无法识别导出的音频容器。")
+                if isinstance(audio, MP4):
+                    tags = audio.tags
+                    if tags is None: audio.add_tags(); tags = audio.tags
+                    for key, value in (("\xa9nam", title), ("\xa9ART", artist), ("aART", albumartist), ("\xa9alb", album), ("\xa9day", year), ("\xa9gen", genre), ("\xa9wrt", composer), ("\xa9lyr", lyrics_text)):
+                        if value: tags[key] = [str(value)]
+                    if track_num: tags["trkn"] = [(int(track_num.split("/")[0]), int(track_num.split("/")[1]) if "/" in track_num else 0)]
+                    if disc_num: tags["disk"] = [(int(disc_num.split("/")[0]), int(disc_num.split("/")[1]) if "/" in disc_num else 0)]
+                    if cover.is_file() and cover.stat().st_size > 0:
+                        image_format = MP4Cover.FORMAT_PNG if cover.suffix.lower() == ".png" else MP4Cover.FORMAT_JPEG
+                        tags["covr"] = [MP4Cover(cover.read_bytes(), imageformat=image_format)]
+                    audio.save()
+                elif isinstance(audio, FLAC) or fmt == "ogg":
+                    if audio.tags is None: audio.add_tags()
+                    tags = audio.tags
+                    pairs = (("title", title), ("artist", artist), ("album", album), ("albumartist", albumartist), ("date", year), ("tracknumber", track_num), ("discnumber", disc_num), ("genre", genre), ("composer", composer), ("lyrics", lyrics_text))
+                    for key, value in pairs:
+                        if value: tags[key] = [str(value)]
+                    if cover.is_file() and cover.stat().st_size > 0:
+                        picture = Picture(); picture.data = cover.read_bytes(); picture.type = 3
+                        picture.mime = "image/png" if cover.suffix.lower() == ".png" else "image/jpeg"; picture.desc = "Cover"
+                        if hasattr(audio, "clear_pictures"):
+                            audio.clear_pictures(); audio.add_picture(picture)
+                        else:
+                            import base64
+                            tags["metadata_block_picture"] = [base64.b64encode(picture.write()).decode("ascii")]
+                    audio.save()
+                else:
+                    raise ValueError("此音频容器暂不支持写入元数据。")
+        except Exception as exc:
+            raise ValueError(f"写入音频标签失败：{exc}") from exc
         os.replace(staged, destination)
 
     if cleanup_source:
@@ -1180,6 +1254,11 @@ class Handler(SimpleHTTPRequestHandler):
                 albumartist = multipart_text(fields, "albumartist")
                 year = multipart_text(fields, "year")
                 lyrics = multipart_text(fields, "lyrics")
+                lyrics_format = multipart_text(fields, "lyrics_format") or "auto"
+                track_num = multipart_text(fields, "track_num")
+                disc_num = multipart_text(fields, "disc_num")
+                genre = multipart_text(fields, "genre")
+                composer = multipart_text(fields, "composer")
                 export_format = multipart_text(fields, "format").lower() or "mp3"
                 preferred_engine = multipart_text(fields, "preferred_engine") or "ytdlp"
                 filename_append = multipart_text(fields, "filename_append") if multipart_text(fields, "filename_append_enabled") == "1" else ""
@@ -1224,10 +1303,14 @@ class Handler(SimpleHTTPRequestHandler):
                     if album: f['album'] = album
                     if albumartist: f['albumartist'] = albumartist
                     if year and year.isdigit(): f['year'] = int(year)
-                    lyrics = lyrics or fetch_lrc_lyrics(title, artist)
+                    lyrics = normalize_lyrics(lyrics or fetch_lrc_lyrics(title, artist), lyrics_format)
                     if lyrics and trim_start > 0:
                         lyrics = shift_lrc_timestamps(lyrics, trim_start)
                     if lyrics: f['lyrics'] = lyrics
+                    if track_num: f['tracknumber'] = track_num
+                    if disc_num: f['discnumber'] = disc_num
+                    if genre: f['genre'] = genre
+                    if composer: f['composer'] = composer
 
                     if cover_part and cover_part.get_payload(decode=True):
                         c_bytes = cover_part.get_payload(decode=True)
@@ -1254,7 +1337,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 req_data = self.read_json_object()
 
-                for field in ("url", "title", "artist", "thumbnail", "preferred_engine"):
+                for field in ("url", "title", "artist", "album", "albumartist", "year", "thumbnail", "preferred_engine"):
                     if field in req_data and not isinstance(req_data[field], str):
                         raise ValueError(f"{field} 必须是文本。")
                 for field in ("title", "artist"):
@@ -1262,6 +1345,21 @@ class Handler(SimpleHTTPRequestHandler):
                         raise ValueError("歌曲信息过长。")
                 if "keyword_search" in req_data and not isinstance(req_data["keyword_search"], bool):
                     raise ValueError("keyword_search 必须是布尔值。")
+                export_format = str(req_data.get("format", "mp3")).lower()
+                if export_format not in FORMATS:
+                    raise ValueError("不支持的音频格式。")
+                bitrate = str(req_data.get("bitrate", "192"))
+                if bitrate not in {"128", "192", "256", "320"}:
+                    raise ValueError("不支持的音频比特率。")
+                download_lrc = req_data.get("download_lrc", False)
+                if not isinstance(download_lrc, bool):
+                    raise ValueError("download_lrc 必须是布尔值。")
+                for field in ("track_num", "disc_num", "genre", "composer"):
+                    if field in req_data and not isinstance(req_data[field], str):
+                        raise ValueError(f"{field} 必须是文本。")
+                for field in ("lyrics", "lyrics_format"):
+                    if field in req_data and not isinstance(req_data[field], str):
+                        raise ValueError(f"{field} 必须是文本。")
                 
                 built_url = build_download_query(
                     req_data.get("url", ""),
@@ -1303,19 +1401,39 @@ class Handler(SimpleHTTPRequestHandler):
                         source_path=downloaded_file,
                         meta_info=req_data,
                         cover_path=cover_p,
-                        export_format="mp3",
-                        output_dir=out_dir
+                        export_format=export_format,
+                        output_dir=out_dir,
+                        bitrate=bitrate,
+                        lyrics_text=str(req_data.get("lyrics") or ""),
+                        track_num=str(req_data.get("track_num") or ""),
+                        disc_num=str(req_data.get("disc_num") or ""),
+                        genre=str(req_data.get("genre") or ""),
+                        composer=str(req_data.get("composer") or ""),
                     )
                     
-                    converted = final_mp3.read_bytes()
-                    download_name = final_mp3.name
+                    if download_lrc:
+                        lyric_text = normalize_lyrics(str(req_data.get("lyrics") or "") or fetch_lrc_lyrics(title, artist), str(req_data.get("lyrics_format") or "auto"))
+                        archive = out_dir / f"{final_mp3.stem}.zip"
+                        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+                            bundle.write(final_mp3, final_mp3.name)
+                            if lyric_text:
+                                bundle.writestr(f"{final_mp3.stem}.lrc", lyric_text.encode("utf-8-sig"))
+                            else:
+                                bundle.writestr("歌词未找到.txt", "未找到可下载的歌词内容。音频文件已正常保存。")
+                        converted = archive.read_bytes()
+                        download_name = archive.name
+                    else:
+                        converted = final_mp3.read_bytes()
+                        download_name = final_mp3.name
                 
                 self.send_response(200)
-                self.send_header("Content-Type", "audio/mpeg")
+                self.send_header("Content-Type", "application/zip" if download_lrc else FORMATS[export_format])
                 self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(download_name))
-                self.send_header("Access-Control-Expose-Headers", "X-Source-Url")
+                self.send_header("Access-Control-Expose-Headers", "X-Source-Url, X-Lyrics-Sidecar")
                 self.send_api_cors_headers()
                 self.send_header("X-Source-Url", urllib.parse.quote(source_url, safe="/:?=&_"))
+                if download_lrc:
+                    self.send_header("X-Lyrics-Sidecar", "included" if lyric_text else "missing")
                 self.send_header("Content-Length", str(len(converted)))
                 self.end_headers()
                 self.wfile.write(converted)

@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from musicdesk_core.lyrics import parse_lrc_timestamps as _parse_lrc_timestamps
+from musicdesk_core.lyrics import normalize_lyrics, parse_lrc_timestamps as _parse_lrc_timestamps
 from musicdesk_core.metadata import build_musicbrainz_search_query, split_artist_title
 
 import mutagen
@@ -104,10 +104,16 @@ def _combine_metadata(info: dict, supplied_json: str):
         "album_artist": ("albumartist", "album_artist"),
         "release_year": ("year", "release_year"),
         "lyrics": ("lyrics",),
+        "track_number": ("track_num", "tracknumber"),
+        "disc_number": ("disc_num", "discnumber"),
+        "genre": ("genre",),
+        "composer": ("composer",),
     }.items():
         value = next((supplied.get(source_key) for source_key in source_keys if supplied.get(source_key)), None)
         if value:
             result[key] = value
+    if result.get("lyrics"):
+        result["lyrics"] = normalize_lyrics(str(result["lyrics"]), str(supplied.get("lyrics_format") or "auto"))
     return result, supplied.get("cover") or supplied.get("thumbnail") or info.get("thumbnail") or ""
 
 
@@ -123,9 +129,10 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         return False
 
     from mutagen.flac import FLAC, Picture
-    from mutagen.id3 import APIC, TALB, TDRC, TIT2, TPE1, TPE2
+    from mutagen.id3 import APIC, TALB, TCOM, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
     from mutagen.mp3 import MP3
     from mutagen.mp4 import MP4, MP4Cover
+    from mutagen.wave import WAVE
 
     title = info.get("track") or info.get("title") or audio_path.stem
     artist = _artist(info)
@@ -136,19 +143,27 @@ def _write_metadata(audio_path: Path, info: dict, cover):
     year = info.get("release_year") or info.get("release_date") or info.get("upload_date") or ""
     year = str(year)[:4] if year else ""
     lyrics = info.get("lyrics") or ""
+    track_number = info.get("track_number") or ""
+    disc_number = info.get("disc_number") or ""
+    genre = info.get("genre") or ""
+    composer = info.get("composer") or ""
     image, mime, _cover_path = cover if cover else (None, None, None)
 
     if isinstance(audio, MP3):
         if audio.tags is None:
             audio.add_tags()
         tags = audio.tags
-        for frame in ("TIT2", "TPE1", "TALB", "TPE2", "TDRC", "APIC", "USLT", "SYLT"):
+        for frame in ("TIT2", "TPE1", "TALB", "TPE2", "TDRC", "TRCK", "TPOS", "TCON", "TCOM", "APIC", "USLT", "SYLT"):
             tags.delall(frame)
         tags.add(TIT2(encoding=3, text=str(title)))
         if artist: tags.add(TPE1(encoding=3, text=artist))
         if album: tags.add(TALB(encoding=3, text=str(album)))
         if album_artist: tags.add(TPE2(encoding=3, text=str(album_artist)))
         if year: tags.add(TDRC(encoding=3, text=year))
+        if track_number: tags.add(TRCK(encoding=3, text=str(track_number)))
+        if disc_number: tags.add(TPOS(encoding=3, text=str(disc_number)))
+        if genre: tags.add(TCON(encoding=3, text=str(genre)))
+        if composer: tags.add(TCOM(encoding=3, text=str(composer)))
         if lyrics:
             from mutagen.id3 import SYLT, USLT
             tags.add(USLT(encoding=3, text=str(lyrics)))
@@ -165,6 +180,10 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         _set_text_tag(tags, "\xa9alb", album)
         _set_text_tag(tags, "aART", album_artist)
         _set_text_tag(tags, "\xa9day", year)
+        _set_text_tag(tags, "\xa9gen", genre)
+        _set_text_tag(tags, "\xa9wrt", composer)
+        if track_number: tags["trkn"] = [(int(str(track_number).split("/")[0]), int(str(track_number).split("/")[1]) if "/" in str(track_number) else 0)]
+        if disc_number: tags["disk"] = [(int(str(disc_number).split("/")[0]), int(str(disc_number).split("/")[1]) if "/" in str(disc_number) else 0)]
         _set_text_tag(tags, "\xa9lyr", lyrics)
         if image and mime in {"image/jpeg", "image/png"}:
             image_format = MP4Cover.FORMAT_JPEG if mime == "image/jpeg" else MP4Cover.FORMAT_PNG
@@ -175,6 +194,10 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         _set_text_tag(audio, "album", album)
         _set_text_tag(audio, "albumartist", album_artist)
         _set_text_tag(audio, "date", year)
+        _set_text_tag(audio, "tracknumber", track_number)
+        _set_text_tag(audio, "discnumber", disc_number)
+        _set_text_tag(audio, "genre", genre)
+        _set_text_tag(audio, "composer", composer)
         _set_text_tag(audio, "lyrics", lyrics)
         if image:
             picture = Picture()
@@ -184,6 +207,28 @@ def _write_metadata(audio_path: Path, info: dict, cover):
             picture.desc = "Cover"
             audio.clear_pictures()
             audio.add_picture(picture)
+    elif isinstance(audio, WAVE):
+        if audio.tags is None:
+            audio.add_tags()
+        tags = audio.tags
+        for frame in ("TIT2", "TPE1", "TALB", "TPE2", "TDRC", "TRCK", "TPOS", "TCON", "TCOM", "APIC", "USLT", "SYLT"):
+            tags.delall(frame)
+        tags.add(TIT2(encoding=3, text=str(title)))
+        if artist: tags.add(TPE1(encoding=3, text=artist))
+        if album: tags.add(TALB(encoding=3, text=str(album)))
+        if album_artist: tags.add(TPE2(encoding=3, text=str(album_artist)))
+        if year: tags.add(TDRC(encoding=3, text=year))
+        if track_number: tags.add(TRCK(encoding=3, text=str(track_number)))
+        if disc_number: tags.add(TPOS(encoding=3, text=str(disc_number)))
+        if genre: tags.add(TCON(encoding=3, text=str(genre)))
+        if composer: tags.add(TCOM(encoding=3, text=str(composer)))
+        if lyrics:
+            from mutagen.id3 import SYLT, USLT
+            tags.add(USLT(encoding=3, text=str(lyrics)))
+            synced = _parse_lrc_timestamps(str(lyrics))
+            if synced:
+                tags.add(SYLT(encoding=3, lang="eng", format=2, type=1, desc="", text=synced))
+        if image: tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=image))
     elif hasattr(audio, "tags") and audio.tags is not None:
         # Ogg Vorbis/Opus comments and other Mutagen comment-based containers.
         tags = audio.tags
@@ -192,6 +237,10 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         _set_text_tag(tags, "album", album)
         _set_text_tag(tags, "albumartist", album_artist)
         _set_text_tag(tags, "date", year)
+        _set_text_tag(tags, "tracknumber", track_number)
+        _set_text_tag(tags, "discnumber", disc_number)
+        _set_text_tag(tags, "genre", genre)
+        _set_text_tag(tags, "composer", composer)
         _set_text_tag(tags, "lyrics", lyrics)
         if image:
             picture = Picture()
@@ -245,7 +294,7 @@ def read_local_audio_tags(source_path: str):
     return json.dumps({
         "title": first("title"), "artist": first("artist"), "album": first("album"),
         "albumartist": first("albumartist", "album artist"), "year": first("date", "year"),
-        "lyrics": first("lyrics", "unsyncedlyrics"),
+        "lyrics": normalize_lyrics(first("lyrics", "unsyncedlyrics")),
     }, ensure_ascii=False)
 
 

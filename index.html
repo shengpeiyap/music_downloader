@@ -280,6 +280,12 @@
           <div class="player-box" id="playerBox">
             <audio id="audioPlayer" controls></audio>
           </div>
+          <div id="youtubePreviewPanel" class="player-box" style="display:none">
+            <button id="youtubePreviewBtn" type="button" class="lrc-btn">YouTube 试听</button>
+            <a id="youtubeOpenLink" class="hint" target="_blank" rel="noopener" style="margin-left:8px">在 YouTube 打开</a>
+            <div id="youtubePreviewFrame" style="display:none;margin-top:10px;aspect-ratio:16/9;min-height:200px"></div>
+            <small class="hint">使用 YouTube 官方嵌入播放器；部分视频因版权、地区或禁止嵌入设置可能无法试听。</small>
+          </div>
 
           <div class="lyrics-viewer" id="lyricsViewer">
             <div id="lrcContainer">正在加载歌词…</div>
@@ -296,6 +302,13 @@
         </form><p class="status" id="convertStatus" aria-live="polite"></p>
       </section>
     </div>
+    <details class="card settings-card" id="downloadOutputSettings">
+      <summary style="cursor:pointer;font-weight:700">下载输出设置</summary>
+      <p class="hint">设置会保存在当前设备。无损格式不使用比特率；同时下载歌词时会将音频与 LRC 放入 ZIP。</p>
+      <div class="settings-row"><label for="downloadFormat">音频格式</label><select id="downloadFormat"><option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="flac">FLAC</option><option value="wav">WAV</option><option value="ogg">OGG</option></select></div>
+      <div class="settings-row"><label for="downloadBitrate">有损音频比特率</label><select id="downloadBitrate"><option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
+      <div class="settings-row"><label for="downloadSidecarLrc">同时下载独立 LRC 文件</label><input id="downloadSidecarLrc" type="checkbox" style="width:auto"></div>
+    </details>
   </div>
 
   <!-- Tab 2: 自定义封装与标签编辑 (新增) -->
@@ -377,6 +390,7 @@
 
             <div style="margin-bottom:12px">
               <label for="tagLyrics">内嵌歌词 (LRC/Plain Lyrics)</label>
+              <select id="tagLyricsFormat" aria-label="歌词来源格式" style="margin-bottom:8px"><option value="auto">自动识别</option><option value="lrc">标准 LRC</option><option value="enhanced-lrc">增强 LRC（逐词时间）</option><option value="plain">纯文本</option><option value="srt">SRT 字幕</option><option value="vtt">WebVTT 字幕</option></select>
               <textarea id="tagLyrics" placeholder="可以粘贴 LRC 格式或纯文本歌词..."></textarea>
               <div class="custom-lyrics-tools">
                 <button id="customLyricsSetTime" type="button" disabled hidden>将选中歌词设为当前播放时间</button>
@@ -391,6 +405,13 @@
                 <p class="custom-lyrics-empty">选择音频并载入 LRC 歌词后，可试听并点选歌词校时。</p>
               </div>
             </div>
+
+            <details style="margin:0 0 14px;padding:12px;border:1px solid var(--line);border-radius:12px">
+              <summary style="cursor:pointer;font-weight:700">附加元数据</summary>
+              <p class="hint">不填写的字段会保持为空，不影响常用标签。</p>
+              <div class="row"><div><label for="tagTrackNumber">音轨编号</label><input id="tagTrackNumber" type="text" placeholder="例如：3 或 3/12"></div><div><label for="tagDiscNumber">碟片编号</label><input id="tagDiscNumber" type="text" placeholder="例如：1"></div></div>
+              <div class="row"><div><label for="tagGenre">流派</label><input id="tagGenre" type="text" placeholder="例如：J-pop"></div><div><label for="tagComposer">作曲</label><input id="tagComposer" type="text"></div></div>
+            </details>
 
             <div style="margin-bottom:12px">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -622,7 +643,11 @@ function updateAndroidApiGates() {
 
 function updateAndroidDownloadButtonLabel() {
   if (!window.AndroidMusic) return;
-  $('downloadBtn').textContent = $('enginePriority').value === 'ytdlp' ? '下载音频（本机）' : '下载 MP3';
+  const settings = getDownloadSettings();
+  const advanced = settings.format !== 'mp3' || settings.bitrate !== '192' || settings.download_lrc;
+  $('downloadBtn').textContent = $('enginePriority').value === 'ytdlp' && !androidApiConnected
+    ? (advanced ? '连接电脑以处理设置' : '下载音频（本机）')
+    : `下载 ${settings.format.toUpperCase()}${settings.download_lrc ? ' + LRC' : ''}`;
 }
 $('enginePriority').addEventListener('change', updateAndroidDownloadButtonLabel);
 
@@ -918,6 +943,70 @@ function androidDownloadSource(metadata) {
   return `ytsearch1:${metadata && metadata.artist || ''} ${metadata && metadata.title || ''}`.trim();
 }
 
+function getDownloadSettings() {
+  return {format:$('downloadFormat').value, bitrate:$('downloadBitrate').value, download_lrc:$('downloadSidecarLrc').checked};
+}
+function saveDownloadSettings() {
+  try { localStorage.setItem('musicdesk-download-settings', JSON.stringify(getDownloadSettings())); } catch (_) {}
+  $('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
+  if (window.AndroidMusic) updateAndroidDownloadButtonLabel();
+  updateOnlineDownloadLabel();
+}
+function updateOnlineDownloadLabel() {
+  if (!$('downloadBtn')) return;
+  if (window.AndroidMusic) { updateAndroidDownloadButtonLabel(); return; }
+  const settings = getDownloadSettings();
+  $('downloadBtn').textContent = `下载 ${settings.format.toUpperCase()}${settings.download_lrc ? ' + LRC' : ''}`;
+}
+function youtubeVideoId(metadata) {
+  const raw = metadata && (metadata.preview_url || metadata.url);
+  if (!raw) return '';
+  try {
+    const url = new URL(raw), host = url.hostname.toLowerCase();
+    let id = '';
+    if (host === 'youtu.be') id = url.pathname.split('/').filter(Boolean)[0] || '';
+    else if (['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com'].includes(host)) {
+      if (url.pathname === '/watch') id = url.searchParams.get('v') || '';
+      else if (/^\/(embed|shorts)\//.test(url.pathname)) id = url.pathname.split('/')[2] || '';
+    }
+    return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : '';
+  } catch (_) { return ''; }
+}
+function updateYouTubePreview() {
+  const id = youtubeVideoId(currentMetadata);
+  $('youtubePreviewPanel').style.display = id ? 'block' : 'none';
+  if (id) {
+    $('youtubeOpenLink').href = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+    $('youtubeOpenLink').target = window.AndroidMusic ? '_self' : '_blank';
+    $('youtubePreviewBtn').textContent = window.AndroidMusic ? '在浏览器试听' : 'YouTube 试听';
+  }
+  $('youtubePreviewFrame').replaceChildren();
+  $('youtubePreviewFrame').style.display = 'none';
+}
+try {
+  const saved = JSON.parse(localStorage.getItem('musicdesk-download-settings') || '{}');
+  if (['mp3','m4a','flac','wav','ogg'].includes(saved.format)) $('downloadFormat').value = saved.format;
+  if (['128','192','256','320'].includes(String(saved.bitrate))) $('downloadBitrate').value = String(saved.bitrate);
+  $('downloadSidecarLrc').checked = saved.download_lrc === true;
+} catch (_) {}
+['downloadFormat','downloadBitrate','downloadSidecarLrc'].forEach(id => $(id).addEventListener('change', saveDownloadSettings));
+$('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
+updateOnlineDownloadLabel();
+$('youtubePreviewBtn').addEventListener('click', () => {
+  const id = youtubeVideoId(currentMetadata);
+  if (!id) return;
+  if (window.AndroidMusic) {
+    window.location.href = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+    return;
+  }
+  const frame = document.createElement('iframe');
+  frame.title = 'YouTube 歌曲试听'; frame.width = '100%'; frame.height = '220'; frame.style.border = '0';
+  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+  frame.allowFullscreen = true; frame.referrerPolicy = 'strict-origin-when-cross-origin';
+  frame.src = `https://www.youtube.com/embed/${encodeURIComponent(id)}?playsinline=1`;
+  $('youtubePreviewFrame').replaceChildren(frame); $('youtubePreviewFrame').style.display = 'block';
+});
+
 const DEFAULT_COVER = 'default_song_img.png';
 document.addEventListener('error', event => {
   const image = event.target;
@@ -1099,16 +1188,19 @@ function parseLRC(lrcText) {
   if(!lrcText) return [];
   const lines = lrcText.split('\n');
   const result = [];
-  const timeExp = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
   lines.forEach(line => {
-    const match = timeExp.exec(line);
-    if (match) {
-      const min = parseInt(match[1], 10);
-      const sec = parseInt(match[2], 10);
-      const ms = parseInt(match[3], 10);
-      const time = min * 60 + sec + (ms > 99 ? ms / 1000 : ms / 100);
-      const text = line.replace(timeExp, '').trim();
-      if (text) result.push({ time, text });
+    const lineTags = [...line.matchAll(/\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g)];
+    const content = line.slice(lineTags.length ? lineTags[lineTags.length - 1].index + lineTags[lineTags.length - 1][0].length : 0);
+    const wordTags = [...content.matchAll(/<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>/g)];
+    const toSeconds = match => Number(match[1]) * 60 + Number(match[2]) + Number((match[3] || '0').padEnd(3, '0').slice(0, 3)) / 1000;
+    if (wordTags.length) wordTags.forEach((tag, index) => {
+      const end = index + 1 < wordTags.length ? wordTags[index + 1].index : content.length;
+      const text = content.slice(tag.index + tag[0].length, end).trim();
+      if (text) result.push({time:toSeconds(tag), text});
+    });
+    else {
+      const text = content.replace(/\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/g, '').trim();
+      if (text) lineTags.forEach(tag => result.push({time:toSeconds(tag), text}));
     }
   });
   return result.sort((a, b) => a.time - b.time);
@@ -1171,6 +1263,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
   $('lookupStatus').textContent = '正在读取…';
   $('sourceStatus').textContent = '';$('result').style.display = 'none';
   $('lyricsViewer').style.display = 'none';$('playerBox').style.display = 'none';
+  $('youtubePreviewPanel').style.display = 'none';$('youtubePreviewFrame').replaceChildren();$('youtubePreviewFrame').style.display = 'none';
 
   try {
     if (window.AndroidMusic && isKeywordSearch) {
@@ -1183,6 +1276,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
       $('provider').textContent = '手机直连 MusicBrainz';
       $('cover').src = cover || DEFAULT_COVER;
       $('result').style.display = 'flex';
+      updateYouTubePreview();
       $('lookupStatus').textContent = 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。';
       return;
     }
@@ -1196,6 +1290,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
       $('provider').textContent = isKeywordSearch ? '手机 yt-dlp 搜索' : '手机 yt-dlp';
       $('cover').src = d.thumbnail || DEFAULT_COVER;
       $('result').style.display = 'flex';
+      updateYouTubePreview();
       $('lookupStatus').textContent = '已由手机 yt-dlp 读取曲目信息，可直接下载音频。';
       return;
     }
@@ -1215,6 +1310,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
       : (d.provider === 'spotify' ? 'Spotify' : 'YouTube Music / YouTube');
     $('cover').src = isKeywordSearch ? (d.cover || d.thumbnail || DEFAULT_COVER) : (d.thumbnail || DEFAULT_COVER);
     $('result').style.display = 'flex';
+    updateYouTubePreview();
     $('lookupStatus').textContent = isKeywordSearch
       ? (d.provider === 'yt-dlp' ? 'MusicBrainz 没有匹配结果，已自动改用 yt-dlp 搜索；下载将使用该结果链接。' : '搜索完成，可继续查看歌词或下载。')
       : '信息已读取。';
@@ -1257,20 +1353,25 @@ $('downloadBtn').addEventListener('click', async () => {
   $('downloadBtn').disabled = true;
   const preferredEngine = $('enginePriority').value;
   const useAndroidYtDlp = !!window.AndroidMusic && preferredEngine === 'ytdlp';
+  const downloadSettings = getDownloadSettings();
+  const needsDesktopProcessing = downloadSettings.format !== 'mp3' || downloadSettings.bitrate !== '192' || downloadSettings.download_lrc;
   $('lookupStatus').textContent = useAndroidYtDlp
     ? '正在使用手机内置 yt-dlp 下载音频…'
     : `正在按优先级 (${preferredEngine}) 下载音频并自动内嵌 LRC 歌词，请稍候...`;
   $('sourceStatus').textContent = '';
 
   try {
-    if (useAndroidYtDlp) {
+    if (useAndroidYtDlp && !androidApiConnected && needsDesktopProcessing) {
+      throw Error('所选格式、比特率或独立 LRC 下载需要连接电脑服务。请先在设置中心连接电脑。');
+    }
+    if (useAndroidYtDlp && !androidApiConnected) {
       const source = androidDownloadSource(currentMetadata);
       const result = await downloadWithAndroidYtDlp(source, currentMetadata);
       $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}${result.warning ? `；${result.warning}` : ''}`;
       $('sourceStatus').textContent = '本机 yt-dlp 保存来源格式并写入可用标签和封面；格式转换、内嵌歌词及 SpotDL 仍由电脑服务提供。';
       return;
     }
-    const payload = { ...currentMetadata, preferred_engine: preferredEngine };
+    const payload = { ...currentMetadata, ...downloadSettings, preferred_engine: preferredEngine };
     const r = await requestMusicDeskApi('/api/download', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -1282,15 +1383,17 @@ $('downloadBtn').addEventListener('click', async () => {
     }
 
     const rawSourceUrl = r.headers.get('X-Source-Url');
+    const lrcStatus = downloadSettings.download_lrc && r.headers.get('X-Lyrics-Sidecar') === 'missing'
+      ? '压缩包里没有 LRC，因为未找到这首歌的歌词。' : '';
     let sourceUrl = '';
     try {
       const parsedSource = new URL(rawSourceUrl);
       if (['http:', 'https:'].includes(parsedSource.protocol)) sourceUrl = parsedSource.href;
     } catch (_) {}
     if (window.AndroidMusic) {
-      const filename = await saveApiResponse(r, `${currentMetadata.artist} - ${currentMetadata.title}.mp3`);
-      $('lookupStatus').textContent = `下载完成，已保存到你选择的位置：${filename}`;
-    } else {
+      const filename = await saveApiResponse(r, `${currentMetadata.artist} - ${currentMetadata.title}.${downloadSettings.download_lrc ? 'zip' : downloadSettings.format}`);
+      $('lookupStatus').textContent = `下载完成，已保存到你选择的位置：${filename}${lrcStatus ? `；${lrcStatus}` : ''}`;
+    } else if (!downloadSettings.download_lrc) {
       const blob = await r.blob();
       const audioUrl = URL.createObjectURL(blob);
       const player = $('audioPlayer');
@@ -1298,9 +1401,17 @@ $('downloadBtn').addEventListener('click', async () => {
       $('playerBox').style.display = 'block';
       const a = document.createElement('a');
       a.href = audioUrl;
-      a.download = responseFilename(r, `${currentMetadata.title}.mp3`);
+      a.download = responseFilename(r, `${currentMetadata.title}.${downloadSettings.download_lrc ? 'zip' : downloadSettings.format}`);
       a.click();
-      $('lookupStatus').textContent = '下载完成！已自动装载至线上播放器试听。';
+      $('lookupStatus').textContent = `下载完成！已自动装载至线上播放器试听。${lrcStatus ? ` ${lrcStatus}` : ''}`;
+    } else {
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = responseFilename(r, `${currentMetadata.title}.zip`);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      $('lookupStatus').textContent = `下载完成！音频与 LRC 已打包为 ZIP。${lrcStatus ? ` ${lrcStatus}` : ''}`;
     }
     if (sourceUrl) {
       $('sourceStatus').innerHTML = `音频抓取来源: <a href="${sourceUrl}" target="_blank" rel="noopener">${sourceUrl}</a>`;
@@ -1917,6 +2028,11 @@ $('customTagForm').addEventListener('submit', async (e) => {
   formData.append('albumartist', $('tagAlbumArtist').value);
   formData.append('year', $('tagYear').value);
   formData.append('lyrics', $('tagLyrics').value);
+  formData.append('lyrics_format', $('tagLyricsFormat').value);
+  formData.append('track_num', $('tagTrackNumber').value);
+  formData.append('disc_num', $('tagDiscNumber').value);
+  formData.append('genre', $('tagGenre').value);
+  formData.append('composer', $('tagComposer').value);
   formData.append('format', $('tagFormat').value);
   formData.append('preferred_engine', $('customEngine').value);
   formData.append('filename_append_enabled', $('filenameAppendEnabled').checked ? '1' : '0');

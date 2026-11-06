@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, parse_lrc_timestamps, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, normalize_lyrics, parse_lrc_timestamps, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
@@ -62,6 +62,9 @@ class FfmpegResolutionTests(unittest.TestCase):
         self.assertEqual(shift_lrc_timestamps("[00:01.00]removed\n[00:05.20]line\nplain", 2.25), "[00:02.95]line\nplain")
         self.assertEqual(shift_lrc_timestamps("[00:00.50]<00:01.00>pre<00:03.25>word", 1), "<00:00.00>pre<00:02.25>word")
         self.assertEqual(parse_lrc_timestamps("[00:00.50]line\n[00:02.5]plain\n[00:03.00]<00:03.10>hel<00:03.40>lo\n[00:04.00]"), [("line", 500), ("plain", 2500), ("hel", 3100), ("lo", 3400)])
+        self.assertEqual(normalize_lyrics("WEBVTT\n\n00:00:01.250 --> 00:00:02.500\nHello <b>world</b>"), "[00:01.25]Hello world")
+        self.assertEqual(normalize_lyrics("1\n00:00:02,120 --> 00:00:03,000\nSubtitle line", "srt"), "[00:02.12]Subtitle line")
+        self.assertEqual(normalize_lyrics("[00:01.20]<00:01.20>word", "enhanced-lrc"), "[00:01.20]<00:01.20>word")
 
     def test_prefers_app_managed_ffmpeg(self):
         with patch.dict(sys.modules, {"imageio_ffmpeg": SimpleNamespace(get_ffmpeg_exe=lambda: sys.executable)}):
@@ -223,6 +226,15 @@ class DesktopLauncherTests(unittest.TestCase):
 
 
 class LocalTagMetadataTests(unittest.TestCase):
+    def test_download_formats_preview_and_lyrics_format_controls_exist_on_all_frontends(self):
+        root = Path(__file__).parent
+        for page_path in (root / "index.html", root / "android/app/src/main/assets/index.html"):
+            page = page_path.read_text(encoding="utf-8")
+            for marker in ('id="downloadFormat"', 'id="downloadBitrate"', 'id="downloadSidecarLrc"', 'id="youtubePreviewBtn"', 'id="tagLyricsFormat"', 'id="tagTrackNumber"', 'id="tagDiscNumber"', 'id="tagGenre"', 'id="tagComposer"', "function youtubeVideoId(metadata)", "function updateYouTubePreview()"):
+                self.assertIn(marker, page)
+            self.assertIn("localStorage.setItem('musicdesk-download-settings'", page)
+            self.assertIn("formData.append('lyrics_format'", page)
+
     def test_android_player_keeps_display_queue_stable_while_shuffling_play_order(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
         self.assertIn('if (!playbackQueue.includes(localTracks[idx]))', page)
@@ -907,6 +919,12 @@ class LanApiTests(unittest.TestCase):
             self.assertEqual(response.status, 400)
             response.read()
 
+            for invalid_payload in ('{"format":"exe"}', '{"download_lrc":"yes"}', '{"lyrics":null}'):
+                connection.request("POST", "/api/download", body=invalid_payload, headers={"Content-Type": "application/json"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 400)
+                response.read()
+
             with socket.create_connection(("127.0.0.1", server.server_port), timeout=3) as malformed:
                 malformed.sendall(
                     f"POST /api/metadata HTTP/1.1\r\nHost: 127.0.0.1:{server.server_port}\r\n"
@@ -993,6 +1011,30 @@ class ProcessAndExportTests(unittest.TestCase):
             self.assertEqual(result.read_bytes(), b"mp3-data")
             self.assertFalse(source.exists())
             save.assert_called_once()
+
+    def test_exports_each_supported_download_container_with_real_ffmpeg(self):
+        ffmpeg = find_ffmpeg()
+        if not ffmpeg:
+            self.skipTest("FFmpeg is not installed")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.wav"
+            with wave.open(str(source), "wb") as audio:
+                audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(44100)
+                audio.writeframes(b"\x01\x00" * 44100)
+            cover = root / "cover.png"
+            Image.new("RGB", (16, 16), (60, 130, 200)).save(cover, format="PNG")
+            for fmt in ("mp3", "m4a", "flac", "wav", "ogg"):
+                with self.subTest(format=fmt), patch("app.fetch_lrc_lyrics", return_value=""):
+                    output = process_and_export_media(
+                        source, {"title":"Test", "artist":"Artist", "year":"2024", "track_num":"2", "genre":"Test", "composer":"Writer"},
+                        cover, fmt, root / "out", cleanup_source=False, bitrate="128",
+                    )
+                    self.assertTrue(output.is_file())
+                    self.assertGreater(output.stat().st_size, 0)
+                    parsed = load_music_tag(str(output))
+                    self.assertEqual(str(parsed["title"]), "Test")
+                    self.assertTrue(parsed["artwork"].values)
 
 
 if __name__ == "__main__":

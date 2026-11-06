@@ -8,6 +8,50 @@ import re
 _LINE_TIMESTAMP = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
 _WORD_TIMESTAMP = re.compile(r"<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>")
 _ANY_TIMESTAMP = re.compile(r"(?P<open>\[|<)(?P<minutes>\d{1,3}):(?P<seconds>\d{2})(?:[.:](?P<fraction>\d{1,3}))?(?P<close>\]|>)")
+_SUBTITLE_TIMESTAMP = re.compile(r"(?:(?P<h>\d{2}):)?(?P<m>\d{2}):(?P<s>\d{2})[,.](?P<ms>\d{1,3})\s*-->\s*")
+
+
+def normalize_lyrics(lyrics: str, source_format: str = "auto") -> str:
+    """Normalize plain text, LRC, enhanced LRC, SRT, or WebVTT into readable text/LRC."""
+    text = str(lyrics or "").replace("\ufeff", "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    fmt = (source_format or "auto").lower()
+    if fmt not in {"auto", "plain", "lrc", "enhanced-lrc", "srt", "vtt"}:
+        raise ValueError("不支持的歌词格式。")
+    if fmt == "auto":
+        if text.startswith("WEBVTT"):
+            fmt = "vtt"
+        elif "-->" in text:
+            fmt = "srt"
+        elif _LINE_TIMESTAMP.search(text):
+            fmt = "lrc"
+        else:
+            fmt = "plain"
+    if fmt in {"srt", "vtt"}:
+        converted = []
+        lines = text.splitlines()
+        index = 0
+        while index < len(lines):
+            match = _SUBTITLE_TIMESTAMP.search(lines[index])
+            if match:
+                milliseconds = int(match.group("ms").ljust(3, "0")[:3])
+                centiseconds = round(milliseconds / 10)
+                total = (int(match.group("h") or 0) * 3600 + int(match.group("m")) * 60 + int(match.group("s"))) * 100 + centiseconds
+                minutes, remainder = divmod(total, 6000)
+                index += 1
+                cue = []
+                while index < len(lines) and lines[index].strip() and not _SUBTITLE_TIMESTAMP.search(lines[index]):
+                    value = re.sub(r"<[^>]+>", "", lines[index]).strip()
+                    if value and not value.isdigit():
+                        cue.append(value)
+                    index += 1
+                if cue:
+                    converted.append(f"[{minutes:02d}:{remainder // 100:02d}.{remainder % 100:02d}]" + " ".join(cue))
+            else:
+                index += 1
+        return "\n".join(converted)
+    if fmt == "plain":
+        return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    return text
 
 
 def _timestamp_milliseconds(minutes: str, seconds: str, fraction: str | None) -> int:

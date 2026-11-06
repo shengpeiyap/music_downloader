@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -39,6 +40,23 @@ class DownloaderTests(unittest.TestCase):
         tags = ID3()
         tags.add(frame)
         self.assertEqual(tags.getall("SYLT")[0].text, [("line", 1250)])
+
+    def test_wav_tags_and_lyrics_are_preserved_by_android_packager(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "track.wav"
+            with wave.open(str(source), "wb") as audio:
+                audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(8000)
+                audio.writeframes(b"\x00\x00" * 800)
+            tagged = musicdesk_downloader._write_metadata(source, {
+                "title": "Song", "artist": "Artist", "track_number": "3/12", "genre": "J-pop",
+                "lyrics": "[00:01.25]line",
+            }, None)
+            self.assertTrue(tagged)
+            from mutagen.wave import WAVE
+            tags = WAVE(source).tags
+            self.assertEqual(tags.getall("TIT2")[0].text, ["Song"])
+            self.assertEqual(tags.getall("TRCK")[0].text, ["3/12"])
+            self.assertEqual(tags.getall("USLT")[0].text, "[00:01.25]line")
 
     def test_packages_local_audio_without_reencoding_and_writes_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -180,6 +198,17 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(info["release_year"], "2021")
         self.assertEqual(info["lyrics"], "[00:01.00]line")
         self.assertEqual(cover, "data:image/jpeg;base64,/9j/")
+
+    def test_custom_package_metadata_includes_advanced_fields_and_normalizes_srt(self):
+        metadata, _cover = musicdesk_downloader._combine_metadata({}, json.dumps({
+            "track_num": "3/12", "disc_num": "1", "genre": "J-pop", "composer": "Composer",
+            "lyrics_format": "srt", "lyrics": "1\n00:00:02,120 --> 00:00:03,000\nLine",
+        }))
+        self.assertEqual(metadata["track_number"], "3/12")
+        self.assertEqual(metadata["disc_number"], "1")
+        self.assertEqual(metadata["genre"], "J-pop")
+        self.assertEqual(metadata["composer"], "Composer")
+        self.assertEqual(metadata["lyrics"], "[00:02.12]Line")
 
     def test_writes_available_tags_to_mutagen_comment_container(self):
         class FakeAudio:
