@@ -37,6 +37,12 @@ FORMATS = {"mp3": "audio/mpeg", "wav": "audio/wav", "flac": "audio/flac", "ogg":
 MAX_UPLOAD = 150 * 1024 * 1024
 SAFE_NAME = re.compile(r"[^\w .()-]+", re.UNICODE)
 MUSICDESK_API_VERSION = 1
+MAX_API_JSON = 8192
+MAX_COVER_BYTES = 8 * 1024 * 1024
+SAFE_THUMBNAIL_HOSTS = {
+    "i.ytimg.com", "img.youtube.com", "yt3.ggpht.com", "yt3.googleusercontent.com",
+    "i.scdn.co", "coverartarchive.org",
+}
 MUSICDESK_API_CAPABILITIES = (
     "metadata", "search_metadata", "lyrics_text", "download", "convert",
     "parse_local_tag", "package_custom_tag",
@@ -221,6 +227,62 @@ def build_download_query(url: str, title: str, artist: str, keyword_search: bool
     if not query:
         raise ValueError("请先搜索一首歌曲，或提供有效的分享链接。")
     return "musicdesk-query:" + query
+
+
+def validate_download_source(source: str) -> str:
+    """Allow only supported share URLs or MusicDesk's internal keyword query."""
+    if not isinstance(source, str) or len(source) > 2048 or any(ord(char) < 32 for char in source):
+        raise ValueError("下载来源无效。")
+    source = source.strip()
+    if source.startswith("musicdesk-query:"):
+        query = source.removeprefix("musicdesk-query:").strip()
+        if not query or len(query) > 512 or query.startswith("-"):
+            raise ValueError("歌曲搜索词无效。")
+        return "musicdesk-query:" + query
+    if source.startswith("ytsearch1:"):
+        query = source.removeprefix("ytsearch1:").strip()
+        if not query or len(query) > 512 or query.startswith("-"):
+            raise ValueError("歌曲搜索词无效。")
+        return "ytsearch1:" + query
+    return parse_share_url(source)["url"]
+
+
+def validate_thumbnail_url(url: str) -> str:
+    """Restrict user-supplied artwork URLs to known public artwork hosts."""
+    if not url:
+        return ""
+    if not isinstance(url, str) or len(url) > 2048 or any(ord(char) < 32 for char in url):
+        raise ValueError("封面地址无效。")
+    try:
+        parsed = urllib.parse.urlsplit(url.strip())
+        host = (parsed.hostname or "").lower().rstrip(".")
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("封面地址无效。") from exc
+    allowed_host = host in SAFE_THUMBNAIL_HOSTS
+    if (parsed.scheme != "https" or not allowed_host or parsed.username or parsed.password
+            or port not in (None, 443) or not parsed.path.startswith("/")):
+        raise ValueError("封面地址必须来自受支持的 HTTPS 图片来源。")
+    return urllib.parse.urlunsplit(parsed)
+
+
+class SafeThumbnailRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_thumbnail_url(urllib.parse.urljoin(req.full_url, newurl))
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def fetch_thumbnail(url: str) -> bytes:
+    safe_url = validate_thumbnail_url(url)
+    request = urllib.request.Request(safe_url, headers={"User-Agent": "Mozilla/5.0"})
+    opener = urllib.request.build_opener(SafeThumbnailRedirectHandler())
+    with opener.open(request, timeout=10) as response:
+        if not response.headers.get_content_type().startswith("image/"):
+            raise ValueError("封面来源没有返回图片。")
+        image_data = response.read(MAX_COVER_BYTES + 1)
+    if len(image_data) > MAX_COVER_BYTES:
+        raise ValueError("封面图片超过大小限制。")
+    return image_data
 
 
 def multipart_fields(content_type: str, raw: bytes) -> dict:
@@ -505,7 +567,8 @@ def fetch_youtube_rich_metadata(url: str) -> dict:
             encoding="utf-8",
             errors="replace",
             env=get_env_with_utf8(),
-            shell=False
+            shell=False,
+            timeout=45,
         )
         if proc.returncode == 0 and proc.stdout.strip():
             info = json.loads(proc.stdout)
@@ -550,7 +613,7 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> tuple
         "--print", "after_move:filepath",
         "--print", "webpage_url",
         "-o", str(base_dir / "ytdlp_%(id)s.%(ext)s"),
-        target_url
+        "--", target_url
     ]
     print(f"[MusicDesk 调度] 尝试 [yt-dlp] 抓取音频...")
     sys.stdout.flush()
@@ -561,7 +624,8 @@ def fetch_with_ytdlp(url: str, title: str, artist: str, base_dir: Path) -> tuple
         encoding="utf-8",
         errors="replace",
         env=get_env_with_utf8(),
-        shell=False
+        shell=False,
+        timeout=300,
     )
     
     source_url = ""
@@ -609,7 +673,8 @@ def fetch_with_spotdl(url: str, base_dir: Path) -> tuple[Path | None, str]:
         encoding="utf-8",
         errors="replace",
         env=get_env_with_utf8(),
-        shell=False
+        shell=False,
+        timeout=300,
     )
     
     if proc.returncode == 0:
@@ -961,32 +1026,93 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_api_cors_headers(self):
-        if not getattr(self.server, "lan_mode", False):
+        origin = self.headers.get("Origin")
+        if not getattr(self.server, "lan_mode", False) or origin is None or not self.validate_request_origin():
             return
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Expose-Headers", "Content-Disposition, X-Source-Url")
         self.send_header("Vary", "Origin")
 
     def is_api_authorized(self) -> bool:
-        if is_loopback_address(self.client_address[0]):
+        if is_loopback_address(self.client_address[0]) and self.headers.get("Origin") != "null":
             return True
         token = getattr(self.server, "api_token", "")
-        if not token:
-            return True
         supplied = self.headers.get("Authorization", "")
-        return hmac.compare_digest(supplied, f"Bearer {token}")
+        return is_api_authorized(supplied, token)
+
+    def validate_request_origin(self) -> bool:
+        try:
+            parsed_host = urllib.parse.urlsplit("//" + self.headers.get("Host", ""))
+            host = (parsed_host.hostname or "").lower().rstrip(".")
+            port = parsed_host.port
+        except ValueError:
+            return False
+        valid_hosts = {"localhost", "127.0.0.1", "::1"}
+        if getattr(self.server, "lan_mode", False):
+            valid_hosts.update(get_private_ipv4_addresses())
+        if (host not in valid_hosts or port != self.server.server_port or parsed_host.username or
+                parsed_host.password or parsed_host.path or parsed_host.query or parsed_host.fragment):
+            return False
+        origin = self.headers.get("Origin")
+        if origin is None:
+            return True
+        if origin == "null":
+            return bool(getattr(self.server, "lan_mode", False))
+        try:
+            parsed_origin = urllib.parse.urlsplit(origin)
+            return (parsed_origin.scheme == "http" and parsed_origin.hostname and
+                    parsed_origin.hostname.lower().rstrip(".") == host and
+                    parsed_origin.port == self.server.server_port and
+                    parsed_origin.path in ("", "/") and not parsed_origin.query and not parsed_origin.fragment)
+        except ValueError:
+            return False
+
+    def read_request_body(self, max_size: int, content_type: str | None = None) -> bytes:
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None or not raw_length.isdecimal():
+            self.close_connection = True
+            raise ValueError("请求长度无效。")
+        length = int(raw_length)
+        if length < 1 or length > max_size:
+            self.close_connection = True
+            raise ValueError("请求为空或超过大小限制。")
+        actual_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type and actual_type != content_type:
+            self.close_connection = True
+            raise ValueError("请求 Content-Type 无效。")
+        body = self.rfile.read(length)
+        if len(body) != length:
+            self.close_connection = True
+            raise ValueError("请求数据不完整。")
+        return body
+
+    def read_json_object(self, max_size: int = MAX_API_JSON) -> dict:
+        value = json.loads(self.read_request_body(max_size, "application/json"))
+        if not isinstance(value, dict):
+            raise ValueError("JSON 请求必须是对象。")
+        return value
+
+    def reject_invalid_request(self) -> bool:
+        if not self.validate_request_origin():
+            self.send_json(403, {"error": "请求来源或 Host 无效。"})
+            return True
+        return False
 
     def do_OPTIONS(self):
         if not self.path.startswith("/api/") or not getattr(self.server, "lan_mode", False):
             self.send_error(404)
+            return
+        if self.reject_invalid_request():
             return
         self.send_response(204)
         self.send_api_cors_headers()
         self.end_headers()
 
     def do_GET(self):
+        if self.reject_invalid_request():
+            return
         if self.path == "/api/status":
             if not self.is_api_authorized():
                 self.send_json(401, {"error": "配对密钥无效。"})
@@ -1013,6 +1139,8 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_HEAD(self):
+        if self.reject_invalid_request():
+            return
         if getattr(self.server, "lan_mode", False) and not is_loopback_address(self.client_address[0]):
             self.send_error(404)
             return
@@ -1027,26 +1155,32 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     def do_POST(self):
+        if self.reject_invalid_request():
+            return
         if self.path.startswith("/api/") and not self.is_api_authorized():
             self.send_json(401, {"error": "配对密钥无效。"})
             return
         if self.path == "/api/metadata":
             try:
-                body = self.rfile.read(min(int(self.headers.get("Content-Length", "0")), 8192))
-                result = lookup_metadata(json.loads(body).get("url", ""))
+                req_data = self.read_json_object()
+                source = req_data.get("url", "")
+                if not isinstance(source, str):
+                    raise ValueError("分享链接必须是文本。")
+                result = lookup_metadata(source)
                 print(f"[MusicDesk 完整 Metadata] 歌名: {result.get('title')} | 歌手: {result.get('artist')} | 专辑: {result.get('album')} | 年份: {result.get('year')}")
                 sys.stdout.flush()
                 self.send_json(200, result)
-            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
             return
 
         if self.path == "/api/lyrics_text":
             try:
-                body = self.rfile.read(min(int(self.headers.get("Content-Length", "0")), 8192))
-                req_data = json.loads(body)
+                req_data = self.read_json_object()
                 title = req_data.get("title", "")
                 artist = req_data.get("artist", "")
+                if not isinstance(title, str) or not isinstance(artist, str):
+                    raise ValueError("歌曲名和艺人必须是文本。")
                 lrc = fetch_lrc_lyrics(title, artist)
                 if not lrc:
                     raise ValueError("未在公开歌词库中检索到对应的同步 LRC 歌词。")
@@ -1057,11 +1191,11 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/search_metadata":
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                if length < 1 or length > 8192:
+                req_data = self.read_json_object()
+                query = req_data.get("query", "")
+                if not isinstance(query, str) or len(query) > 512:
                     raise ValueError("搜索内容无效或过长。")
-                req_data = json.loads(self.rfile.read(length))
-                result = lookup_metadata_by_keyword(str(req_data.get("query", "")))
+                result = lookup_metadata_by_keyword(query)
                 self.send_json(200, result)
             except Exception as exc:
                 self.send_json(400, {"error": str(exc) or "搜索曲目信息失败。"})
@@ -1069,12 +1203,14 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/parse_local_tag":
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                if length < 1 or length > MAX_UPLOAD:
-                    raise ValueError("文件不能为空或超过 150 MB。")
-                raw = self.rfile.read(length)
-                if self.headers.get("Content-Type", "").startswith("application/json"):
+                request_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                if request_type not in {"application/json", "multipart/form-data"}:
+                    raise ValueError("请求 Content-Type 无效。")
+                raw = self.read_request_body(MAX_UPLOAD)
+                if request_type == "application/json":
                     request_data = json.loads(raw)
+                    if not isinstance(request_data, dict):
+                        raise ValueError("JSON 请求必须是对象。")
                     source = resolve_selected_audio(self.server, str(request_data.get("local_audio_id", "")))
                     if source is None or not is_loopback_address(self.client_address[0]):
                         raise ValueError("所选音乐文件已失效，请重新选择。")
@@ -1105,10 +1241,7 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/package_custom_tag":
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                if length < 1 or length > MAX_UPLOAD:
-                    raise ValueError("数据超出大小限制。")
-                raw = self.rfile.read(length)
+                raw = self.read_request_body(MAX_UPLOAD, "multipart/form-data")
                 fields = multipart_fields(self.headers.get("Content-Type", ""), raw)
 
                 audio_part = fields.get("audio_file")
@@ -1199,19 +1332,27 @@ class Handler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/download":
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                body = self.rfile.read(min(length, 8192))
-                req_data = json.loads(body)
+                req_data = self.read_json_object()
+
+                for field in ("url", "title", "artist", "thumbnail", "preferred_engine"):
+                    if field in req_data and not isinstance(req_data[field], str):
+                        raise ValueError(f"{field} 必须是文本。")
+                for field in ("title", "artist"):
+                    if len(req_data.get(field, "")) > 256:
+                        raise ValueError("歌曲信息过长。")
+                if "keyword_search" in req_data and not isinstance(req_data["keyword_search"], bool):
+                    raise ValueError("keyword_search 必须是布尔值。")
                 
-                url = build_download_query(
+                built_url = build_download_query(
                     req_data.get("url", ""),
                     req_data.get("title", ""),
                     req_data.get("artist", ""),
                     bool(req_data.get("keyword_search")),
                 )
+                url = validate_download_source(built_url)
                 title = req_data.get("title", "未知标题").strip()
                 artist = req_data.get("artist", "未知艺人").strip()
-                thumbnail = req_data.get("thumbnail", "")
+                thumbnail = validate_thumbnail_url(req_data.get("thumbnail", ""))
                 preferred_engine = req_data.get("preferred_engine", "ytdlp")
                 
                 if not url:
@@ -1226,14 +1367,12 @@ class Handler(SimpleHTTPRequestHandler):
                     cover_p = Path(temp_dir) / "cover.jpg"
                     if thumbnail:
                         try:
-                            req = urllib.request.Request(thumbnail, headers={"User-Agent": "Mozilla/5.0"})
-                            with urllib.request.urlopen(req, timeout=10) as res:
-                                raw_cover_bytes = res.read()
-                                if "ytimg.com" in thumbnail or "youtube.com" in thumbnail:
-                                    processed_cover = crop_yt_padding_smart(raw_cover_bytes)
-                                else:
-                                    processed_cover = raw_cover_bytes
-                                cover_p.write_bytes(processed_cover)
+                            raw_cover_bytes = fetch_thumbnail(thumbnail)
+                            if urllib.parse.urlsplit(thumbnail).hostname in {"i.ytimg.com", "img.youtube.com"}:
+                                processed_cover = crop_yt_padding_smart(raw_cover_bytes)
+                            else:
+                                processed_cover = raw_cover_bytes
+                            cover_p.write_bytes(processed_cover)
                         except Exception:
                             cover_p.write_bytes(b"")
                     else:
@@ -1261,7 +1400,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(converted)
                 
-            except (ValueError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            except Exception as exc:
                 self.send_json(400, {"error": str(exc) or "下载失败。"})
             return
 
@@ -1271,10 +1410,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(503, {"error": "未检测到 FFmpeg。"})
                 return
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                if length < 1 or length > MAX_UPLOAD:
-                    raise ValueError("文件不能为空或超过 150 MB。")
-                raw = self.rfile.read(length)
+                raw = self.read_request_body(MAX_UPLOAD, "multipart/form-data")
                 message = BytesParser(policy=default).parsebytes(
                     b"Content-Type: " + self.headers.get("Content-Type", "").encode("ascii", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw
                 )
@@ -1311,21 +1447,31 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_api_cors_headers()
                 self.end_headers()
                 self.wfile.write(converted)
-            except (ValueError, TimeoutError, OSError) as exc:
+            except Exception as exc:
                 self.send_json(400, {"error": str(exc) or "转换失败。"})
             return
 
         self.send_json(404, {"error": "找不到该接口。"})
 
 def create_musicdesk_server(host: str = "127.0.0.1", port: int = 8765, api_token: str = ""):
+    lan_mode = not is_loopback_address(host)
+    if lan_mode and not api_token:
+        raise ValueError("局域网服务必须配置配对令牌。")
+    if lan_mode and len(api_token) < 24:
+        raise ValueError("局域网配对令牌至少需要 24 个字符。")
     server = ThreadingHTTPServer((host, port), Handler)
-    server.lan_mode = bool(api_token)
+    server.lan_mode = lan_mode
     server.api_token = api_token
     return server
 
 
 def is_api_authorized(authorization: str, token: str) -> bool:
-    return not token or hmac.compare_digest(authorization, f"Bearer {token}")
+    if not token:
+        return False
+    try:
+        return hmac.compare_digest(authorization.encode("utf-8"), f"Bearer {token}".encode("utf-8"))
+    except (AttributeError, UnicodeError):
+        return False
 
 
 def is_loopback_address(address: str) -> bool:

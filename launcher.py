@@ -10,10 +10,9 @@ import os
 import sys
 import threading
 import webbrowser
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from app import Handler, ROOT
+from app import ROOT, create_musicdesk_server
 from desktop_media import DesktopMediaBridge
 
 
@@ -118,7 +117,7 @@ def main() -> None:
     parser.add_argument(
         "--lan",
         action="store_true",
-        help="绑定 0.0.0.0 允许局域网访问（需配合 --token 使用更安全）",
+        help="绑定 0.0.0.0 允许局域网访问（必须配合 --token）",
     )
     parser.add_argument(
         "--port",
@@ -134,6 +133,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.token and not args.lan:
+        parser.error("--token requires --lan")
+    if args.lan and (not args.token or len(args.token) < 24):
+        parser.error("--lan requires an explicit --token with at least 24 characters")
+
     if getattr(sys, "frozen", False):
         devnull = open(os.devnull, "w", encoding="utf-8")
         sys.stdout = devnull
@@ -144,7 +148,7 @@ def main() -> None:
     else:
         bind = "127.0.0.1"
 
-    server = ThreadingHTTPServer((bind, args.port), Handler)
+    server = create_musicdesk_server(bind, args.port, args.token or "")
     actual_port = server.server_port
     if bind == "0.0.0.0":
         url = f"http://127.0.0.1:{actual_port}"

@@ -4,18 +4,20 @@ import sys
 import io
 import wave
 import http.client
+import socket
 import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
 from io import StringIO
-from launcher import create_native_window, enable_file_downloads
+from launcher import create_native_window, enable_file_downloads, main as launcher_main
+import launcher
 from package_portable import create_portable_archive
 
 
@@ -40,6 +42,20 @@ class FfmpegResolutionTests(unittest.TestCase):
 
 
 class DesktopLauncherTests(unittest.TestCase):
+    def test_launcher_rejects_unprotected_lan_and_uses_shared_server_factory(self):
+        with patch("sys.argv", ["MusicDesk", "--lan"]), self.assertRaises(SystemExit):
+            launcher_main()
+
+        fake_server = MagicMock()
+        fake_server.server_port = 8765
+        with patch("sys.argv", ["MusicDesk", "--browser", "--lan", "--token", "pairing-token-long-enough-for-tests"]), \
+             patch.object(launcher, "create_musicdesk_server", return_value=fake_server) as factory, \
+             patch.object(launcher.threading, "Thread") as thread, \
+             patch.object(launcher, "_show_browser_mode"):
+            launcher_main()
+        factory.assert_called_once_with("0.0.0.0", 0, "pairing-token-long-enough-for-tests")
+        thread.assert_called_once()
+
     def test_enables_native_file_downloads(self):
         webview_module = SimpleNamespace(settings={})
         enable_file_downloads(webview_module)
@@ -765,10 +781,28 @@ class LanApiTests(unittest.TestCase):
         self.assertEqual(result.exception.code, 2)
 
     def test_bearer_token_comparison_and_local_mode(self):
-        self.assertTrue(is_api_authorized("", ""))
+        self.assertFalse(is_api_authorized("", ""))
         self.assertTrue(is_api_authorized("Bearer secret", "secret"))
         self.assertFalse(is_api_authorized("Bearer wrong", "secret"))
         self.assertFalse(is_api_authorized("", "secret"))
+        self.assertFalse(is_api_authorized("Bearer 秘密", "secret"))
+
+    def test_lan_server_requires_token_and_rejects_ytdlp_options_and_unsafe_covers(self):
+        with self.assertRaises(ValueError):
+            create_musicdesk_server("0.0.0.0", 0)
+        with self.assertRaises(ValueError):
+            create_musicdesk_server("0.0.0.0", 0, "short")
+        with self.assertRaises(ValueError):
+            validate_download_source("--version")
+        with self.assertRaises(ValueError):
+            validate_download_source("file:///private/secret")
+        with self.assertRaises(ValueError):
+            validate_download_source("http://127.0.0.1:8765/")
+        self.assertEqual(validate_download_source("https://youtu.be/abcdefghijk"), "https://www.youtube.com/watch?v=abcdefghijk")
+        self.assertEqual(validate_thumbnail_url("https://i.ytimg.com/vi/abc/default.jpg"), "https://i.ytimg.com/vi/abc/default.jpg")
+        for unsafe in ("file:///secret", "http://127.0.0.1/private", "https://evil.example/cover.jpg", "https://i.ytimg.com.evil.example/image"):
+            with self.subTest(url=unsafe), self.assertRaises(ValueError):
+                validate_thumbnail_url(unsafe)
 
     def test_loopback_is_local_but_private_lan_ip_is_remote(self):
         self.assertTrue(is_loopback_address("127.0.0.1"))
@@ -776,7 +810,7 @@ class LanApiTests(unittest.TestCase):
         self.assertFalse(is_loopback_address("192.168.1.7"))
 
     def test_lan_server_auth_cors_and_api_only_surface(self):
-        server = create_musicdesk_server("127.0.0.1", 0, "pairing-secret")
+        server = create_musicdesk_server("0.0.0.0", 0, "pairing-secret-for-regression-tests")
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         try:
@@ -789,10 +823,49 @@ class LanApiTests(unittest.TestCase):
             connection.request("GET", "/api/status")
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
-            self.assertEqual(response.getheader("Access-Control-Allow-Origin"), "*")
             response.read()
 
-            connection.request("GET", "/api/status", headers={"Authorization": "Bearer pairing-secret"})
+            origin = f"http://127.0.0.1:{server.server_port}"
+            connection.request("GET", "/api/status", headers={"Origin": origin})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Access-Control-Allow-Origin"), origin)
+            response.read()
+
+            connection.request("GET", "/api/status", headers={"Host": "evil.example", "Origin": "http://evil.example"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 403)
+            response.read()
+
+            connection.request("GET", "/api/status", headers={"Host": f"127.0.0.1:{server.server_port}", "Origin": "http://evil.example"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 403)
+            response.read()
+
+            connection.request("POST", "/api/metadata", body="{}", headers={"Content-Type": "text/plain"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+
+            connection.request("POST", "/api/metadata", body="[]", headers={"Content-Type": "application/json"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+
+            connection.request("POST", "/api/download", body='{"title":null}', headers={"Content-Type": "application/json"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+
+            with socket.create_connection(("127.0.0.1", server.server_port), timeout=3) as malformed:
+                malformed.sendall(
+                    f"POST /api/metadata HTTP/1.1\r\nHost: 127.0.0.1:{server.server_port}\r\n"
+                    "Content-Type: application/json\r\nContent-Length: -1\r\nConnection: close\r\n\r\n".encode("ascii")
+                )
+                malformed_response = malformed.recv(4096)
+                self.assertIn(b"400", malformed_response.split(b"\r\n", 1)[0])
+
+            connection.request("GET", "/api/status", headers={"Authorization": "Bearer pairing-secret-for-regression-tests"})
             response = connection.getresponse()
             self.assertEqual(response.status, 200)
             status = __import__("json").loads(response.read())
