@@ -32,28 +32,6 @@ def build_conversion_args(ffmpeg: str, input_path: str | Path, output_path: str 
     return [ffmpeg, "-nostdin", "-v", "error", "-i", str(input_path), "-map", "0:a:0", "-vn", "-y", str(output_path)]
 
 
-def shift_lrc_timestamps(lyrics: str, offset_seconds: float) -> str:
-    """Shift synced and enhanced word timestamps for an audio segment."""
-    pattern = re.compile(r"(?P<open>\[|<)(?P<minutes>\d{1,3}):(?P<seconds>\d{2})(?:[.:](?P<fraction>\d{1,3}))?(?P<close>\]|>)")
-
-    def shift(match: re.Match) -> str:
-        fraction = (match.group("fraction") or "0").ljust(3, "0")[:3]
-        source_time = int(match.group("minutes")) * 60 + int(match.group("seconds")) + int(fraction) / 1000
-        if source_time < offset_seconds:
-            return ""
-        milliseconds = round((source_time - offset_seconds) * 100)
-        minutes, remainder = divmod(milliseconds, 6000)
-        return f"{match.group('open')}{minutes:02d}:{remainder // 100:02d}.{remainder % 100:02d}{match.group('close')}"
-
-    shifted_lines = []
-    for line in lyrics.splitlines():
-        timestamps = list(pattern.finditer(line))
-        if timestamps and all(shift(match) == "" for match in timestamps):
-            continue
-        shifted_lines.append(pattern.sub(shift, line))
-    return "\n".join(shifted_lines)
-
-
 def limit_filename_length(filename: str, max_utf16_units: int = 240) -> str:
     """Keep an exported filename below Windows' per-component limit, including extension."""
     stem, suffix = os.path.splitext(filename)

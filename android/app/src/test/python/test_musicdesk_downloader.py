@@ -20,9 +20,9 @@ SPEC.loader.exec_module(musicdesk_downloader)
 class DownloaderTests(unittest.TestCase):
     def test_parses_lrc_timestamps_for_id3_synchronised_lyrics(self):
         parsed = musicdesk_downloader._parse_lrc_timestamps(
-            "[00:02.5]later\n[00:01.23][00:03.00]repeat\nuntimed"
+            "[00:02.5]later\n[00:01.23][00:03.00]repeat\n[00:04.00]<00:04.10>word<00:04.50>by\nuntimed"
         )
-        self.assertEqual(parsed, [("repeat", 1230), ("later", 2500), ("repeat", 3000)])
+        self.assertEqual(parsed, [("repeat", 1230), ("later", 2500), ("repeat", 3000), ("word", 4100), ("by", 4500)])
 
     def test_lrc_parser_skips_timestamp_only_lines_and_plain_lyrics(self):
         self.assertEqual(

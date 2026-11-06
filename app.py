@@ -36,6 +36,7 @@ from musicdesk_core import (
     limit_filename_length,
     make_tag_export_filename,
     parse_metadata_search_query,
+    parse_lrc_timestamps,
     parse_share_url,
     quote_musicbrainz_phrase,
     shift_lrc_timestamps,

@@ -160,7 +160,8 @@ music_downloader/
 ├── app.py                      # Python 后端：HTTP 服务、元数据/歌词检索、下载/转换/标签
 ├── musicdesk_core/              # 桌面与 Android 共用的纯 Python 逻辑
 │   ├── media.py                 # FFmpeg 参数、LRC 时间平移、导出文件名
-│   └── metadata.py              # 分享链接、查询词解析与 MusicBrainz 查询构造
+│   ├── metadata.py              # 分享链接、查询词解析与 MusicBrainz 查询构造
+│   └── lyrics.py                # 标准/逐词 LRC 解析与裁剪时间平移
 ├── launcher.py                 # 桌面原生窗口入口（pywebview；仅显式 --browser 使用外部浏览器）
 ├── index.html                  # 整个前端页面（播放器 / 检索 / 转换 / 标签 / Android UI）
 ├── test_app.py                 # 前后端与 Android 静态回归测试

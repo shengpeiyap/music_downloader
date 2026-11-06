@@ -6,8 +6,8 @@ from .media import (
     build_conversion_args,
     limit_filename_length,
     make_tag_export_filename,
-    shift_lrc_timestamps,
 )
+from .lyrics import parse_lrc_timestamps, shift_lrc_timestamps
 from .metadata import (
     build_musicbrainz_search_query,
     parse_metadata_search_query,
@@ -23,6 +23,7 @@ __all__ = [
     "limit_filename_length",
     "make_tag_export_filename",
     "shift_lrc_timestamps",
+    "parse_lrc_timestamps",
     "build_musicbrainz_search_query",
     "parse_metadata_search_query",
     "parse_share_url",

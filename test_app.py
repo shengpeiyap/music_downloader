@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, parse_lrc_timestamps, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
@@ -61,6 +61,7 @@ class FfmpegResolutionTests(unittest.TestCase):
             build_audio_trim_args("in.mp3", "out.mp3", 4, 3)
         self.assertEqual(shift_lrc_timestamps("[00:01.00]removed\n[00:05.20]line\nplain", 2.25), "[00:02.95]line\nplain")
         self.assertEqual(shift_lrc_timestamps("[00:00.50]<00:01.00>pre<00:03.25>word", 1), "<00:00.00>pre<00:02.25>word")
+        self.assertEqual(parse_lrc_timestamps("[00:00.50]line\n[00:02.5]plain\n[00:03.00]<00:03.10>hel<00:03.40>lo\n[00:04.00]"), [("line", 500), ("plain", 2500), ("hel", 3100), ("lo", 3400)])
 
     def test_prefers_app_managed_ffmpeg(self):
         with patch.dict(sys.modules, {"imageio_ffmpeg": SimpleNamespace(get_ffmpeg_exe=lambda: sys.executable)}):

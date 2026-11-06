@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from musicdesk_core.lyrics import parse_lrc_timestamps as _parse_lrc_timestamps
 from musicdesk_core.metadata import build_musicbrainz_search_query, split_artist_title
 
 import mutagen
@@ -203,28 +204,6 @@ def _write_metadata(audio_path: Path, info: dict, cover):
         return False
     audio.save()
     return True
-
-
-_LRC_TIMESTAMP = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
-
-
-def _parse_lrc_timestamps(lyrics: str):
-    """Return ID3 SYLT (text, milliseconds) entries from timestamped LRC."""
-    entries = []
-    for line in lyrics.splitlines():
-        timestamps = list(_LRC_TIMESTAMP.finditer(line))
-        if not timestamps:
-            continue
-        text = line[timestamps[-1].end():].strip()
-        if not text:
-            continue
-        for match in timestamps:
-            fraction = (match.group(3) or "").ljust(3, "0")[:3]
-            milliseconds = (int(match.group(1)) * 60 + int(match.group(2))) * 1000
-            if fraction:
-                milliseconds += int(fraction)
-            entries.append((text, milliseconds))
-    return sorted(entries, key=lambda entry: entry[1])
 
 
 def package_audio_file(source_path: str, output_path: str, metadata_json: str, cover_path: str = ""):
