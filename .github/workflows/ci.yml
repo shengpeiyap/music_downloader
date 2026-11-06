@@ -1,0 +1,63 @@
+name: MusicDesk CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-and-android-python:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run desktop tests
+        run: python -m unittest test_app -v
+      - name: Run Android Python tests
+        run: python -m unittest discover -s android/app/src/test/python -v
+      - name: Run JavaScript regression tests
+        run: |
+          node tests/test_android_search_fallback.js
+          node tests/test_android_processing_route.js
+          node tests/test_android_ui_gates.js
+          node tests/test_library_sort.js
+
+  android-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Python for Chaquopy
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
+      - name: Make Gradle wrapper executable
+        working-directory: android
+        run: chmod +x ./gradlew
+      - name: Compile Android app
+        working-directory: android
+        run: ./gradlew --no-daemon --console=plain :app:compileDebugJavaWithJavac

@@ -149,7 +149,7 @@ node tests/test_android_ui_gates.js
 node tests/test_library_sort.js
 ```
 
-当前状态：**66 项桌面测试、18 项 Android Python 测试通过**，另有 4 个 Node.js 回归脚本。桌面测试覆盖 LAN API 校验、文件 Range、真实 FFmpeg 转换、下载输入、MusicBrainz 查询、歌词时间戳、导出文件名及前端结构。
+当前状态：**66 项桌面测试、18 项 Android Python 测试通过**，另有 4 个 Node.js 回归脚本。GitHub Actions 会在推送和 PR 时运行这些检查，并编译 Android Java。桌面测试覆盖 LAN API 校验、文件 Range、真实 FFmpeg 转换、下载输入、MusicBrainz 查询、歌词时间戳、导出文件名及前端结构。
 
 ---
 
@@ -158,6 +158,8 @@ node tests/test_library_sort.js
 ```
 music_downloader/
 ├── app.py                      # Python 后端：HTTP 服务、元数据/歌词检索、下载/转换/标签
+├── musicdesk_core/              # 可跨平台复用的媒体处理纯函数
+│   └── media.py                 # FFmpeg 参数、LRC 时间平移、导出文件名
 ├── launcher.py                 # 桌面原生窗口入口（pywebview；仅显式 --browser 使用外部浏览器）
 ├── index.html                  # 整个前端页面（播放器 / 检索 / 转换 / 标签 / Android UI）
 ├── test_app.py                 # 前后端与 Android 静态回归测试
@@ -166,6 +168,7 @@ music_downloader/
 ├── build_windows.bat           # Windows 一键构建脚本
 ├── start.bat / start_lan.bat   # 普通启动 / LAN 模式启动
 ├── requirements.txt / requirements-build.txt
+├── .github/workflows/ci.yml     # 桌面、Android Python/JS 测试与 Android Java 编译
 ├── default_song_img.png / icon.ico
 ├── LICENSE                     # MIT License
 └── android/                    # Android WebView 工程（Gradle）

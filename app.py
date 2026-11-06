@@ -8,7 +8,6 @@ import importlib.util
 import html as html_module
 import hmac
 import ipaddress
-import math
 import os
 import re
 import secrets
@@ -29,13 +28,20 @@ from io import BytesIO
 from PIL import Image
 import musicbrainzngs
 from desktop_media import resolve_selected_audio, serve_local_audio
+from musicdesk_core import (
+    SAFE_NAME,
+    build_audio_trim_args,
+    build_conversion_args,
+    limit_filename_length,
+    make_tag_export_filename,
+    shift_lrc_timestamps,
+)
 
 musicbrainzngs.set_useragent("MusicDesk", "1.0", "https://github.com/musicdesk")
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 FORMATS = {"mp3": "audio/mpeg", "wav": "audio/wav", "flac": "audio/flac", "ogg": "audio/ogg", "m4a": "audio/mp4"}
 MAX_UPLOAD = 150 * 1024 * 1024
-SAFE_NAME = re.compile(r"[^\w .()-]+", re.UNICODE)
 MUSICDESK_API_VERSION = 1
 MAX_API_JSON = 8192
 MAX_COVER_BYTES = 8 * 1024 * 1024
@@ -300,80 +306,6 @@ def multipart_text(fields: dict, name: str) -> str:
     if payload is None:
         return ""
     return payload.decode(part.get_content_charset() or "utf-8", errors="replace").strip()
-
-
-def build_audio_trim_args(input_path: str | Path, output_path: str | Path, start: float, end: float) -> list[str]:
-    """Build FFmpeg arguments for an optional validated [start, end) range."""
-    if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < 0:
-        raise ValueError("音频裁剪时间无效。")
-    if end and end <= start:
-        raise ValueError("裁剪终点必须晚于起点。")
-    args = ["-nostdin", "-v", "error", "-y"]
-    if start > 0:
-        args.extend(["-ss", f"{start:.3f}"])
-    args.extend(["-i", str(input_path)])
-    if end > 0:
-        args.extend(["-t", f"{end - start:.3f}"])
-    args.extend(["-map", "0:a:0", "-vn", str(output_path)])
-    return args
-
-
-def build_conversion_args(ffmpeg: str, input_path: str | Path, output_path: str | Path) -> list[str]:
-    """Convert the first audio stream while ignoring embedded cover-art video streams."""
-    return [ffmpeg, "-nostdin", "-v", "error", "-i", str(input_path), "-map", "0:a:0", "-vn", "-y", str(output_path)]
-
-
-def shift_lrc_timestamps(lyrics: str, offset_seconds: float) -> str:
-    """Shift synced lyric timestamps for an audio segment, dropping removed lines."""
-    pattern = re.compile(r"(?P<open>\[|<)(?P<minutes>\d{1,3}):(?P<seconds>\d{2})(?:[.:](?P<fraction>\d{1,3}))?(?P<close>\]|>)")
-
-    def shift(match: re.Match) -> str:
-        fraction = (match.group("fraction") or "0").ljust(3, "0")[:3]
-        source_time = int(match.group("minutes")) * 60 + int(match.group("seconds")) + int(fraction) / 1000
-        if source_time < offset_seconds:
-            return ""
-        milliseconds = round((source_time - offset_seconds) * 100)
-        minutes, remainder = divmod(milliseconds, 6000)
-        return f"{match.group('open')}{minutes:02d}:{remainder // 100:02d}.{remainder % 100:02d}{match.group('close')}"
-
-    shifted_lines = []
-    for line in lyrics.splitlines():
-        timestamps = list(pattern.finditer(line))
-        if timestamps and all(shift(match) == "" for match in timestamps):
-            continue
-        shifted_lines.append(pattern.sub(shift, line))
-    return "\n".join(shifted_lines)
-
-
-def limit_filename_length(filename: str, max_utf16_units: int = 240) -> str:
-    """Keep an exported filename below Windows' per-component limit, including extension."""
-    stem, suffix = os.path.splitext(filename)
-    suffix_units = sum(2 if ord(char) > 0xFFFF else 1 for char in suffix)
-    budget = max(1, max_utf16_units - suffix_units)
-    kept = []
-    used = 0
-    for char in stem:
-        units = 2 if ord(char) > 0xFFFF else 1
-        if used + units > budget:
-            break
-        kept.append(char)
-        used += units
-    return "".join(kept).rstrip(" .") + suffix
-
-
-def make_tag_export_filename(
-    artist: str,
-    title: str,
-    original_filename: str,
-    export_format: str,
-    append_text: str = "",
-) -> str:
-    artist = artist.strip() or "未知艺人"
-    title = title.strip() or Path(original_filename).stem or "未知标题"
-    suffix = SAFE_NAME.sub("_", append_text).strip(" ._-()")
-    base_name = f"{artist} - {title}" + (f" - {suffix}" if suffix else "")
-    name = SAFE_NAME.sub("_", f"{base_name}.{export_format}").strip(" .")
-    return limit_filename_length(name or f"未知艺人 - 未知标题.{export_format}")
 
 
 def acquire_custom_audio_source(
