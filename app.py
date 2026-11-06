@@ -32,8 +32,12 @@ from musicdesk_core import (
     SAFE_NAME,
     build_audio_trim_args,
     build_conversion_args,
+    build_musicbrainz_search_query,
     limit_filename_length,
     make_tag_export_filename,
+    parse_metadata_search_query,
+    parse_share_url,
+    quote_musicbrainz_phrase,
     shift_lrc_timestamps,
 )
 
@@ -99,15 +103,6 @@ def read_music_metadata(path: str, filename: str) -> dict:
         "lyrics": get_tag("lyrics"),
         "cover": cover,
     }
-
-
-def parse_metadata_search_query(query: str) -> tuple[str, str]:
-    """Accept either an artist-title pair or a title-only MusicBrainz query."""
-    query = " ".join(query.split())
-    match = re.match(r"^(.+?)\s+[-–—]\s+(.+)$", query)
-    if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return "未知艺人", query
 
 
 def search_ytdlp_metadata(query: str) -> dict:
@@ -745,30 +740,6 @@ def process_and_export_media(
     return destination
 
 
-def parse_share_url(raw: str) -> dict:
-    try:
-        parts = urllib.parse.urlsplit(raw.strip())
-    except ValueError as exc:
-        raise ValueError("请输入有效的 Spotify 或 YouTube Music 分享链接。") from exc
-    host = (parts.hostname or "").lower()
-    if parts.scheme != "https":
-        raise ValueError("仅支持 HTTPS 分享链接。")
-    if host in {"open.spotify.com", "spotify.com", "www.spotify.com"}:
-        match = re.fullmatch(r"/track/([A-Za-z0-9]+)/*", parts.path)
-        if match:
-            track_id = match.group(1)
-            return {"provider": "spotify", "id": track_id, "url": f"https://open.spotify.com/track/{track_id}"}
-    if host in {"music.youtube.com", "youtube.com", "www.youtube.com"}:
-        video_id = urllib.parse.parse_qs(parts.query).get("v", [None])[0]
-        if parts.path == "/watch" and video_id and re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
-            return {"provider": "youtube", "id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}"}
-    if host in {"youtu.be", "www.youtu.be"}:
-        video_id = parts.path.strip("/")
-        if re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
-            return {"provider": "youtube", "id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}"}
-    raise ValueError("目前支持 Spotify 单曲链接，以及 YouTube Music / YouTube 视频链接。")
-
-
 def fetch_spotify_oembed(raw_url: str) -> dict:
     meta = {"title": "", "artist": "", "thumbnail": None}
     try:
@@ -813,11 +784,6 @@ def fetch_spotify_embed_html(track_id: str) -> dict:
     return meta
 
 
-def quote_musicbrainz_phrase(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
-
-
 def lookup_musicbrainz_metadata(title: str, artist: str, known_album: str = "") -> dict:
     print(f"[MusicDesk - MusicBrainz 检索] 正在查找: {title} - {artist} (已知专辑: {known_album})")
     res_meta = {"artist": artist, "album": known_album, "year": "", "track_num": "", "cover_url": None}
@@ -827,18 +793,13 @@ def lookup_musicbrainz_metadata(title: str, artist: str, known_album: str = "") 
     try:
         clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} or artist.strip() == title.strip() else artist.strip()
         
-        query = f"recording:{quote_musicbrainz_phrase(title)}"
-        if clean_artist:
-            query += f" AND artist:{quote_musicbrainz_phrase(clean_artist)}"
-        if known_album:
-            query += f" AND release:{quote_musicbrainz_phrase(known_album)}"
+        query = build_musicbrainz_search_query(title, clean_artist, known_album)
 
         result = musicbrainzngs.search_recordings(query=query, limit=15)
         recordings = result.get("recording-list", [])
 
         if not recordings and known_album:
-            query_fallback = f"recording:{quote_musicbrainz_phrase(title)}"
-            if clean_artist: query_fallback += f" AND artist:{quote_musicbrainz_phrase(clean_artist)}"
+            query_fallback = build_musicbrainz_search_query(title, clean_artist)
             result = musicbrainzngs.search_recordings(query=query_fallback, limit=15)
             recordings = result.get("recording-list", [])
 

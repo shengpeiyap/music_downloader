@@ -12,6 +12,8 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from musicdesk_core.metadata import build_musicbrainz_search_query, split_artist_title
+
 import mutagen
 import yt_dlp
 
@@ -288,11 +290,7 @@ def _musicbrainz_json(url: str):
 
 
 def _split_metadata_query(query: str):
-    query = " ".join((query or "").split())
-    match = re.match(r"^(.+?)\s+[-–—]\s+(.+)$", query)
-    if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return "", query
+    return split_artist_title(query)
 
 
 def _musicbrainz_artist_credit(credit):
@@ -322,11 +320,8 @@ def search_musicbrainz(query: str) -> str:
     artist, title = _split_metadata_query(query)
     if not title:
         raise ValueError("请输入“作者 - 标题”或歌曲标题。")
-    escape = lambda value: value.replace("\\", "\\\\").replace('"', r'\"')
-    terms = [f'recording:"{escape(title)}"']
-    if artist:
-        terms.append(f'artist:"{escape(artist)}"')
-    params = urllib.parse.urlencode({"query": " AND ".join(terms), "fmt": "json", "limit": 15})
+    query = build_musicbrainz_search_query(title, artist)
+    params = urllib.parse.urlencode({"query": query, "fmt": "json", "limit": 15})
     data = _musicbrainz_json("https://musicbrainz.org/ws/2/recording/?" + params)
     recordings = data.get("recordings", []) if isinstance(data, dict) else []
     if not recordings:

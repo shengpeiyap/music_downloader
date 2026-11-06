@@ -24,6 +24,12 @@ android {
 }
 
 chaquopy {
+    sourceSets {
+        getByName("main") {
+            srcDir(rootProject.projectDir.parentFile)
+            include("musicdesk_core/**", "musicdesk_downloader.py")
+        }
+    }
     defaultConfig {
         version = "3.14"
         pip {

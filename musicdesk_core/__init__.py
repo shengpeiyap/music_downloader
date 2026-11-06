@@ -8,6 +8,13 @@ from .media import (
     make_tag_export_filename,
     shift_lrc_timestamps,
 )
+from .metadata import (
+    build_musicbrainz_search_query,
+    parse_metadata_search_query,
+    parse_share_url,
+    quote_musicbrainz_phrase,
+    split_artist_title,
+)
 
 __all__ = [
     "SAFE_NAME",
@@ -16,4 +23,9 @@ __all__ = [
     "limit_filename_length",
     "make_tag_export_filename",
     "shift_lrc_timestamps",
+    "build_musicbrainz_search_query",
+    "parse_metadata_search_query",
+    "parse_share_url",
+    "quote_musicbrainz_phrase",
+    "split_artist_title",
 ]

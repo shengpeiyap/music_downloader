@@ -1,12 +1,17 @@
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
+
+from musicdesk_core.metadata import build_musicbrainz_search_query, split_artist_title
 
 
 MODULE_PATH = Path(__file__).parents[2] / "main" / "python" / "musicdesk_downloader.py"
+sys.path.insert(0, str(Path(__file__).parents[5]))
 SPEC = importlib.util.spec_from_file_location("musicdesk_downloader", MODULE_PATH)
 musicdesk_downloader = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(musicdesk_downloader)
@@ -119,6 +124,12 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(result["year"], "2020")
         self.assertEqual(result["cover"], "https://coverartarchive.org/release/release-id/front-500")
         self.assertIn("fmt=json", request.call_args.args[0])
+        query = parse_qs(urlsplit(request.call_args.args[0]).query)["query"][0]
+        self.assertEqual(query, build_musicbrainz_search_query("Song", "Artist"))
+
+    def test_android_and_shared_metadata_parsers_use_the_same_artist_title_split(self):
+        self.assertEqual(split_artist_title(" Artist — Song "), ("Artist", "Song"))
+        self.assertEqual(musicdesk_downloader._split_metadata_query(" Artist — Song "), ("Artist", "Song"))
 
     def test_lyrics_lookup_uses_exact_then_search_fallback(self):
         with patch.object(musicdesk_downloader, "_json_request", side_effect=[
