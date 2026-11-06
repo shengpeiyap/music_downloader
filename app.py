@@ -318,18 +318,23 @@ def build_audio_trim_args(input_path: str | Path, output_path: str | Path, start
     return args
 
 
+def build_conversion_args(ffmpeg: str, input_path: str | Path, output_path: str | Path) -> list[str]:
+    """Convert the first audio stream while ignoring embedded cover-art video streams."""
+    return [ffmpeg, "-nostdin", "-v", "error", "-i", str(input_path), "-map", "0:a:0", "-vn", "-y", str(output_path)]
+
+
 def shift_lrc_timestamps(lyrics: str, offset_seconds: float) -> str:
     """Shift synced lyric timestamps for an audio segment, dropping removed lines."""
-    pattern = re.compile(r"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]")
+    pattern = re.compile(r"(?P<open>\[|<)(?P<minutes>\d{1,3}):(?P<seconds>\d{2})(?:[.:](?P<fraction>\d{1,3}))?(?P<close>\]|>)")
 
     def shift(match: re.Match) -> str:
-        fraction = (match.group(3) or "0").ljust(3, "0")[:3]
-        source_time = int(match.group(1)) * 60 + int(match.group(2)) + int(fraction) / 1000
+        fraction = (match.group("fraction") or "0").ljust(3, "0")[:3]
+        source_time = int(match.group("minutes")) * 60 + int(match.group("seconds")) + int(fraction) / 1000
         if source_time < offset_seconds:
             return ""
         milliseconds = round((source_time - offset_seconds) * 100)
         minutes, remainder = divmod(milliseconds, 6000)
-        return f"[{minutes:02d}:{remainder // 100:02d}.{remainder % 100:02d}]"
+        return f"{match.group('open')}{minutes:02d}:{remainder // 100:02d}.{remainder % 100:02d}{match.group('close')}"
 
     shifted_lines = []
     for line in lyrics.splitlines():
@@ -338,6 +343,22 @@ def shift_lrc_timestamps(lyrics: str, offset_seconds: float) -> str:
             continue
         shifted_lines.append(pattern.sub(shift, line))
     return "\n".join(shifted_lines)
+
+
+def limit_filename_length(filename: str, max_utf16_units: int = 240) -> str:
+    """Keep an exported filename below Windows' per-component limit, including extension."""
+    stem, suffix = os.path.splitext(filename)
+    suffix_units = sum(2 if ord(char) > 0xFFFF else 1 for char in suffix)
+    budget = max(1, max_utf16_units - suffix_units)
+    kept = []
+    used = 0
+    for char in stem:
+        units = 2 if ord(char) > 0xFFFF else 1
+        if used + units > budget:
+            break
+        kept.append(char)
+        used += units
+    return "".join(kept).rstrip(" .") + suffix
 
 
 def make_tag_export_filename(
@@ -352,7 +373,7 @@ def make_tag_export_filename(
     suffix = SAFE_NAME.sub("_", append_text).strip(" ._-()")
     base_name = f"{artist} - {title}" + (f" - {suffix}" if suffix else "")
     name = SAFE_NAME.sub("_", f"{base_name}.{export_format}").strip(" .")
-    return name or f"未知艺人 - 未知标题.{export_format}"
+    return limit_filename_length(name or f"未知艺人 - 未知标题.{export_format}")
 
 
 def acquire_custom_audio_source(
@@ -752,7 +773,7 @@ def process_and_export_media(
     destination_dir = Path(output_dir)
     destination_dir.mkdir(parents=True, exist_ok=True)
     base = SAFE_NAME.sub("_", f"{artist} - {title}").strip(" .") or "audio"
-    destination = destination_dir / f"{base}.mp3"
+    destination = destination_dir / limit_filename_length(f"{base}.mp3")
 
     with tempfile.TemporaryDirectory(prefix="musicdesk-export-", dir=destination_dir) as work:
         staged = Path(work) / "export.mp3"
@@ -860,6 +881,11 @@ def fetch_spotify_embed_html(track_id: str) -> dict:
     return meta
 
 
+def quote_musicbrainz_phrase(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def lookup_musicbrainz_metadata(title: str, artist: str, known_album: str = "") -> dict:
     print(f"[MusicDesk - MusicBrainz 检索] 正在查找: {title} - {artist} (已知专辑: {known_album})")
     res_meta = {"artist": artist, "album": known_album, "year": "", "track_num": "", "cover_url": None}
@@ -869,18 +895,18 @@ def lookup_musicbrainz_metadata(title: str, artist: str, known_album: str = "") 
     try:
         clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} or artist.strip() == title.strip() else artist.strip()
         
-        query = f'recording:"{title}"'
+        query = f"recording:{quote_musicbrainz_phrase(title)}"
         if clean_artist:
-            query += f' AND artist:"{clean_artist}"'
+            query += f" AND artist:{quote_musicbrainz_phrase(clean_artist)}"
         if known_album:
-            query += f' AND release:"{known_album}"'
+            query += f" AND release:{quote_musicbrainz_phrase(known_album)}"
 
         result = musicbrainzngs.search_recordings(query=query, limit=15)
         recordings = result.get("recording-list", [])
 
         if not recordings and known_album:
-            query_fallback = f'recording:"{title}"'
-            if clean_artist: query_fallback += f' AND artist:"{clean_artist}"'
+            query_fallback = f"recording:{quote_musicbrainz_phrase(title)}"
+            if clean_artist: query_fallback += f" AND artist:{quote_musicbrainz_phrase(clean_artist)}"
             result = musicbrainzngs.search_recordings(query=query_fallback, limit=15)
             recordings = result.get("recording-list", [])
 
@@ -1434,12 +1460,12 @@ class Handler(SimpleHTTPRequestHandler):
                     target = Path(work) / ("converted." + fmt)
                     if has_file:
                         source.write_bytes(file_part.get_payload(decode=True) or b"")
-                    proc = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", str(source), "-y", str(target)], capture_output=True, timeout=300, env=get_env_with_utf8())
+                    proc = subprocess.run(build_conversion_args(ffmpeg, source, target), capture_output=True, timeout=300, env=get_env_with_utf8())
                     if proc.returncode or not target.exists():
                         raise ValueError("转换失败。请确认上传的是可读取的音频文件。")
                     converted = target.read_bytes()
                 
-                download_name = Path(source_name).stem + "." + fmt
+                download_name = limit_filename_length(Path(source_name).stem + "." + fmt)
                 self.send_response(200)
                 self.send_header("Content-Type", FORMATS[fmt])
                 self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(download_name))

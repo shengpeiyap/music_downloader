@@ -111,7 +111,7 @@ public final class MainActivity extends Activity {
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " MusicDeskAndroid/0.1.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " MusicDeskAndroid/" + BuildConfig.VERSION_NAME);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override

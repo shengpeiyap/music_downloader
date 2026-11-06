@@ -6,6 +6,9 @@ plugins {
 android {
     namespace = "com.musicdesk.android"
     compileSdk = 36
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "com.musicdesk.android"

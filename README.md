@@ -6,7 +6,7 @@
 
 [![Release](https://img.shields.io/github/v/release/shengpeiyap/music_downloader?label=最新%20Release)](https://github.com/shengpeiyap/music_downloader/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-46%20passed-brightgreen)](#tests)
+[![Tests](https://img.shields.io/badge/desktop%20tests-66%20passed-brightgreen)](#tests)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android%20%7C%20macOS%2FLinux-lightgrey)](#)
 
 ---
@@ -49,7 +49,7 @@
 - 输出文件名自动按 `艺人 - 标题 [附加文本].格式` 规范化
 
 ### 📱 Android 移动端 (WebView App)
-- 构建见 [android/](android/) 目录，minSdk 23 / targetSdk 35 / compileSdk 36
+- 构建见 [android/](android/) 目录，minSdk 24 / targetSdk 35 / compileSdk 36
 - 支持：本地音频多选 / **文件夹递归导入**（保存权限后自动重扫）
 - Library / Now Playing 双视图，按 **歌曲/艺人/专辑/文件夹/收藏** 过滤
 - 可拖拽队列 Sheet + Mini Player，顺序/单曲循环/列表循环/随机播放
@@ -81,8 +81,8 @@
 
 | 平台 | 文件名 | 说明 |
 |---|---|---|
-| 🪟 Windows | `MusicDesk-v0.1.0-windows-portable.zip` | 解压后双击 `MusicDesk.exe` 以**原生桌面窗口**启动（Edge WebView2）；如无 WebView2 可使用 `MusicDesk.exe --browser` 在系统默认浏览器打开。已内封 FFmpeg / yt-dlp / SpotDL |
-| 🤖 Android | `MusicDesk-v0.1.0-android-release.apk` | 安装到手机，需允许"从未知来源安装"；如需连接桌面功能请在桌面端用 LAN 模式启动 |
+| 🪟 Windows | `MusicDesk-v0.2.0-windows-portable.zip` | 解压后双击 `MusicDesk.exe` 以**原生桌面窗口**启动（Edge WebView2）；如无 WebView2 可使用 `MusicDesk.exe --browser` 在系统默认浏览器打开。已内封 FFmpeg / yt-dlp / SpotDL |
+| 🤖 Android | `MusicDesk-v0.2.0-android-release.apk` | 安装到手机，需允许"从未知来源安装"；如需连接桌面功能请在桌面端用 LAN 模式启动 |
 
 ### 方式二：Windows 从源码启动
 1. 安装 Python **3.10 或更新版本**（建议 3.12+）
@@ -141,13 +141,15 @@ cd android
 ## 🧪 测试
 
 ```sh
-python -m unittest discover -v
-# 或指定文件
 python -m unittest test_app -v
+python -m unittest discover -s android/app/src/test/python -v
+node tests/test_android_search_fallback.js
+node tests/test_android_processing_route.js
+node tests/test_android_ui_gates.js
+node tests/test_library_sort.js
 ```
 
-当前状态：**46 passed ✅**
-覆盖模块：FFmpeg 查找、桌面启动器、便携打包、本地标签元数据、HTML 前端完整性、Android asset 同步、关键词与链接元数据、Spotify/YouTube URL 解析、歌词库检索、媒体下载调度、LAN API 鉴权与 CORS、智能封面 padding 裁剪、导出处理。
+当前状态：**66 项桌面测试、18 项 Android Python 测试通过**，另有 4 个 Node.js 回归脚本。桌面测试覆盖 LAN API 校验、文件 Range、真实 FFmpeg 转换、下载输入、MusicBrainz 查询、歌词时间戳、导出文件名及前端结构。
 
 ---
 
@@ -170,7 +172,7 @@ music_downloader/
     └── app/src/main/
         ├── java/com/musicdesk/android/MainActivity.java
         ├── AndroidManifest.xml
-        └── assets/index.html  ← 与根目录 index.html 保持同步（构建测试会校验）
+        └── assets/index.html  # Android 页面资产，含平台专用桥接；与根页面有差异
 ```
 
 ---

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
 import secrets
 import threading
 from pathlib import Path
@@ -126,8 +127,21 @@ def serve_local_audio(handler, token: str) -> None:
                 handler.send_error(416)
                 return
             bounds = range_header[6:].split("-", 1)
-            start = int(bounds[0]) if bounds[0] else 0
-            end = int(bounds[1]) if len(bounds) > 1 and bounds[1] else size - 1
+            if len(bounds) != 2 or not re.fullmatch(r"\d*", bounds[0]) or not re.fullmatch(r"\d*", bounds[1]) or not any(bounds):
+                handler.send_error(416)
+                return
+            if not bounds[0]:
+                suffix_length = int(bounds[1])
+                if suffix_length < 1:
+                    handler.send_response(416)
+                    handler.send_header("Content-Range", f"bytes */{size}")
+                    handler.end_headers()
+                    return
+                start = max(0, size - suffix_length)
+                end = size - 1
+            else:
+                start = int(bounds[0])
+                end = int(bounds[1]) if bounds[1] else size - 1
             if start < 0 or start >= size or end < start:
                 handler.send_response(416)
                 handler.send_header("Content-Range", f"bytes */{size}")

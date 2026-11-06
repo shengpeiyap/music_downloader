@@ -2,6 +2,7 @@ import unittest
 import json
 import sys
 import io
+import subprocess
 import wave
 import http.client
 import socket
@@ -10,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
+from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
@@ -22,13 +23,44 @@ from package_portable import create_portable_archive
 
 
 class FfmpegResolutionTests(unittest.TestCase):
+    def test_real_conversion_ignores_embedded_mp3_cover_stream(self):
+        ffmpeg = find_ffmpeg()
+        if not ffmpeg:
+            self.skipTest("FFmpeg is not installed")
+        from mutagen.id3 import APIC, ID3
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wav_path = root / "source.wav"
+            with wave.open(str(wav_path), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(8000)
+                audio.writeframes(b"\x00\x00" * 1600)
+            mp3_path = root / "with-cover.mp3"
+            proc = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", str(wav_path), "-y", str(mp3_path)], capture_output=True, timeout=30)
+            if proc.returncode:
+                self.skipTest("Bundled FFmpeg lacks an MP3 encoder")
+            cover_buffer = io.BytesIO()
+            Image.new("RGB", (4, 4), (20, 80, 160)).save(cover_buffer, format="JPEG")
+            tags = ID3()
+            tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=cover_buffer.getvalue()))
+            tags.save(mp3_path, v2_version=3)
+            m4a_path = root / "converted.m4a"
+            converted = subprocess.run(build_conversion_args(ffmpeg, mp3_path, m4a_path), capture_output=True, timeout=30)
+            self.assertEqual(converted.returncode, 0, converted.stderr.decode("utf-8", errors="replace"))
+            self.assertTrue(m4a_path.is_file())
+            self.assertGreater(m4a_path.stat().st_size, 0)
+
     def test_custom_packaging_trim_arguments_and_lrc_offset(self):
         args = build_audio_trim_args("in.mp3", "out.mp3", 2.25, 10.0)
         self.assertEqual(args, ["-nostdin", "-v", "error", "-y", "-ss", "2.250", "-i", "in.mp3", "-t", "7.750", "-map", "0:a:0", "-vn", "out.mp3"])
         self.assertEqual(build_audio_trim_args("in.mp3", "out.mp3", 0, 0)[4:], ["-i", "in.mp3", "-map", "0:a:0", "-vn", "out.mp3"])
+        self.assertEqual(build_conversion_args("ffmpeg", "in.mp3", "out.m4a"), ["ffmpeg", "-nostdin", "-v", "error", "-i", "in.mp3", "-map", "0:a:0", "-vn", "-y", "out.m4a"])
         with self.assertRaises(ValueError):
             build_audio_trim_args("in.mp3", "out.mp3", 4, 3)
         self.assertEqual(shift_lrc_timestamps("[00:01.00]removed\n[00:05.20]line\nplain", 2.25), "[00:02.95]line\nplain")
+        self.assertEqual(shift_lrc_timestamps("[00:00.50]<00:01.00>pre<00:03.25>word", 1), "<00:00.00>pre<00:02.25>word")
 
     def test_prefers_app_managed_ffmpeg(self):
         with patch.dict(sys.modules, {"imageio_ffmpeg": SimpleNamespace(get_ffmpeg_exe=lambda: sys.executable)}):
@@ -116,6 +148,13 @@ class DesktopLauncherTests(unittest.TestCase):
                 self.assertEqual(response.status, 206)
                 self.assertEqual(response.read(), b"2345")
                 self.assertEqual(response.getheader("Content-Range"), "bytes 2-5/10")
+                connection.close()
+                connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                connection.request("GET", "/api/local-audio/selected-token", headers={"Range": "bytes=-3"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 206)
+                self.assertEqual(response.read(), b"789")
+                self.assertEqual(response.getheader("Content-Range"), "bytes 7-9/10")
                 connection.close()
                 with patch("app.read_music_metadata", return_value={"title": "sample"}):
                     connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
@@ -463,6 +502,16 @@ class LocalTagMetadataTests(unittest.TestCase):
             make_tag_export_filename("Artist", "Track", "source.wav", "mp3", "Live"),
             "Artist - Track - Live.mp3",
         )
+        long_name = make_tag_export_filename("Artist", "Track" * 100, "source.wav", "mp3")
+        self.assertLessEqual(len(long_name.encode("utf-16-le")) // 2, 240)
+
+    def test_musicbrainz_search_escapes_quoted_user_terms(self):
+        with patch("app.musicbrainzngs.search_recordings", return_value={"recording-list": []}) as search, redirect_stdout(StringIO()):
+            lookup_musicbrainz_metadata('A "quoted" title', 'An\\Artist', 'The "Album"')
+        query = search.call_args_list[0].kwargs["query"]
+        self.assertIn('recording:"A \\"quoted\\" title"', query)
+        self.assertIn('artist:"An\\\\Artist"', query)
+        self.assertIn('release:"The \\"Album\\""', query)
 
     def test_keyword_query_accepts_artist_title_or_title(self):
         self.assertEqual(parse_metadata_search_query("  ヨルシカ - 月明かり  "), ("ヨルシカ", "月明かり"))
