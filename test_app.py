@@ -364,6 +364,15 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertNotIn("$('lookupStatus').textContent = err.message", page)
         self.assertNotIn("escapeHTML(err.message)", page)
 
+    def test_mini_player_and_queue_live_outside_the_play_tab(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        play_tab = page[page.index('id="tab-local"'):page.index('id="tab-settings"')]
+        for element_id in ("androidMiniPlayer", "queueBackdrop"):
+            self.assertNotIn(f'id="{element_id}"', play_tab)
+            self.assertIn(f'id="{element_id}"', page)
+        self.assertIn("function updateMiniPlayerVisibility()", page)
+        self.assertIn("switchTab('local'); showAndroidLocalTab('player')", page)
+
     def test_android_assets_are_synced_copies_of_the_shared_web_ui(self):
         root = Path(__file__).parent
         script = root / "tools" / "sync_android_assets.py"

@@ -2,6 +2,12 @@
   'use strict';
 
   const translations = {
+    'Android 可直接联网检索 MusicBrainz 曲目信息和 LRCLIB 歌词；格式转换与自定义封装仍需电脑服务。': 'Android can look up MusicBrainz track details and LRCLIB lyrics directly; format conversion and custom packaging still need the computer service.',
+    '已连接电脑：封装与格式转换会在电脑完成后回传；所选音频将通过配对的局域网连接发送到电脑。': 'Computer connected: packaging and conversion run on the computer and the result is sent back. The selected audio is sent to the computer over the paired local network.',
+    '当前使用手机本机能力；连接电脑 API 后，相关任务将交给电脑处理并回传结果。': 'Using this phone for now. After you connect the computer API, these tasks run on the computer and the results are sent back.',
+    '未连接电脑：选择本地音频后，可在手机本机编辑标签、裁剪、转换格式并封装导出。': 'No computer connected: after choosing local audio you can edit tags, trim, convert, and export on this phone.',
+    '电脑在线时优先由电脑端处理并回传文件；无法连接时，本机支持的功能仍可离线使用。需要先在电脑上启动 MusicDesk LAN API。': 'When the computer is online it handles the work and sends files back; when it is unreachable, features this phone supports keep working offline. Start the MusicDesk LAN API on the computer first.',
+    '连接成功后，在线解析、歌词、下载、转换和封装任务会交给电脑处理，结果再传回手机；断开连接时改用手机本机能力。传输仅发生在你配对的局域网电脑与手机之间。': 'Once connected, lookup, lyrics, download, conversion, and packaging run on the computer and the results are sent back to the phone. When disconnected, the phone uses its own capabilities. Data only travels between your paired computer and phone on the local network.',
     '下载': 'Download',
     '编辑': 'Edit',
     '本机运行': 'Running on this computer',
@@ -162,6 +168,18 @@
       : [['. Open the release page to confirm Android availability.', '。请打开发布页确认是否适用于 Android。'], ['. Check for an Android package on the release page, then download and install it manually.', '。请在发布页确认 Android 安装包后手动下载并安装。']];
     for (const [source, target] of phrases) {
       if (trimmed.includes(source)) return value.replace(trimmed, trimmed.replace(source, target));
+    }
+    const patterns = [
+      [/^已连接电脑服务：(\S+?)。解析、歌词、下载、转换和封装任务由电脑处理，结果回传到手机。$/, 'Connected to computer service: $1. Lookup, lyrics, download, conversion, and packaging run on the computer and the results are sent back to the phone.',
+       /^Connected to computer service: (\S+?)\. Lookup, lyrics, download, conversion, and packaging run on the computer and the results are sent back to the phone\.$/, '已连接电脑服务：$1。解析、歌词、下载、转换和封装任务由电脑处理，结果回传到手机。'],
+      [/^已保存电脑地址 (\S+?)；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。$/, 'Saved computer address $1. After the connection is verified, these tasks run on the computer. Using this phone for now.',
+       /^Saved computer address (\S+?)\. After the connection is verified, these tasks run on the computer\. Using this phone for now\.$/, '已保存电脑地址 $1；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。'],
+      [/^已连接：(\S+)$/, 'Connected: $1', /^Connected: (\S+)$/, '已连接：$1'],
+      [/^已保存：(\S+?)（点按钮测试连接）$/, 'Saved: $1 (tap the button to test the connection)', /^Saved: (\S+?) \(tap the button to test the connection\)$/, '已保存：$1（点按钮测试连接）'],
+    ];
+    for (const [zhRe, enText, enRe, zhText] of patterns) {
+      const re = lang === 'en' ? zhRe : enRe;
+      if (re.test(trimmed)) return value.replace(trimmed, trimmed.replace(re, lang === 'en' ? enText : zhText));
     }
     const translated = lang === 'en' ? translations[trimmed] : reverse.get(trimmed);
     if (translated !== undefined) return value.replace(trimmed, translated);

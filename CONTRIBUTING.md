@@ -20,6 +20,7 @@ node tests/test_android_processing_route.js
 node tests/test_android_ui_gates.js
 node tests/test_library_sort.js
 node tests/test_friendly_message.js
+node tests/test_i18n_connection_copy.js
 ```
 
 For Android UI or Java changes, also build the app:
