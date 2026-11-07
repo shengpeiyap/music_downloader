@@ -281,6 +281,12 @@
     @media(max-width:768px){.save-bar{bottom:calc(72px + env(safe-area-inset-bottom))}body.android-app .save-bar{bottom:0}}
     @media(max-width:768px){.save-bar .save-format{flex-basis:104px}.save-bar #saveTagBtn{font-size:15px;padding:0 8px}}
 
+    /* ===== Library: single add menu ===== */
+    .add-menu{position:relative}
+    .add-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:150px;padding:6px;border-radius:12px;background:#151a17;border:1px solid #26302a;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+    .add-menu-list[hidden]{display:none}
+    .add-menu-list button{display:block!important;border:0!important;box-shadow:none!important;background:transparent!important;width:100%;margin:0;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:#e8efe9;font-size:13px;text-align:left}
+    .add-menu-list button:hover,.add-menu-list button:focus-visible{background:rgba(155,226,107,.12)}
     /* ===== Player: quiet rows, controls that never move ===== */
     .track-more{flex:none;width:44px;height:44px;margin:0 -6px 0 auto;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;border:0;color:var(--muted)}
     .track-more:hover{color:var(--text);background:#ffffff14}
@@ -556,9 +562,12 @@
       <div class="playlist-card" id="playlistCard">
         <div class="playlist-header">
           <h2 id="playlistHeading" style="margin:0;font-size:18px">所有歌曲</h2>
-          <div style="display:flex;gap:6px">
-            <button id="selectDirBtn" style="margin:0;padding:8px 12px;font-size:12px">选择文件夹</button>
-            <button id="selectFilesBtn" style="display:none;margin:0;padding:8px 12px;font-size:12px">选择歌曲</button>
+          <div class="add-menu">
+            <button id="addMusicBtn" type="button" aria-haspopup="menu" aria-expanded="false" style="margin:0;padding:8px 14px;font-size:12px">＋ 添加</button>
+            <div id="addMusicMenu" class="add-menu-list" role="menu" hidden>
+              <button id="selectDirBtn" type="button" role="menuitem">选择文件夹</button>
+              <button id="selectFilesBtn" type="button" role="menuitem">选择歌曲</button>
+            </div>
           </div>
           <input type="file" id="dirInput" webkitdirectory directory multiple style="display:none">
           <input type="file" id="audioFilesInput" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple style="display:none">
@@ -575,7 +584,7 @@
         <button id="libraryGroupBack" class="library-group-back" type="button">‹ 返回分类</button>
         <div id="playlistDropZone" class="drop-zone playlist-drop">拖入一首或多首音乐到此处添加</div>
         <div class="track-list" id="localTrackList">
-          <div style="color:var(--muted);font-size:13px;text-align:center;padding-top:180px">尚未加载本地音乐<br>点击右上角“选择文件夹”</div>
+          <div style="color:var(--muted);font-size:13px;text-align:center;padding-top:180px">尚未加载本地音乐<br>点击右上角“添加”</div>
         </div>
       </div>
 
@@ -1161,6 +1170,7 @@ function openDownloadSettings() {
   $('downloadSettingsBackdrop').hidden = false;
   panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
   $('closeDownloadSettings').focus();
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(true);
 }
 function closeDownloadSettings() {
   const panel = $('downloadSettingsPanel');
@@ -1169,6 +1179,7 @@ function closeDownloadSettings() {
   $('downloadSettingsBackdrop').hidden = true;
   panel.removeAttribute('role'); panel.removeAttribute('aria-modal');
   if (wasOpen) $('openDownloadSettings').focus();
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(false);
 }
 $('openDownloadSettings').addEventListener('click', openDownloadSettings);
 $('closeDownloadSettings').addEventListener('click', closeDownloadSettings);
@@ -2438,6 +2449,14 @@ window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
 
 // ===== 本地离线播放器 Tab 逻辑 =====
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|flac|wav|ogg)$/i;
+function setAddMenu(open) {
+  $('addMusicMenu').hidden = !open;
+  $('addMusicBtn').setAttribute('aria-expanded', String(open));
+}
+$('addMusicBtn').addEventListener('click', event => { event.stopPropagation(); setAddMenu($('addMusicMenu').hidden); });
+$('addMusicMenu').addEventListener('click', () => setAddMenu(false));
+document.addEventListener('click', event => { if (!event.target.closest('.add-menu')) setAddMenu(false); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('addMusicMenu').hidden) { setAddMenu(false); $('addMusicBtn').focus(); } });
 $('selectDirBtn').addEventListener('click', () => {
   if (window.AndroidMusic) AndroidMusic.pickFolder();
   else if (window.pywebview && window.pywebview.api) {
@@ -3095,6 +3114,7 @@ function openTrackMenu(index) {
   $('trackMenuTitle').textContent = track.title;
   $('trackMenuBackdrop').hidden = false;
   requestAnimationFrame(() => { $('trackMenuSheet').classList.add('open'); $('trackMenuCancel').focus(); });
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(true);
 }
 function closeTrackMenu() {
   $('trackMenuSheet').classList.remove('open');
@@ -3102,6 +3122,7 @@ function closeTrackMenu() {
   trackMenuIndex = -1;
   if (trackMenuOpener && trackMenuOpener.isConnected) trackMenuOpener.focus();
   trackMenuOpener = null;
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(false);
 }
 $('trackMenuCancel').addEventListener('click', closeTrackMenu);
 $('trackMenuBackdrop').addEventListener('click', event => { if (event.target === $('trackMenuBackdrop')) closeTrackMenu(); });
@@ -3179,7 +3200,9 @@ function openQueue() {
 
 function closeQueue() {
   if ($('queueBackdrop').hidden) {
-    if (!$('playAllBackdrop').hidden) closePlayAllChoice();
+    if (!$('trackMenuBackdrop').hidden) closeTrackMenu();
+    else if (!$('playAllBackdrop').hidden) closePlayAllChoice();
+    else if ($('downloadSettingsPanel').classList.contains('open')) closeDownloadSettings();
     return;
   }
   $('queueSheet').classList.remove('open');

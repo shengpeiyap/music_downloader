@@ -396,6 +396,18 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertNotIn("(Title)", form)
         self.assertIn("$('trimDetails').hidden = false;", page)
 
+    def test_library_has_single_add_menu_and_back_closes_overlays(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8") if "ROOT" in globals() else open("index.html", encoding="utf-8").read()
+        self.assertIn('id="addMusicBtn"', html)
+        menu = html[html.index('id="addMusicMenu"'):]
+        menu = menu[:menu.index("</div>")]
+        self.assertIn('id="selectDirBtn"', menu)
+        self.assertIn('id="selectFilesBtn"', menu)
+        close = html[html.index("function closeQueue()"):]
+        close = close[:close.index("$('queueSheet').classList.remove")]
+        for name in ("closeTrackMenu", "closePlayAllChoice", "closeDownloadSettings"):
+            self.assertIn(name, close)
+
     def test_player_rows_use_a_menu_instead_of_loud_remove_buttons(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
         self.assertNotIn('class="track-remove"', page)
