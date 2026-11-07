@@ -396,6 +396,15 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertNotIn("(Title)", form)
         self.assertIn("$('trimDetails').hidden = false;", page)
 
+    def test_player_rows_use_a_menu_instead_of_loud_remove_buttons(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn('class="track-remove"', page)
+        self.assertEqual(page.count('class="track-more"'), 2)
+        self.assertIn("function openTrackMenu(index)", page)
+        self.assertIn('id="trackMenuRemove"', page)
+        # Controls are pinned after the song/lyrics panels, so they stay put when switching views.
+        self.assertIn(".player-main-card .player-controls{order:3;margin:auto 0 0;flex:none}", page)
+
     def test_android_assets_are_synced_copies_of_the_shared_web_ui(self):
         root = Path(__file__).parent
         script = root / "tools" / "sync_android_assets.py"

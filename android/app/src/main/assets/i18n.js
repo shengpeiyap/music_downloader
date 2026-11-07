@@ -2,6 +2,10 @@
   'use strict';
 
   const translations = {
+    '从列表移除': 'Remove from list',
+    '取消': 'Cancel',
+    '收起，回到曲库': 'Collapse and return to library',
+    '收起': 'Collapse',
     '标题': 'Title',
     '年份': 'Year',
     '从网上补全信息': 'Fill in from the web',
