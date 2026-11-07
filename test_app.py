@@ -396,6 +396,26 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertNotIn("(Title)", form)
         self.assertIn("$('trimDetails').hidden = false;", page)
 
+    def test_first_run_guide_is_body_level_skippable_and_translated(self):
+        html = open("index.html", encoding="utf-8").read()
+        i18n = open("i18n.js", encoding="utf-8").read()
+        self.assertIn("musicdesk-guide-done", html)
+        self.assertIn("navigator.webdriver", html)
+        for text in ("下一步", "跳过", "开始使用", "用“添加”导入歌曲或文件夹，离线播放、收藏和排队。"):
+            self.assertIn("'%s'" % text, i18n)
+
+    def test_library_has_single_add_menu_and_back_closes_overlays(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8") if "ROOT" in globals() else open("index.html", encoding="utf-8").read()
+        self.assertIn('id="addMusicBtn"', html)
+        menu = html[html.index('id="addMusicMenu"'):]
+        menu = menu[:menu.index("</div>")]
+        self.assertIn('id="selectDirBtn"', menu)
+        self.assertIn('id="selectFilesBtn"', menu)
+        close = html[html.index("function closeQueue()"):]
+        close = close[:close.index("$('queueSheet').classList.remove")]
+        for name in ("closeTrackMenu", "closePlayAllChoice", "closeDownloadSettings"):
+            self.assertIn(name, close)
+
     def test_player_rows_use_a_menu_instead_of_loud_remove_buttons(self):
         page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
         self.assertNotIn('class="track-remove"', page)
