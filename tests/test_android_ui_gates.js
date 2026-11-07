@@ -24,7 +24,7 @@ function runGates(connected) {
   };
   const context = {
     window: {AndroidMusic: {}}, document, androidApiConnected: connected,
-    $: id => controls[id], updateAndroidDownloadButtonLabel() {},
+    $: id => controls[id], updateAndroidDownloadButtonLabel() {}, updateDownloadSettingsSummary() {},
   };
   vm.runInNewContext(`${match[0]}; updateAndroidApiGates();`, context);
   return controls;

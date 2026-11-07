@@ -2,6 +2,14 @@
   'use strict';
 
   const translations = {
+    '完成': 'Done',
+    '虚线选项需要连接电脑。': 'Dashed options need a connected computer.',
+    '去连接': 'Connect',
+    '格式': 'Format',
+    '比特率': 'Bitrate',
+    '同时保存独立 .lrc 歌词': 'Also save a separate .lrc file',
+    '设置自动保存在这台设备上。同时保存歌词时，音频和 .lrc 会放进同一个 ZIP。': 'Settings are saved on this device. When lyrics are saved too, the audio and .lrc go into one ZIP.',
+    '无损格式不使用比特率': 'Lossless formats do not use a bitrate',
     'Android 可直接联网检索 MusicBrainz 曲目信息和 LRCLIB 歌词；格式转换与自定义封装仍需电脑服务。': 'Android can look up MusicBrainz track details and LRCLIB lyrics directly; format conversion and custom packaging still need the computer service.',
     '已连接电脑：封装与格式转换会在电脑完成后回传；所选音频将通过配对的局域网连接发送到电脑。': 'Computer connected: packaging and conversion run on the computer and the result is sent back. The selected audio is sent to the computer over the paired local network.',
     '当前使用手机本机能力；连接电脑 API 后，相关任务将交给电脑处理并回传结果。': 'Using this phone for now. After you connect the computer API, these tasks run on the computer and the results are sent back.',
