@@ -71,6 +71,40 @@ class DownloaderTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), source.read_bytes())
             self.assertEqual(write_tags.call_args.args[1], {"title": "New title"})
 
+    def test_package_accepts_the_metadata_keys_sent_by_the_android_page(self):
+        page_metadata = {
+            "title": "Song", "artist": "Artist", "album": "Album", "album_artist": "Album artist",
+            "release_year": "2024", "track_num": "3/12", "disc_num": "1/2", "genre": "J-pop",
+            "composer": "Composer", "lyrics_format": "srt", "lyrics": "1\n00:00:02,120 --> 00:00:03,000\nLine",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "track.wav"
+            output = Path(directory) / "packaged.wav"
+            with wave.open(str(source), "wb") as audio:
+                audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(8000)
+                audio.writeframes(b"\x00\x00" * 800)
+            musicdesk_downloader.package_audio_file(str(source), str(output), json.dumps(page_metadata))
+            from mutagen.wave import WAVE
+            tags = WAVE(output).tags
+            self.assertEqual(tags.getall("TRCK")[0].text, ["3/12"])
+            self.assertEqual(tags.getall("TPOS")[0].text, ["1/2"])
+            self.assertEqual(tags.getall("TCON")[0].text, ["J-pop"])
+            self.assertEqual(tags.getall("TCOM")[0].text, ["Composer"])
+            self.assertEqual(tags.getall("TPE2")[0].text, ["Album artist"])
+            self.assertEqual(str(tags.getall("TDRC")[0].text[0]), "2024")
+            self.assertEqual(tags.getall("USLT")[0].text, "[00:02.12]Line")
+
+    def test_package_rejects_unknown_lyrics_format_without_leaving_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "track.mp3"
+            output = Path(directory) / "packaged.mp3"
+            source.write_bytes(b"source audio bytes")
+            with self.assertRaisesRegex(ValueError, "不支持的歌词格式"):
+                musicdesk_downloader.package_audio_file(
+                    str(source), str(output), json.dumps({"lyrics": "x", "lyrics_format": "bogus"})
+                )
+            self.assertFalse(output.exists())
+
     def test_package_refuses_empty_source(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "empty.mp3"
