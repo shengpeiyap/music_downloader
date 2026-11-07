@@ -1,3 +1,4 @@
+import re
 import unittest
 import json
 import sys
@@ -347,6 +348,22 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("function removeLocalTrack(idx)", page)
         self.assertIn("URL.revokeObjectURL(removed.objectUrl)", page)
 
+    def test_navigation_is_the_same_four_destinations_on_web_and_android(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        nav = page[page.index('id="navTabs"'):page.index('id="statusChip"')]
+        labels = re.findall(r'data-tab="(\w+)"[^>]*>.*?<span>([^<]+)</span>', nav)
+        self.assertEqual(labels, [("online", "下载"), ("custom", "编辑"), ("local", "播放"), ("settings", "设置")])
+        self.assertIn('aria-current', nav)
+        self.assertNotIn("android-only-tab", nav)
+        self.assertIn("body:not(.android-app) .android-setting{display:none!important}", page)
+        self.assertIn("min-height:72px", page)
+
+    def test_errors_shown_to_users_drop_exception_class_prefixes(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function friendlyMessage(value)", page)
+        self.assertNotIn("$('lookupStatus').textContent = err.message", page)
+        self.assertNotIn("escapeHTML(err.message)", page)
+
     def test_android_assets_are_synced_copies_of_the_shared_web_ui(self):
         root = Path(__file__).parent
         script = root / "tools" / "sync_android_assets.py"
@@ -385,7 +402,10 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertEqual((root / "android/app/src/main/assets/default_song_img.png").read_bytes(), (root / "default_song_img.png").read_bytes())
         self.assertEqual((root / "android/app/src/main/assets/i18n.js").read_bytes(), (root / "i18n.js").read_bytes())
         self.assertIn('id="languageSelect"', page)
-        self.assertIn('id="navMobileBtn"', page)
+        self.assertNotIn('id="navMobileBtn"', page)
+        for tab_name in ("online", "custom", "local", "settings"):
+            self.assertIn(f'data-tab="{tab_name}"', page)
+        self.assertIn('id="statusChip"', page)
         self.assertIn("musicdesk-language", (root / "i18n.js").read_text(encoding="utf-8"))
         self.assertIn("ACTION_OPEN_DOCUMENT_TREE", activity)
         self.assertIn("buildChildDocumentsUriUsingTree", activity)
@@ -397,7 +417,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('id="androidNowPlayingTab"', page)
         self.assertIn('id="playlistCard"', page)
         self.assertIn('id="playerMainCard"', page)
-        self.assertIn('body.android-app .nav-tabs', page)
+        self.assertIn('.nav-tabs{position:fixed', page)
         self.assertIn('id="libraryFilterTabs"', page)
         self.assertIn('id="playerLyricsViewBtn"', page)
         self.assertIn('id="androidMiniPlayer"', page)
@@ -461,7 +481,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("player.currentTime = Math.min(resume.position", page)
         self.assertIn("$('queueSheet').addEventListener('touchmove'", page)
         self.assertIn("body.android-app .player-main-card{height:100%;min-height:0", page)
-        self.assertIn("document.querySelectorAll('.tab-btn')[0].textContent = '在线解析'", page)
+        self.assertNotIn("document.querySelectorAll('.tab-btn')[0].textContent", page)
         self.assertIn("body.android-app .tab-content:not(.active){display:none!important}", page)
         self.assertIn("function requestMusicDeskApi(path, options)", page)
         self.assertIn('id="androidApiConnectCard"', page)
