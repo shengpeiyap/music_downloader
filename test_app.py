@@ -347,6 +347,12 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("function removeLocalTrack(idx)", page)
         self.assertIn("URL.revokeObjectURL(removed.objectUrl)", page)
 
+    def test_android_assets_are_synced_copies_of_the_shared_web_ui(self):
+        root = Path(__file__).parent
+        script = root / "tools" / "sync_android_assets.py"
+        result = subprocess.run([sys.executable, str(script), "--check"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr or "run python tools/sync_android_assets.py")
+
     def test_android_webview_mvp_has_mobile_audio_picker_and_bundled_web_assets(self):
         root = Path(__file__).parent
         page = (root / "index.html").read_text(encoding="utf-8")

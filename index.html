@@ -304,7 +304,7 @@
     </div>
     <details class="card settings-card" id="downloadOutputSettings">
       <summary style="cursor:pointer;font-weight:700">下载输出设置</summary>
-      <p class="hint">设置会保存在当前设备。无损格式不使用比特率；同时下载歌词时会将音频与 LRC 放入 ZIP。</p>
+      <p class="hint">设置会保存在当前设备。无损格式不使用比特率；同时下载歌词时会将音频与 LRC 放入 ZIP。手机本机下载默认输出 MP3；其他设置需连接电脑服务处理。</p>
       <div class="settings-row"><label for="downloadFormat">音频格式</label><select id="downloadFormat"><option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="flac">FLAC</option><option value="wav">WAV</option><option value="ogg">OGG</option></select></div>
       <div class="settings-row"><label for="downloadBitrate">有损音频比特率</label><select id="downloadBitrate"><option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
       <div class="settings-row"><label for="downloadSidecarLrc">同时下载独立 LRC 文件</label><input id="downloadSidecarLrc" type="checkbox" style="width:auto"></div>
@@ -533,7 +533,7 @@
     <p class="intro">管理电脑服务连接、曲库访问权限和应用信息。</p>
     <section id="androidApiConnectCard" class="card android-api-connect settings-card">
       <h2>电脑服务连接</h2>
-      <p class="hint">曲目信息、歌词、格式转换和 SpotDL 下载使用电脑服务；yt-dlp 音频下载可由手机内置引擎执行。</p>
+      <p class="hint">连接成功后，在线解析、歌词、下载、转换和封装任务会交给电脑处理，结果再传回手机；断开连接时改用手机本机能力。传输仅发生在你配对的局域网电脑与手机之间。</p>
       <label for="apiServerUrl">电脑服务地址</label>
       <input id="apiServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.20:8765" autocomplete="url">
       <label for="apiPairingToken" style="margin-top:12px">一次性配对密钥</label>
@@ -543,6 +543,7 @@
         <button id="forgetApiBtn" class="lrc-btn" type="button">断开</button>
       </div>
       <p id="apiConnectionStatus" class="status" aria-live="polite">尚未连接</p>
+      <p class="settings-about">电脑在线时优先由电脑端处理并回传文件；无法连接时，本机支持的功能仍可离线使用。需要先在电脑上启动 MusicDesk LAN API。</p>
     </section>
     <section class="card settings-card">
       <h2>曲库与权限</h2>
@@ -577,6 +578,7 @@ const $=id=>document.getElementById(id);
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 let androidApiConfig = null;
 let androidApiConnected = false;
+function shouldProcessOnAndroid() { return !!window.AndroidMusic && !androidApiConnected; }
 const REQUIRED_ANDROID_API_VERSION = 1;
 const REQUIRED_ANDROID_API_CAPABILITIES = ['metadata', 'search_metadata', 'lyrics_text', 'download', 'convert', 'parse_local_tag', 'package_custom_tag'];
 try { androidApiConfig = JSON.parse(localStorage.getItem('musicdesk-api-config') || 'null'); } catch (_) {}
@@ -619,11 +621,11 @@ function updateApiConnectionMessage(connected, message = '') {
   const saved = !!androidApiConfig;
   $('apiConnectionStatus').textContent = message || (connected ? `已连接：${androidApiConfig.url}` : saved ? `已保存：${androidApiConfig.url}（点按钮测试连接）` : '尚未连接');
   $('androidOnlineNote').textContent = connected
-    ? `已连接电脑服务：${androidApiConfig.url}。曲目信息和歌词可由手机直接查询；SpotDL 下载与转换可用。`
-    : saved ? `已保存电脑地址 ${androidApiConfig.url}；yt-dlp、MusicBrainz 曲目信息和 LRCLIB 歌词可由手机联网使用。` : 'yt-dlp 下载、MusicBrainz 曲目信息和 LRCLIB 歌词可由手机联网使用；转换与自定义封装需电脑服务。';
+    ? `已连接电脑服务：${androidApiConfig.url}。解析、歌词、下载、转换和封装任务由电脑处理，结果回传到手机。`
+    : saved ? `已保存电脑地址 ${androidApiConfig.url}；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。` : '当前使用手机本机能力；连接电脑 API 后，相关任务将交给电脑处理并回传结果。';
   $('androidCustomNote').firstChild.textContent = connected
-    ? '自定义封装已连接电脑服务。'
-    : '自定义封装暂不可用；连接并验证电脑 API 后开放。';
+    ? '已连接电脑：封装与格式转换会在电脑完成后回传；所选音频将通过配对的局域网连接发送到电脑。'
+    : '未连接电脑：选择本地音频后，可在手机本机编辑标签、裁剪、转换格式并封装导出。';
 }
 
 function updateAndroidApiGates() {
@@ -634,11 +636,12 @@ function updateAndroidApiGates() {
   $('downloadBtn').disabled = false;
   if (!androidApiConnected) $('enginePriority').value = 'ytdlp';
   updateAndroidDownloadButtonLabel();
-  const gated = document.querySelectorAll(
-    '#convert input, #convert select, #convert button, ' +
-    '#customTagForm input, #customTagForm select, #customTagForm textarea, #customTagForm button'
-  );
-  gated.forEach(control => { control.disabled = !androidApiConnected; });
+  // Android handles conversion and custom tagging natively. Only the optional
+  // remote metadata search and SpotDL source require a verified desktop API.
+  document.querySelectorAll('#convert input, #convert select, #convert button')
+    .forEach(control => { control.disabled = false; });
+  $('tagSearchBtn').disabled = !androidApiConnected;
+  $('customEngine').disabled = !androidApiConnected;
 }
 
 function updateAndroidDownloadButtonLabel() {
@@ -938,6 +941,21 @@ function lookupWithAndroidYtDlp(source) {
   });
 }
 
+async function searchAndroidKeywordWithFallback(query) {
+  try {
+    return {metadata: await lookupWithAndroidMusicBrainz(query), provider: 'MusicBrainz'};
+  } catch (musicBrainzError) {
+    try {
+      const metadata = await lookupWithAndroidYtDlp(`ytsearch1:${query}`);
+      return {metadata, provider: 'yt-dlp', musicBrainzError};
+    } catch (ytDlpError) {
+      const mbMessage = musicBrainzError && musicBrainzError.message ? musicBrainzError.message : String(musicBrainzError);
+      const ytMessage = ytDlpError && ytDlpError.message ? ytDlpError.message : String(ytDlpError);
+      throw new Error(`MusicBrainz 搜索失败（${mbMessage}）；yt-dlp 备用搜索也失败（${ytMessage}）。`);
+    }
+  }
+}
+
 function androidDownloadSource(metadata) {
   if (metadata && metadata.url && metadata.provider !== 'spotify') return metadata.url;
   return `ytsearch1:${metadata && metadata.artist || ''} ${metadata && metadata.title || ''}`.trim();
@@ -949,11 +967,9 @@ function getDownloadSettings() {
 function saveDownloadSettings() {
   try { localStorage.setItem('musicdesk-download-settings', JSON.stringify(getDownloadSettings())); } catch (_) {}
   $('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
-  if (window.AndroidMusic) updateAndroidDownloadButtonLabel();
   updateOnlineDownloadLabel();
 }
 function updateOnlineDownloadLabel() {
-  if (!$('downloadBtn')) return;
   if (window.AndroidMusic) { updateAndroidDownloadButtonLabel(); return; }
   const settings = getDownloadSettings();
   $('downloadBtn').textContent = `下载 ${settings.format.toUpperCase()}${settings.download_lrc ? ' + LRC' : ''}`;
@@ -962,8 +978,7 @@ function youtubeVideoId(metadata) {
   const raw = metadata && (metadata.preview_url || metadata.url);
   if (!raw) return '';
   try {
-    const url = new URL(raw), host = url.hostname.toLowerCase();
-    let id = '';
+    const url = new URL(raw), host = url.hostname.toLowerCase(); let id = '';
     if (host === 'youtu.be') id = url.pathname.split('/').filter(Boolean)[0] || '';
     else if (['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com'].includes(host)) {
       if (url.pathname === '/watch') id = url.searchParams.get('v') || '';
@@ -980,8 +995,7 @@ function updateYouTubePreview() {
     $('youtubeOpenLink').target = window.AndroidMusic ? '_self' : '_blank';
     $('youtubePreviewBtn').textContent = window.AndroidMusic ? '在浏览器试听' : 'YouTube 试听';
   }
-  $('youtubePreviewFrame').replaceChildren();
-  $('youtubePreviewFrame').style.display = 'none';
+  $('youtubePreviewFrame').replaceChildren(); $('youtubePreviewFrame').style.display = 'none';
 }
 try {
   const saved = JSON.parse(localStorage.getItem('musicdesk-download-settings') || '{}');
@@ -993,16 +1007,10 @@ try {
 $('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
 updateOnlineDownloadLabel();
 $('youtubePreviewBtn').addEventListener('click', () => {
-  const id = youtubeVideoId(currentMetadata);
-  if (!id) return;
-  if (window.AndroidMusic) {
-    window.location.href = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
-    return;
-  }
-  const frame = document.createElement('iframe');
-  frame.title = 'YouTube 歌曲试听'; frame.width = '100%'; frame.height = '220'; frame.style.border = '0';
-  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
-  frame.allowFullscreen = true; frame.referrerPolicy = 'strict-origin-when-cross-origin';
+  const id = youtubeVideoId(currentMetadata); if (!id) return;
+  if (window.AndroidMusic) { window.location.href = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`; return; }
+  const frame = document.createElement('iframe'); frame.title = 'YouTube 歌曲试听'; frame.width = '100%'; frame.height = '220'; frame.style.border = '0';
+  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'; frame.allowFullscreen = true; frame.referrerPolicy = 'strict-origin-when-cross-origin';
   frame.src = `https://www.youtube.com/embed/${encodeURIComponent(id)}?playsinline=1`;
   $('youtubePreviewFrame').replaceChildren(frame); $('youtubePreviewFrame').style.display = 'block';
 });
@@ -1266,21 +1274,25 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
   $('youtubePreviewPanel').style.display = 'none';$('youtubePreviewFrame').replaceChildren();$('youtubePreviewFrame').style.display = 'none';
 
   try {
-    if (window.AndroidMusic && isKeywordSearch) {
+    if (shouldProcessOnAndroid() && isKeywordSearch) {
       if (/^spotify:/i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。');
-      const d = await lookupWithAndroidMusicBrainz(lookupValue);
-      currentMetadata = {...d, provider: 'MusicBrainz', keyword_search: true};
-      const cover = await resolveAndroidCover(currentMetadata);
+      const searchResult = await searchAndroidKeywordWithFallback(lookupValue);
+      const d = searchResult.metadata;
+      const usedMusicBrainz = searchResult.provider === 'MusicBrainz';
+      currentMetadata = {...d, provider: searchResult.provider, keyword_search: true};
+      const cover = usedMusicBrainz ? await resolveAndroidCover(currentMetadata) : d.thumbnail || '';
       $('title').textContent = d.title;
       $('artist').textContent = d.artist;
-      $('provider').textContent = '手机直连 MusicBrainz';
+      $('provider').textContent = usedMusicBrainz ? '手机直连 MusicBrainz' : '手机 yt-dlp 备用搜索';
       $('cover').src = cover || DEFAULT_COVER;
       $('result').style.display = 'flex';
       updateYouTubePreview();
-      $('lookupStatus').textContent = 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。';
+      $('lookupStatus').textContent = usedMusicBrainz
+        ? 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。'
+        : 'MusicBrainz 没有匹配结果，已自动改用手机 yt-dlp 搜索。';
       return;
     }
-    if (window.AndroidMusic && !androidApiConnected) {
+    if (shouldProcessOnAndroid()) {
       if (/spotify\.com\//i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。');
       const source = isKeywordSearch ? `ytsearch1:${lookupValue}` : lookupValue;
       const d = await lookupWithAndroidYtDlp(source);
@@ -1328,7 +1340,7 @@ $('viewLrcBtn').addEventListener('click', async () => {
   viewer.style.display = 'block';
   $('lrcContainer').innerHTML = '正在检索并载入 LRC 歌词…';
   try {
-    if (window.AndroidMusic) {
+    if (shouldProcessOnAndroid()) {
       const result = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
       renderLyricsView(result.lyrics || '');
       return;
@@ -1352,23 +1364,35 @@ $('downloadBtn').addEventListener('click', async () => {
   if (!currentMetadata) return;
   $('downloadBtn').disabled = true;
   const preferredEngine = $('enginePriority').value;
-  const useAndroidYtDlp = !!window.AndroidMusic && preferredEngine === 'ytdlp';
+  const useAndroidYtDlp = shouldProcessOnAndroid() && preferredEngine === 'ytdlp';
   const downloadSettings = getDownloadSettings();
   const needsDesktopProcessing = downloadSettings.format !== 'mp3' || downloadSettings.bitrate !== '192' || downloadSettings.download_lrc;
   $('lookupStatus').textContent = useAndroidYtDlp
-    ? '正在使用手机内置 yt-dlp 下载音频…'
+    ? '正在使用手机内置 yt-dlp 下载并转换为 MP3…'
     : `正在按优先级 (${preferredEngine}) 下载音频并自动内嵌 LRC 歌词，请稍候...`;
   $('sourceStatus').textContent = '';
 
   try {
-    if (useAndroidYtDlp && !androidApiConnected && needsDesktopProcessing) {
-      throw Error('所选格式、比特率或独立 LRC 下载需要连接电脑服务。请先在设置中心连接电脑。');
+    if (useAndroidYtDlp && needsDesktopProcessing) {
+      throw Error('所选格式、比特率或独立 LRC 下载需要连接电脑服务。请在设置中心连接电脑后重试。');
     }
-    if (useAndroidYtDlp && !androidApiConnected) {
+    if (useAndroidYtDlp) {
       const source = androidDownloadSource(currentMetadata);
-      const result = await downloadWithAndroidYtDlp(source, currentMetadata);
-      $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}${result.warning ? `；${result.warning}` : ''}`;
-      $('sourceStatus').textContent = '本机 yt-dlp 保存来源格式并写入可用标签和封面；格式转换、内嵌歌词及 SpotDL 仍由电脑服务提供。';
+      let downloadMetadata = {...currentMetadata};
+      let lyricStatus = '未找到歌词，将不嵌入歌词';
+      try {
+        const lyricResult = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
+        const lyrics = lyricResult.synced_lyrics || lyricResult.lyrics || '';
+        if (lyrics) {
+          downloadMetadata.lyrics = lyrics;
+          lyricStatus = lyricResult.synced_lyrics ? '已嵌入同步 LRC 歌词' : '已嵌入普通歌词（来源无时间戳）';
+        }
+      } catch (_) {
+        // Lyrics are optional; a lyrics service failure must not block audio download.
+      }
+      const result = await downloadWithAndroidYtDlp(source, downloadMetadata);
+      $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}；${lyricStatus}${result.warning ? `；${result.warning}` : ''}`;
+      $('sourceStatus').textContent = '本机 yt-dlp 下载后会转换为 MP3，并写入可用的曲目信息与封面标签。';
       return;
     }
     const payload = { ...currentMetadata, ...downloadSettings, preferred_engine: preferredEngine };
@@ -1383,8 +1407,7 @@ $('downloadBtn').addEventListener('click', async () => {
     }
 
     const rawSourceUrl = r.headers.get('X-Source-Url');
-    const lrcStatus = downloadSettings.download_lrc && r.headers.get('X-Lyrics-Sidecar') === 'missing'
-      ? '压缩包里没有 LRC，因为未找到这首歌的歌词。' : '';
+    const lrcStatus = downloadSettings.download_lrc && r.headers.get('X-Lyrics-Sidecar') === 'missing' ? '压缩包里没有 LRC，因为未找到这首歌的歌词。' : '';
     let sourceUrl = '';
     try {
       const parsedSource = new URL(rawSourceUrl);
@@ -1430,8 +1453,15 @@ $('convert').addEventListener('submit', async e => {
   if (!file && !desktopAudio) return;
   if (file && file.size > 150 * 1024 * 1024) { $('convertStatus').textContent = '文件不能超过 150 MB。'; return; }
   $('convertBtn').disabled = true;
-  $('convertStatus').textContent = '正在本机转换…';
+  $('convertStatus').textContent = androidApiConnected ? '正在发送到电脑转换…' : '正在本机转换…';
   try {
+    if (shouldProcessOnAndroid() && file) {
+      const immediateError = AndroidMusic.convertAudio(file.name, $('format').value);
+      if (immediateError) throw Error(immediateError);
+      $('convertBtn').dataset.androidPending = '1';
+      $('convertStatus').textContent = '正在 Android 设备本机转换…';
+      return;
+    }
     const body = new FormData();
     if (file) body.append('file', file);
     if (desktopAudio) body.append('local_audio_id', desktopAudio.url.split('/').pop());
@@ -1443,9 +1473,15 @@ $('convert').addEventListener('submit', async e => {
   } catch(err) {
     $('convertStatus').textContent = err.message;
   } finally {
-    $('convertBtn').disabled = false;
+    if (!$('convertBtn').dataset.androidPending) $('convertBtn').disabled = false;
   }
 });
+
+window.onAndroidConvertComplete = (error, filename) => {
+  delete $('convertBtn').dataset.androidPending;
+  $('convertBtn').disabled = false;
+  $('convertStatus').textContent = error || `转换完成，已保存为 ${filename}`;
+};
 
 let selectedDesktopConvertAudio = null;
 $('audio').addEventListener('click', event => {
@@ -1914,10 +1950,21 @@ $('customAudioInput').addEventListener('change', async (e) => {
     setCustomAudioPreview('');
     return;
   }
+  if (shouldProcessOnAndroid()) {
+    const ext = (file.name.match(/\.([^.]+)$/) || [])[1];
+    if (ext && Array.from($('tagFormat').options).some(option => option.value.toLowerCase() === ext.toLowerCase())) {
+      $('tagFormat').value = ext.toLowerCase();
+    }
+  }
   setCustomAudioPreview(file, true);
   $('customCoverPreview').dataset.embeddedCover = '';
 
-  $('customStatus').textContent = '正在读取并解析音频标签元数据...';
+  $('customStatus').textContent = androidApiConnected ? '正在发送音频到电脑读取标签…' : '正在读取并解析音频标签元数据...';
+  if (shouldProcessOnAndroid()) {
+    const immediateError = AndroidMusic.readLocalTags(file.name);
+    if (immediateError) $('customStatus').textContent = immediateError;
+    return;
+  }
   const formData = new FormData();
   formData.append('file', file);
 
@@ -1979,7 +2026,23 @@ $('tagSearchBtn').addEventListener('click', async () => {
     $('tagAlbum').value = d.album || '';
     $('tagAlbumArtist').value = d.albumartist || d.artist || '';
     $('tagYear').value = d.year || '';
-    $('tagLyrics').value = d.lyrics || '';
+    let lyrics = d.lyrics || '';
+    if (!lyrics && shouldProcessOnAndroid()) {
+      try {
+        const lyricResult = await lookupLyricsOnAndroid(d.title || '', d.artist || '');
+        lyrics = lyricResult.lyrics || '';
+      } catch (_) {}
+    } else if (!lyrics && window.AndroidMusic && androidApiConnected) {
+      try {
+        const response = await requestMusicDeskApi('/api/lyrics_text', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: d.title || '', artist: d.artist || ''})
+        });
+        const lyricResult = await response.json();
+        if (response.ok) lyrics = lyricResult.lyrics || '';
+      } catch (_) {}
+    }
+    $('tagLyrics').value = lyrics;
     customSelectedLyricKey = '';
     renderCustomLyricsPreview();
     $('customCoverPreview').dataset.embeddedCover = d.cover || '';
@@ -2011,7 +2074,9 @@ $('customTagForm').addEventListener('submit', async (e) => {
   }
 
   $('saveTagBtn').disabled = true;
-  $('customStatus').textContent = audioFile || desktopAudio ? '正在打包并写回标签元数据，请稍候...' : '正在搜索音源并封装标签，请稍候...';
+  $('customStatus').textContent = androidApiConnected
+    ? '正在发送到电脑封装并回传文件，请稍候…'
+    : audioFile || desktopAudio ? '正在打包并写回标签元数据，请稍候...' : '正在搜索音源并封装标签，请稍候...';
 
   const formData = new FormData();
   if (audioFile) formData.append('audio_file', audioFile);
@@ -2042,6 +2107,32 @@ $('customTagForm').addEventListener('submit', async (e) => {
 
   try {
     const embeddedCover = $('customCoverPreview').dataset.embeddedCover;
+    if (shouldProcessOnAndroid() && audioFile) {
+      const trimStart = Number($('customTrimStart').value || 0);
+      const duration = $('customAudioPreview').duration || 0;
+      const rangeEnd = Number($('customTrimEnd').value || 0);
+      const trimEnd = duration > 0 && rangeEnd < duration - 0.1 ? rangeEnd : 0;
+      const coverDataUrl = !coverFile && embeddedCover.startsWith('data:') ? embeddedCover : '';
+      const metadata = {
+        title: $('tagTitle').value.trim(), artist: $('tagArtist').value.trim(),
+        album: $('tagAlbum').value.trim(), album_artist: $('tagAlbumArtist').value.trim(),
+        release_year: $('tagYear').value.trim(), lyrics: $('tagLyrics').value,
+        lyrics_format: $('tagLyricsFormat').value,
+        track_num: $('tagTrackNumber').value.trim(), disc_num: $('tagDiscNumber').value.trim(),
+        genre: $('tagGenre').value.trim(), composer: $('tagComposer').value.trim()
+      };
+      let outputName = `${metadata.artist ? metadata.artist + ' - ' : ''}${metadata.title || audioFile.name.replace(/\.[^.]+$/, '')}`;
+      if ($('filenameAppendEnabled').checked && $('filenameAppend').value.trim()) outputName += ` ${$('filenameAppend').value.trim()}`;
+      outputName += `.${$('tagFormat').value}`;
+      const immediateError = AndroidMusic.packageAudio(
+        audioFile.name, coverFile ? coverFile.name : '', coverDataUrl,
+        JSON.stringify(metadata), outputName, $('tagFormat').value, trimStart, trimEnd
+      );
+      if (immediateError) throw Error(immediateError);
+      $('saveTagBtn').dataset.androidPending = '1';
+      $('customStatus').textContent = '正在本机写入音频标签…';
+      return;
+    }
     if (!coverFile && embeddedCover) {
       const coverBlob = await fetch(embeddedCover).then(response => response.blob());
       formData.append('cover_file', coverBlob, 'embedded-cover');
@@ -2061,9 +2152,56 @@ $('customTagForm').addEventListener('submit', async (e) => {
   } catch (err) {
     $('customStatus').textContent = err.message;
   } finally {
-    $('saveTagBtn').disabled = false;
+    if (!$('saveTagBtn').dataset.androidPending) $('saveTagBtn').disabled = false;
   }
 });
+
+window.onAndroidCustomPackageComplete = (error, filename) => {
+  delete $('saveTagBtn').dataset.androidPending;
+  $('saveTagBtn').disabled = false;
+  $('customStatus').textContent = error || `本机封装完成，已保存为 ${filename}`;
+};
+
+window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
+  if (error) { $('customStatus').textContent = error; return; }
+  const selectedFile = $('customAudioInput').files[0];
+  if (audioName && selectedFile && selectedFile.name !== audioName) return;
+  try {
+    const data = JSON.parse(tagsJson || '{}');
+    $('tagTitle').value = data.title || '';
+    $('tagArtist').value = data.artist || '';
+    $('tagAlbum').value = data.album || '';
+    $('tagAlbumArtist').value = data.albumartist || '';
+    $('tagYear').value = (data.year || '').slice(0, 4);
+    $('tagLyrics').value = data.lyrics || '';
+    if (artwork) {
+      $('customCoverPreview').src = artwork;
+      $('customCoverPreview').dataset.embeddedCover = artwork;
+    }
+    customSelectedLyricKey = '';
+    renderCustomLyricsPreview();
+    $('tagSearch').value = data.artist && data.title ? `${data.artist} - ${data.title}` : data.title || '';
+    $('customStatus').textContent = '已从所选音频读取标签。可以修改后本机封装。';
+    if (!data.lyrics && data.title && data.title !== '未知曲目') {
+      $('customStatus').textContent = '音频没有内嵌歌词，正在尝试从 LRCLIB 获取…';
+      lookupLyricsOnAndroid(data.title, data.artist || '').then(result => {
+        const currentFile = $('customAudioInput').files[0];
+        if (audioName && (!currentFile || currentFile.name !== audioName)) return;
+        const lyrics = result.lyrics || '';
+        if (!lyrics) throw new Error('公开歌词库中没有找到这首歌的歌词。');
+        $('tagLyrics').value = lyrics;
+        renderCustomLyricsPreview();
+        $('customStatus').textContent = result.synced_lyrics
+          ? '已从 LRCLIB 载入同步 LRC；点击“保存并打包导出文件”即可内嵌。'
+          : '已载入纯文本歌词（无时间戳）；点击“保存并打包导出文件”即可内嵌。';
+      }).catch(lyricError => {
+        const currentFile = $('customAudioInput').files[0];
+        if (audioName && (!currentFile || currentFile.name !== audioName)) return;
+        $('customStatus').textContent = `已读取音频标签，但未能补全歌词：${lyricError.message}`;
+      });
+    }
+  } catch (_) { $('customStatus').textContent = '解析本机音频标签失败。'; }
+};
 
 // ===== 本地离线播放器 Tab 逻辑 =====
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|flac|wav|ogg)$/i;
