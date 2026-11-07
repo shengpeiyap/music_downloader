@@ -223,6 +223,21 @@
       body.android-app .android-mini-player{bottom:calc(80px + env(safe-area-inset-bottom))}
     }
 
+    /* ===== First-run guide ===== */
+    .guide-backdrop{position:fixed;inset:0;z-index:80;background:#000b;display:flex;align-items:flex-end;justify-content:center;padding:0 0 max(16px,env(safe-area-inset-bottom))}
+    .guide-backdrop[hidden]{display:none}
+    .guide-card{width:min(420px,calc(100% - 24px));background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:24px 22px 18px;display:flex;flex-direction:column;gap:14px}
+    .guide-card h2{margin:0;font-size:20px}
+    .guide-card p{margin:0;color:var(--muted);font-size:15px;line-height:1.6;min-height:72px}
+    .guide-step{font-size:12px;font-weight:700;color:var(--green);letter-spacing:.06em}
+    .guide-dots{display:flex;gap:6px}
+    .guide-dots i{width:8px;height:8px;border-radius:4px;background:#3a463f}
+    .guide-dots i.on{width:22px;background:var(--green)}
+    .guide-actions{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .guide-actions button{margin:0;min-height:44px}
+    .guide-skip{background:transparent;color:var(--muted);border:0;padding:0 8px;font-size:14px}
+    @media (min-width:769px){.guide-backdrop{align-items:center;padding:0}}
+
     /* ===== Download settings: bottom sheet on narrow screens, side panel on wide ===== */
     .online-layout{display:block}
     .settings-summary-btn{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;margin:12px 0 0;padding:0 16px;border-radius:18px;background:var(--panel);border:1px solid var(--line);color:var(--text);font-size:16px;font-weight:600;text-align:left}
@@ -697,6 +712,18 @@
     </section>
   </div>
 
+    <div id="guideBackdrop" class="guide-backdrop" hidden>
+      <div class="guide-card" role="dialog" aria-modal="true" aria-labelledby="guideTitle">
+        <div class="guide-step" id="guideStep">1 / 3</div>
+        <h2 id="guideTitle"></h2>
+        <p id="guideBody"></p>
+        <div class="guide-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="guide-actions">
+          <button id="guideSkip" class="guide-skip" type="button">跳过</button>
+          <button id="guideNext" type="button">下一步</button>
+        </div>
+      </div>
+    </div>
   <div id="trackMenuBackdrop" class="queue-backdrop" hidden>
     <section id="trackMenuSheet" class="queue-sheet play-all-sheet" role="dialog" aria-modal="true" aria-labelledby="trackMenuTitle">
       <div class="queue-drag-handle"><span></span></div>
@@ -3105,6 +3132,51 @@ function renderQueue() {
   }).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">播放列表为空</div>';
 }
 
+
+/* ===== First-run guide ===== */
+const GUIDE_KEY = 'musicdesk-guide-done';
+const GUIDE_STEPS = [
+  { title: '下载', body: '粘贴链接或搜索歌名，选好格式后下载。', bodyPhone: '粘贴链接或搜索歌名即可下载 MP3；其他格式需要连接电脑。', tab: 'online' },
+  { title: '编辑', body: '补全标题、歌手、封面和歌词。常用项在前，其余收在“更多信息”里。', tab: 'custom' },
+  { title: '播放', body: '用“添加”导入歌曲或文件夹，离线播放、收藏和排队。', tab: 'local' },
+];
+let guideIndex = 0;
+function guideSeen() { try { return localStorage.getItem(GUIDE_KEY) === '1'; } catch (_) { return true; } }
+function renderGuide() {
+  const step = GUIDE_STEPS[guideIndex];
+  const phone = !!window.AndroidMusic && !androidApiConnected;
+  $('guideStep').textContent = (guideIndex + 1) + ' / ' + GUIDE_STEPS.length;
+  $('guideTitle').textContent = step.title;
+  $('guideBody').textContent = phone && step.bodyPhone ? step.bodyPhone : step.body;
+  $('guideNext').textContent = guideIndex === GUIDE_STEPS.length - 1 ? '开始使用' : '下一步';
+  document.querySelectorAll('.guide-dots i').forEach((dot, i) => dot.classList.toggle('on', i === guideIndex));
+  switchTab(step.tab);
+}
+function openGuide() {
+  guideIndex = 0;
+  $('guideBackdrop').hidden = false;
+  renderGuide();
+  $('guideNext').focus();
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(true);
+}
+function closeGuide() {
+  if ($('guideBackdrop').hidden) return;
+  $('guideBackdrop').hidden = true;
+  try { localStorage.setItem(GUIDE_KEY, '1'); } catch (_) {}
+  switchTab('online');
+  if (window.AndroidMusic) AndroidMusic.setQueueOpen(false);
+}
+$('guideNext').addEventListener('click', () => {
+  if (guideIndex >= GUIDE_STEPS.length - 1) { closeGuide(); return; }
+  guideIndex += 1; renderGuide();
+});
+$('guideSkip').addEventListener('click', closeGuide);
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('guideBackdrop').hidden) closeGuide(); });
+window.addEventListener('load', () => {
+  const forced = /[?&]guide=1\b/.test(location.search);
+  if (forced || (!guideSeen() && !navigator.webdriver)) setTimeout(openGuide, 400);
+});
+
 let trackMenuIndex = -1, trackMenuOpener = null;
 function openTrackMenu(index) {
   const track = localTracks[index];
@@ -3201,6 +3273,7 @@ function openQueue() {
 function closeQueue() {
   if ($('queueBackdrop').hidden) {
     if (!$('trackMenuBackdrop').hidden) closeTrackMenu();
+    else if (!$('guideBackdrop').hidden) closeGuide();
     else if (!$('playAllBackdrop').hidden) closePlayAllChoice();
     else if ($('downloadSettingsPanel').classList.contains('open')) closeDownloadSettings();
     return;

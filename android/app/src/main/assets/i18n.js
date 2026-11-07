@@ -98,7 +98,7 @@
     '播放全部': 'Play all', '选择播放顺序': 'Choose playback order', '顺序播放': 'Play in order', '随机播放': 'Shuffle order',
     '本地曲库，随时畅听。': 'Your music library, ready to play.',
     '选择电脑中的音乐文件夹，直接解析本地 ID3 标签、专辑原画与内嵌 LRC 歌词。': 'Choose a music folder to read local ID3 tags, album artwork, and embedded LRC lyrics.',
-    '本地播放列表': 'Local playlist', '选择文件夹': 'Choose folder', '＋ 添加': '+ Add', '选择歌曲': 'Choose songs',
+    '本地播放列表': 'Local playlist', '粘贴链接或搜索歌名，选好格式后下载。': 'Paste a link or search a title, pick a format, then download.', '粘贴链接或搜索歌名即可下载 MP3；其他格式需要连接电脑。': 'Paste a link or search a title to download MP3. Other formats need a connected computer.', '补全标题、歌手、封面和歌词。常用项在前，其余收在“更多信息”里。': 'Fill in title, artist, cover and lyrics. Common fields come first; the rest is under “More info”.', '用“添加”导入歌曲或文件夹，离线播放、收藏和排队。': 'Use “Add” to import songs or a folder, then play offline, favorite and queue.', '下一步': 'Next', '跳过': 'Skip', '开始使用': 'Get started', '选择文件夹': 'Choose folder', '＋ 添加': '+ Add', '选择歌曲': 'Choose songs',
     '搜索本地歌曲名/歌手...': 'Search local songs or artists...', '拖入一首或多首音乐到此处添加': 'Drop one or more audio files here to add them',
     '播放全部': 'Play all', '首': ' tracks', '歌曲': 'Songs', '歌手': 'Artists', '专辑': 'Albums', '文件夹': 'Folders', '收藏': 'Favorites',
     '正在播放': 'Now Playing', '歌词': 'Lyrics', '未选择歌曲': 'No track selected', '本地音乐离线播放器': 'Offline music player',
