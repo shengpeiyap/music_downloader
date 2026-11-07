@@ -373,6 +373,17 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("function updateMiniPlayerVisibility()", page)
         self.assertIn("switchTab('local'); showAndroidLocalTab('player')", page)
 
+    def test_download_settings_panel_keeps_one_source_of_truth_per_setting(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        for element_id in ("enginePriority", "downloadFormat", "downloadBitrate", "downloadSidecarLrc",
+                           "downloadSettingsPanel", "openDownloadSettings", "downloadSettingsBackdrop"):
+            self.assertEqual(page.count(f'id="{element_id}"'), 1, element_id)
+        # The chips are views over the selects, so the selects stay hidden but present.
+        for select_id in ("enginePriority", "downloadFormat", "downloadBitrate"):
+            self.assertRegex(page, rf'<select id="{select_id}"[^>]*hidden')
+        self.assertIn("function downloadOptionNeedsComputer(", page)
+        self.assertIn("(min-width:960px)", page)
+
     def test_android_assets_are_synced_copies_of_the_shared_web_ui(self):
         root = Path(__file__).parent
         script = root / "tools" / "sync_android_assets.py"

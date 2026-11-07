@@ -222,6 +222,46 @@
       body.android-app main{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
       body.android-app .android-mini-player{bottom:calc(80px + env(safe-area-inset-bottom))}
     }
+
+    /* ===== Download settings: bottom sheet on narrow screens, side panel on wide ===== */
+    .online-layout{display:block}
+    .settings-summary-btn{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;margin:12px 0 0;padding:0 16px;border-radius:18px;background:var(--panel);border:1px solid var(--line);color:var(--text);font-size:16px;font-weight:600;text-align:left}
+    .settings-summary-btn .summary-value{flex:1;text-align:right}
+    .settings-summary-btn .chev{color:#6d7b73;font-size:22px;line-height:1}
+    .download-settings-panel{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:20px;display:flex;flex-direction:column;gap:18px}
+    .download-settings-panel h2{margin:0;font-size:18px}
+    .sheet-head{display:flex;align-items:center;justify-content:space-between}
+    .sheet-done{margin:0;padding:0 8px;min-height:44px;background:transparent;color:var(--green);font-size:16px;font-weight:700}
+    .sheet-handle{display:none;width:40px;height:4px;border-radius:2px;background:#3a463f;align-self:center}
+    .setting-label{font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px}
+    .setting-note{color:#8b9a91;font-size:13px;font-weight:400;margin:0}
+    .chip-row{display:flex;gap:8px}
+    .chip{flex:1;min-width:0;min-height:44px;margin:0;padding:0 8px;border-radius:12px;background:#1f2823;border:1px solid var(--line);color:var(--text);font-size:15px;font-weight:600}
+    .chip.on{background:var(--green);border-color:var(--green);color:#17200f;font-weight:700}
+    .chip.needs-computer:not(.on){background:transparent;border:1px dashed #3a463f;color:#7d8b83}
+    .chip:disabled{opacity:.45;cursor:default}
+    .needs-note{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#f2c46d;font-size:14px;line-height:1.5}
+    .needs-note[hidden]{display:none}
+    .link-btn{margin:0;padding:8px 4px;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:3px;font-weight:600}
+    .switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
+    .switch-row label{margin:0;font-size:15px}
+    input.switch{appearance:none;-webkit-appearance:none;flex:none;width:52px;height:32px;margin:0;padding:0;border:0;border-radius:16px;background:#3a463f;position:relative;cursor:pointer;transition:background .15s}
+    input.switch::after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;transition:transform .15s}
+    input.switch:checked{background:var(--green)}
+    input.switch:checked::after{transform:translateX(20px)}
+    .sheet-backdrop{position:fixed;inset:0;z-index:55;background:#0009}
+    .sheet-backdrop[hidden]{display:none}
+    @media(max-width:959px){
+      .settings-summary-btn{display:flex}
+      .download-settings-panel{position:fixed;left:0;right:0;bottom:0;z-index:60;max-height:82dvh;overflow:auto;border-radius:24px 24px 0 0;border-width:1px 0 0;padding:10px 20px calc(20px + env(safe-area-inset-bottom));transform:translateY(105%);visibility:hidden;transition:transform .22s ease,visibility 0s .22s}
+      .download-settings-panel.open{transform:none;visibility:visible;transition:transform .22s ease}
+      .sheet-handle{display:block}
+    }
+    @media(min-width:960px){
+      .online-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
+      .settings-summary-btn,.sheet-done{display:none}
+      .sheet-backdrop{display:none}
+    }
   </style>
 </head>
 <body><main>
@@ -270,6 +310,8 @@
   <div id="tab-online" class="tab-content active">
     <h1 class="page-title">下载</h1>
     <p id="androidOnlineNote" class="android-scope-note">MusicBrainz 曲目信息、LRCLIB 歌词和 yt-dlp 下载可由手机联网使用。</p>
+    <div class="online-layout">
+    <div class="online-main">
     <div class="grid">
       <section class="card"><h2>曲目信息搜索</h2><p class="hint">粘贴 Spotify / YouTube 分享链接，或搜索“作者 - 标题”及单独标题</p>
         <form id="lookup"><label for="share">分享链接或关键词</label><input id="share" type="text" placeholder="Spotify 链接，或 作者 - 标题 / 标题" required><button id="lookupBtn">读取 / 搜索曲目信息</button></form>
@@ -315,14 +357,28 @@
 
       
     </div>
-    <details class="card settings-card" id="downloadOutputSettings">
-      <summary style="cursor:pointer;font-weight:700;display:flex;justify-content:space-between;gap:12px"><span>下载设置</span><span id="downloadSettingsSummary" class="summary-value"></span></summary>
-      <p class="hint">设置会保存在当前设备。无损格式不使用比特率；同时下载歌词时会将音频与 LRC 放入 ZIP。手机本机下载默认输出 MP3；其他设置需连接电脑服务处理。</p>
-      <div class="settings-row"><label for="enginePriority">下载来源</label><select id="enginePriority" class="engine-select"><option value="ytdlp">yt-dlp（默认）</option><option value="spotdl">SpotDL（元数据更完整）</option></select></div>
-      <div class="settings-row"><label for="downloadFormat">音频格式</label><select id="downloadFormat"><option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="flac">FLAC</option><option value="wav">WAV</option><option value="ogg">OGG</option></select></div>
-      <div class="settings-row"><label for="downloadBitrate">有损音频比特率</label><select id="downloadBitrate"><option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
-      <div class="settings-row"><label for="downloadSidecarLrc">同时下载独立 LRC 文件</label><input id="downloadSidecarLrc" type="checkbox" style="width:auto"></div>
-    </details>
+    <button id="openDownloadSettings" class="settings-summary-btn" type="button" aria-haspopup="dialog" aria-controls="downloadSettingsPanel">
+      <span>下载设置</span><span id="downloadSettingsSummary" class="summary-value"></span><span class="chev" aria-hidden="true">›</span>
+    </button>
+    </div>
+    <aside id="downloadSettingsPanel" class="download-settings-panel" aria-label="下载设置">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-head"><h2>下载设置</h2><button id="closeDownloadSettings" class="sheet-done" type="button">完成</button></div>
+      <p id="downloadComputerNote" class="needs-note" hidden>虚线选项需要连接电脑。<button id="downloadConnectLink" type="button" class="link-btn">去连接</button></p>
+      <div class="setting-group"><div class="setting-label" id="engineLabel">下载来源</div>
+        <div id="engineChips" class="chip-row" role="group" aria-labelledby="engineLabel"></div>
+        <select id="enginePriority" hidden><option value="ytdlp">yt-dlp（默认）</option><option value="spotdl">SpotDL（元数据更完整）</option></select></div>
+      <div class="setting-group"><div class="setting-label" id="formatLabel">格式</div>
+        <div id="formatChips" class="chip-row" role="group" aria-labelledby="formatLabel"></div>
+        <select id="downloadFormat" hidden><option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="flac">FLAC</option><option value="wav">WAV</option><option value="ogg">OGG</option></select></div>
+      <div class="setting-group"><div class="setting-label" id="bitrateLabel">比特率 <small id="downloadBitrateNote" class="setting-note"></small></div>
+        <div id="bitrateChips" class="chip-row" role="group" aria-labelledby="bitrateLabel"></div>
+        <select id="downloadBitrate" hidden><option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
+      <div class="setting-group switch-row"><label for="downloadSidecarLrc">同时保存独立 .lrc 歌词</label><input id="downloadSidecarLrc" class="switch" type="checkbox" role="switch"></div>
+      <p class="setting-note">设置自动保存在这台设备上。同时保存歌词时，音频和 .lrc 会放进同一个 ZIP。</p>
+    </aside>
+    </div>
+    <div id="downloadSettingsBackdrop" class="sheet-backdrop" hidden></div>
   </div>
 
   <!-- Tab 2: 自定义封装与标签编辑 (新增) -->
@@ -675,6 +731,7 @@ function updateAndroidApiGates() {
   $('downloadBtn').disabled = false;
   if (!androidApiConnected) $('enginePriority').value = 'ytdlp';
   updateAndroidDownloadButtonLabel();
+  updateDownloadSettingsSummary();
   // Android handles conversion and custom tagging natively. Only the optional
   // remote metadata search and SpotDL source require a verified desktop API.
   document.querySelectorAll('#convert input, #convert select, #convert button')
@@ -1008,7 +1065,70 @@ function saveDownloadSettings() {
   $('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
   updateOnlineDownloadLabel();
 }
+const CHIP_GROUPS = {
+  enginePriority: {box: 'engineChips', label: option => option.textContent.replace(/（.*）/, '').trim()},
+  downloadFormat: {box: 'formatChips', label: option => option.value === 'm4a' ? 'M4A' : option.textContent.trim()},
+  downloadBitrate: {box: 'bitrateChips', label: option => option.value}
+};
+function downloadOptionNeedsComputer(selectId, value) {
+  // Android without a paired computer can only fetch MP3 at the default bitrate with yt-dlp.
+  if (!window.AndroidMusic || androidApiConnected) return false;
+  if (selectId === 'downloadFormat') return value !== 'mp3';
+  if (selectId === 'downloadBitrate') return value !== '192';
+  if (selectId === 'enginePriority') return value === 'spotdl';
+  return false;
+}
+function renderChipGroups() {
+  for (const [selectId, config] of Object.entries(CHIP_GROUPS)) {
+    const select = $(selectId), box = $(config.box);
+    if (!select || !box) continue;
+    box.replaceChildren(...Array.from(select.options).map(option => {
+      const button = document.createElement('button');
+      const on = select.value === option.value;
+      const gated = downloadOptionNeedsComputer(selectId, option.value);
+      const blocked = selectId === 'enginePriority' && select.disabled && option.value !== select.value;
+      button.type = 'button';
+      button.className = 'chip' + (on ? ' on' : '') + (gated ? ' needs-computer' : '');
+      button.textContent = config.label(option);
+      button.setAttribute('aria-pressed', String(on));
+      if (gated) button.setAttribute('aria-label', `${button.textContent}，需要连接电脑`);
+      if (select.disabled && selectId === 'downloadBitrate') button.disabled = true;
+      button.addEventListener('click', () => {
+        if (blocked) { $('downloadComputerNote').hidden = false; $('downloadConnectLink').focus(); return; }
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+      });
+      return button;
+    }));
+  }
+  const phoneLocal = !!window.AndroidMusic && !androidApiConnected;
+  $('downloadComputerNote').hidden = !phoneLocal;
+  $('downloadBitrateNote').textContent = $('downloadBitrate').disabled ? '无损格式不使用比特率' : '';
+}
+function downloadSettingsAreSheet() { return window.matchMedia('(max-width: 959px)').matches; }
+function openDownloadSettings() {
+  const panel = $('downloadSettingsPanel');
+  panel.classList.add('open');
+  $('downloadSettingsBackdrop').hidden = false;
+  panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
+  $('closeDownloadSettings').focus();
+}
+function closeDownloadSettings() {
+  const panel = $('downloadSettingsPanel');
+  const wasOpen = panel.classList.contains('open');
+  panel.classList.remove('open');
+  $('downloadSettingsBackdrop').hidden = true;
+  panel.removeAttribute('role'); panel.removeAttribute('aria-modal');
+  if (wasOpen) $('openDownloadSettings').focus();
+}
+$('openDownloadSettings').addEventListener('click', openDownloadSettings);
+$('closeDownloadSettings').addEventListener('click', closeDownloadSettings);
+$('downloadSettingsBackdrop').addEventListener('click', closeDownloadSettings);
+$('downloadConnectLink').addEventListener('click', () => { closeDownloadSettings(); switchTab('settings'); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && $('downloadSettingsPanel').classList.contains('open')) closeDownloadSettings(); });
+window.matchMedia('(min-width: 960px)').addEventListener('change', event => { if (event.matches) closeDownloadSettings(); });
 function updateDownloadSettingsSummary() {
+  renderChipGroups();
   const el = $('downloadSettingsSummary');
   if (!el) return;
   const format = $('downloadFormat').value;
@@ -1053,6 +1173,7 @@ try {
   $('downloadSidecarLrc').checked = saved.download_lrc === true;
 } catch (_) {}
 ['downloadFormat','downloadBitrate','downloadSidecarLrc'].forEach(id => $(id).addEventListener('change', saveDownloadSettings));
+$('enginePriority').addEventListener('change', updateDownloadSettingsSummary);
 $('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
 updateOnlineDownloadLabel();
 $('youtubePreviewBtn').addEventListener('click', () => {

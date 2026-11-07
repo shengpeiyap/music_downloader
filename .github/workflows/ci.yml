@@ -38,6 +38,7 @@ jobs:
           node tests/test_library_sort.js
           node tests/test_friendly_message.js
           node tests/test_i18n_connection_copy.js
+          node tests/test_download_settings_gating.js
 
   android-compile:
     runs-on: ubuntu-latest
