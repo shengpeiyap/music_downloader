@@ -150,11 +150,7 @@
     body.android-app .header-bar{flex:none;margin-bottom:8px}
     body.android-app .tab-content:not(.active){display:none!important}
     body.android-app #tab-local{flex:1;min-height:0;overflow:hidden;padding-bottom:calc(78px + env(safe-area-inset-bottom));display:flex;flex-direction:column}
-    body.android-app .nav-tabs{display:flex;flex:1;min-width:0;max-width:100%;gap:4px;padding:4px;margin-left:10px;overflow-x:auto;white-space:nowrap}
-    body.android-app .tab-btn{padding:7px 9px;font-size:12px;flex:none}
-    body.android-app #tab-online,body.android-app #tab-custom{flex:1;min-height:0;max-height:calc(100dvh - 82px);overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
-    body.android-app #tab-online>h1,body.android-app #tab-custom>h1{font-size:32px;margin:10px 0}
-    body.android-app #tab-online>.intro,body.android-app #tab-custom>.intro{margin-bottom:16px}
+    body.android-app #tab-online,body.android-app #tab-custom{flex:1;min-height:0;max-height:calc(100dvh - 82px - 72px - env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
     body.android-app .now-playing-cover{width:min(58vw,36dvh,280px);height:min(58vw,36dvh,280px);margin:4px 0}
     body.android-app #nowTitle{font-size:24px!important}
     body.android-app .player-main-card{padding:14px;gap:8px}
@@ -194,27 +190,50 @@
     .source-info a{color:var(--green);text-decoration:underline}
     .filebox{display:block;border:1px dashed #465449;border-radius:12px;padding:18px;background:#0d110e}.filebox input{width:100%;margin-top:10px;color:var(--muted)}.status{font-size:13px;margin:12px 0 0;min-height:20px}.legal{font-size:12px;color:#87938a;margin-top:24px}.footer{border-top:1px solid var(--line);margin-top:28px;padding-top:16px;font-size:12px;color:#77847a}
     @media(max-width:768px){main{padding:18px 14px 48px}.header-bar{position:relative;align-items:center;gap:10px}.header-actions{gap:7px}.nav-mobile-button{display:flex;max-width:min(46vw,210px)}.nav-mobile-button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-tabs{display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:30;min-width:205px;max-width:calc(100vw - 32px);flex-direction:column;align-items:stretch;gap:4px;box-shadow:0 14px 35px #0009}.nav-tabs.mobile-open{display:flex}.tab-btn{text-align:left;white-space:nowrap;padding:10px 12px}.language-select{padding:7px 24px 7px 8px;font-size:12px}.card{padding:18px}.local-layout,.tag-layout,.grid{grid-template-columns:1fr}.local-layout{gap:12px}.playlist-card{height:auto;max-height:440px;padding:14px}.track-list{min-height:80px;max-height:300px}.player-main-card{height:auto;min-height:420px;padding:20px 14px}.now-playing-cover{width:min(48vw,180px);height:min(48vw,180px)}.row{align-items:stretch;flex-direction:column;gap:8px}.result-header{align-items:flex-start;flex-wrap:wrap}.engine-box{align-items:flex-start}.player-controls{max-width:100%}.track-remove{padding:5px 7px}.playlist-header h2{font-size:16px!important}}
-    @media(max-width:768px){body.android-app .nav-tabs{display:none}body.android-app .nav-tabs.mobile-open{display:flex}}
     @media(max-width:480px){.header-bar{gap:6px}.brand{font-size:9px;letter-spacing:.08em}.header-actions{gap:4px}.nav-mobile-button{max-width:88px;padding:7px 7px;font-size:11px}.language-select{max-width:104px;min-width:92px;padding-left:5px;padding-right:16px;font-size:10px}.help-button{width:34px;height:34px}}
+
+    /* ===== Navigation, status and page titles (shared by web and Android) ===== */
+    .header-bar{gap:16px}
+    .header-actions{flex:1;justify-content:center}
+    .nav-mobile-button{display:none!important}
+    .page-title{font-size:28px;line-height:1.2;letter-spacing:-.01em;margin:4px 0 16px;max-width:none}
+    .status-chip{display:flex;align-items:center;gap:8px;min-height:44px;margin:0;padding:0 14px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--muted);font-size:14px;font-weight:500}
+    .status-chip .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+    .status-chip.local .dot{background:#f2c46d}
+    .tab-btn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 22px;font-size:15px}
+    .tab-btn svg{display:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    .tab-btn:focus-visible,.status-chip:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+    .summary-value{color:var(--muted);font-weight:500;font-size:14px}
+    #tab-online .grid{grid-template-columns:1fr}
+    .engine-select{min-height:44px;font-size:14px}
+    .help-shortcuts{display:block}
+    body:not(.android-app) .android-setting{display:none!important}
+    body.android-app .help-shortcuts{display:none}
+    @media(max-width:768px){
+      main{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+      .header-actions{flex:none;position:static}
+      .nav-tabs{position:fixed;top:auto;left:0;right:0;bottom:0;align-items:stretch;z-index:40;display:flex;flex-direction:row;gap:0;min-width:0;max-width:none;margin:0;padding:0 0 env(safe-area-inset-bottom);border:0;border-top:1px solid var(--line);border-radius:0;background:#101512;box-shadow:none;overflow:visible}
+      .tab-btn{flex:1;flex-direction:column;justify-content:center;gap:4px;min-height:72px;padding:0;border-radius:0;font-size:13px;text-align:center;background:transparent;color:var(--muted)}
+      .tab-btn.active{background:transparent;color:var(--green)}
+      .tab-btn svg{display:block;width:58px;height:30px;padding:3px 17px;border-radius:15px}
+      .tab-btn.active svg{background:rgba(184,243,107,.16)}
+      body.android-app main{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+      body.android-app .android-mini-player{bottom:calc(80px + env(safe-area-inset-bottom))}
+    }
   </style>
 </head>
 <body><main>
   <div class="header-bar">
     <div class="brand">● MusicDesk</div>
     <div class="header-actions" id="headerActions">
-      <div class="nav-tabs" id="navTabs">
-        <button class="tab-btn active" onclick="switchTab('online')">在线解析与下载</button>
-        <button class="tab-btn" onclick="switchTab('custom')">自定义封装与标签编辑</button>
-        <button class="tab-btn" onclick="switchTab('local')">本地离线播放器</button>
-        <button id="androidSettingsNav" class="tab-btn android-only-tab" onclick="switchTab('settings')">设置</button>
-      </div>
-      <button id="navMobileBtn" class="nav-mobile-button" type="button" aria-expanded="false" aria-controls="navTabs"><span>☰</span><span id="mobileTabLabel">在线解析与下载</span></button>
-      <select id="languageSelect" class="language-select" aria-label="选择语言" title="选择语言">
-        <option value="zh">简体中文</option>
-        <option value="en">English</option>
-      </select>
-      <button id="helpBtn" class="help-button" type="button" aria-label="帮助与快捷键" title="帮助与快捷键">?</button>
+      <nav class="nav-tabs" id="navTabs" aria-label="主导航">
+        <button type="button" class="tab-btn active" data-tab="online" onclick="switchTab('online')" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg><span>下载</span></button>
+        <button type="button" class="tab-btn" data-tab="custom" onclick="switchTab('custom')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>编辑</span></button>
+        <button type="button" class="tab-btn" data-tab="local" onclick="switchTab('local')"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/></svg><span>播放</span></button>
+        <button id="androidSettingsNav" type="button" class="tab-btn" data-tab="settings" onclick="switchTab('settings')"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><span>设置</span></button>
+      </nav>
     </div>
+    <button id="statusChip" class="status-chip" type="button" onclick="switchTab('settings')" aria-label="处理位置，点按查看设置"><span class="dot" aria-hidden="true"></span><span id="statusChipText">本机运行</span></button>
   </div>
   <dialog id="helpDialog" class="help-dialog" aria-labelledby="helpTitle">
     <div class="help-dialog-header">
@@ -233,7 +252,7 @@
       <h3>本地离线播放器</h3>
       <p>选择歌曲或文件夹建立曲库，浏览标签、专辑封面和歌词；支持队列、收藏、播放模式与上次播放状态恢复。</p>
     </section>
-    <section>
+    <section class="help-shortcuts">
       <h3>键盘快捷键</h3>
       <ul>
         <li><kbd class="help-shortcut">Space</kbd> 或 <kbd class="help-shortcut">K</kbd>：播放 / 暂停当前页面的音频。</li>
@@ -247,8 +266,7 @@
 
   <!-- Tab 1: 在线解析与格式转换 -->
   <div id="tab-online" class="tab-content active">
-    <h1>音乐资料，<br>由你整理。</h1>
-    <p class="intro">从分享链接查看公开曲目信息，或把你拥有使用权的音频转换成常见格式。轻量、私密，文件在本机处理。</p>
+    <h1 class="page-title">下载</h1>
     <p id="androidOnlineNote" class="android-scope-note">MusicBrainz 曲目信息、LRCLIB 歌词和 yt-dlp 下载可由手机联网使用。</p>
     <div class="grid">
       <section class="card"><h2>曲目信息搜索</h2><p class="hint">粘贴 Spotify / YouTube 分享链接，或搜索“作者 - 标题”及单独标题</p>
@@ -266,10 +284,7 @@
             </div>
 
             <div class="engine-box">
-              <select id="enginePriority" class="engine-select">
-                <option value="ytdlp">首选：yt-dlp</option>
-                <option value="spotdl">首选：spotdl (完整元数据)</option>
-              </select>
+              
               <div class="btn-group">
                 <button id="viewLrcBtn" class="dl-btn lrc-btn">歌词阅读器</button>
                 <button id="downloadBtn" class="dl-btn">下载 MP3</button>
@@ -296,15 +311,12 @@
         <p class="source-info" id="sourceStatus"></p>
       </section>
 
-      <section class="card"><h2>转换本地音频</h2><p class="hint">转换引擎由 MusicDesk 自动准备；选择你拥有或有权处理的音频文件</p>
-        <form id="convert"><label class="filebox">选择音频文件<span id="audioSelection"></span><input id="audio" type="file" accept="audio/*,.m4a,.flac,.ogg,.wav,.mp3"></label>
-          <div class="row" style="margin-top:16px"><div><label for="format">导出格式</label><select id="format"><option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="flac">FLAC</option><option value="wav">WAV</option><option value="ogg">OGG</option></select></div><button id="convertBtn">转换并保存</button></div>
-        </form><p class="status" id="convertStatus" aria-live="polite"></p>
-      </section>
+      
     </div>
     <details class="card settings-card" id="downloadOutputSettings">
-      <summary style="cursor:pointer;font-weight:700">下载输出设置</summary>
-      <p class="hint">设置会保存在当前设备。无损格式不使用比特率；同时下载歌词时会将音频与 LRC 放入 ZIP。</p>
+      <summary style="cursor:pointer;font-weight:700;display:flex;justify-content:space-between;gap:12px"><span>下载设置</span><span id="downloadSettingsSummary" class="summary-value"></span></summary>
+      <p class="hint">设置会保存在当前设备。无损格式不使用比特率；同时下载歌词时会将音频与 LRC 放入 ZIP。手机本机下载默认输出 MP3；其他设置需连接电脑服务处理。</p>
+      <div class="settings-row"><label for="enginePriority">下载来源</label><select id="enginePriority" class="engine-select"><option value="ytdlp">yt-dlp（默认）</option><option value="spotdl">SpotDL（元数据更完整）</option></select></div>
       <div class="settings-row"><label for="downloadFormat">音频格式</label><select id="downloadFormat"><option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="flac">FLAC</option><option value="wav">WAV</option><option value="ogg">OGG</option></select></div>
       <div class="settings-row"><label for="downloadBitrate">有损音频比特率</label><select id="downloadBitrate"><option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
       <div class="settings-row"><label for="downloadSidecarLrc">同时下载独立 LRC 文件</label><input id="downloadSidecarLrc" type="checkbox" style="width:auto"></div>
@@ -313,8 +325,7 @@
 
   <!-- Tab 2: 自定义封装与标签编辑 (新增) -->
   <div id="tab-custom" class="tab-content">
-    <h1>手动封装，<br>定制标签。</h1>
-    <p class="intro">当无法自动抓包时，可上传本地音频自行补充与修正封面、标题、歌手、专辑及歌词元数据。</p>
+    <h1 class="page-title">编辑</h1>
     <p id="androidCustomNote" class="android-scope-note">自定义封装使用已连接电脑上的 FFmpeg 与标签写入服务。<button id="androidOpenApiSettings" type="button" style="margin:0 0 0 8px;padding:4px 8px">连接电脑</button></p>
 
     <div class="card">
@@ -427,12 +438,16 @@
       </form>
       <p class="status" id="customStatus" aria-live="polite"></p>
     </div>
+    <details class="card" id="quickConvert"><summary style="cursor:pointer;font-weight:700">只转换格式</summary><p class="hint">转换引擎由 MusicDesk 自动准备；选择你拥有或有权处理的音频文件</p>
+        <form id="convert"><label class="filebox">选择音频文件<span id="audioSelection"></span><input id="audio" type="file" accept="audio/*,.m4a,.flac,.ogg,.wav,.mp3"></label>
+          <div class="row" style="margin-top:16px"><div><label for="format">导出格式</label><select id="format"><option value="mp3">MP3</option><option value="m4a">M4A / AAC</option><option value="flac">FLAC</option><option value="wav">WAV</option><option value="ogg">OGG</option></select></div><button id="convertBtn">转换并保存</button></div>
+        </form><p class="status" id="convertStatus" aria-live="polite"></p>
+      </details>
   </div>
 
   <!-- Tab 3: 本地离线播放器 -->
   <div id="tab-local" class="tab-content">
-    <h1>本地曲库，<br>随时畅听。</h1>
-    <p class="intro">选择电脑中的音乐文件夹，直接解析本地 ID3 标签、专辑原画与内嵌 LRC 歌词。</p>
+    <h1 class="page-title">播放</h1>
     <p id="androidScopeNote" class="android-scope-note">选择歌曲或导入文件夹，建立本地曲库。</p>
     <div id="androidLocalTabs" class="android-local-tabs">
       <button id="androidLibraryTab" type="button" class="active">曲库</button>
@@ -529,11 +544,16 @@
   </div>
 
   <div id="tab-settings" class="tab-content">
-    <h1>设置中心</h1>
-    <p class="intro">管理电脑服务连接、曲库访问权限和应用信息。</p>
-    <section id="androidApiConnectCard" class="card android-api-connect settings-card">
+    <h1 class="page-title">设置</h1>
+    <section class="card settings-card">
+      <h2>通用</h2>
+      <div class="settings-row"><label for="languageSelect">语言</label>
+        <select id="languageSelect" class="language-select" aria-label="选择语言" title="选择语言"><option value="zh">简体中文</option><option value="en">English</option></select></div>
+      <div class="settings-row"><span>使用指南与快捷键</span><button id="helpBtn" class="lrc-btn" type="button" aria-label="帮助与快捷键" title="帮助与快捷键">查看</button></div>
+    </section>
+    <section id="androidApiConnectCard" class="card android-api-connect settings-card android-setting">
       <h2>电脑服务连接</h2>
-      <p class="hint">曲目信息、歌词、格式转换和 SpotDL 下载使用电脑服务；yt-dlp 音频下载可由手机内置引擎执行。</p>
+      <p class="hint">连接成功后，在线解析、歌词、下载、转换和封装任务会交给电脑处理，结果再传回手机；断开连接时改用手机本机能力。传输仅发生在你配对的局域网电脑与手机之间。</p>
       <label for="apiServerUrl">电脑服务地址</label>
       <input id="apiServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.20:8765" autocomplete="url">
       <label for="apiPairingToken" style="margin-top:12px">一次性配对密钥</label>
@@ -543,8 +563,9 @@
         <button id="forgetApiBtn" class="lrc-btn" type="button">断开</button>
       </div>
       <p id="apiConnectionStatus" class="status" aria-live="polite">尚未连接</p>
+      <p class="settings-about">电脑在线时优先由电脑端处理并回传文件；无法连接时，本机支持的功能仍可离线使用。需要先在电脑上启动 MusicDesk LAN API。</p>
     </section>
-    <section class="card settings-card">
+    <section class="card settings-card android-setting">
       <h2>曲库与权限</h2>
       <p class="hint">MusicDesk 仅访问你选择的文件夹。撤销授权后，下次启动将不再自动载入该文件夹；当前已载入的曲目会保留到本次使用结束。</p>
       <button id="addAndroidFolderBtn" type="button">添加音乐文件夹</button>
@@ -552,7 +573,7 @@
       <div class="settings-row"><div><strong>通知权限</strong><div id="notificationPermissionStatus" class="settings-about">正在检查…</div></div><button id="manageNotificationBtn" type="button">管理</button></div>
       <div class="settings-row"><div><strong>系统应用权限</strong><div class="settings-about">在 Android 系统设置中查看和管理</div></div><button id="manageAppPermissionsBtn" class="lrc-btn" type="button">打开系统设置</button></div>
     </section>
-    <section class="card settings-card">
+    <section class="card settings-card android-setting">
       <h2>检查更新</h2>
       <p id="appVersionLabel" class="hint">当前版本：读取中…</p>
       <p id="updateStatus" class="status" aria-live="polite">检查公开的 GitHub Release，不会自动下载或安装。</p>
@@ -574,9 +595,17 @@
 <script src="library_sort.js"></script>
 <script>
 const $=id=>document.getElementById(id);
+function friendlyMessage(value) {
+  // Show users a plain sentence: drop exception class prefixes such as "ValueError: ".
+  let text = String(value && value.message !== undefined ? value.message : (value || '')).trim();
+  text = text.replace(/^(?:[A-Za-z_][\w.]*\.)?[A-Za-z_]\w*(?:Error|Exception):\s*/, '');
+  if (/Failed to fetch|NetworkError|Load failed/i.test(text)) return '网络连接失败，请检查网络后重试。';
+  return text;
+}
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 let androidApiConfig = null;
 let androidApiConnected = false;
+function shouldProcessOnAndroid() { return !!window.AndroidMusic && !androidApiConnected; }
 const REQUIRED_ANDROID_API_VERSION = 1;
 const REQUIRED_ANDROID_API_CAPABILITIES = ['metadata', 'search_metadata', 'lyrics_text', 'download', 'convert', 'parse_local_tag', 'package_custom_tag'];
 try { androidApiConfig = JSON.parse(localStorage.getItem('musicdesk-api-config') || 'null'); } catch (_) {}
@@ -613,17 +642,25 @@ function normalizedApiConfig(url, token) {
   return {url: parsed.origin.replace(/\/$/, ''), token: cleanToken};
 }
 
+function updateStatusChip(connected) {
+  const chip = $('statusChip'), text = $('statusChipText');
+  if (!chip || !text) return;
+  if (!window.AndroidMusic) { text.textContent = '本机运行'; chip.classList.remove('local'); return; }
+  text.textContent = connected ? '已连接电脑' : '本机处理';
+  chip.classList.toggle('local', !connected);
+}
 function updateApiConnectionMessage(connected, message = '') {
+  updateStatusChip(connected);
   androidApiConnected = !!connected;
   updateAndroidApiGates();
   const saved = !!androidApiConfig;
   $('apiConnectionStatus').textContent = message || (connected ? `已连接：${androidApiConfig.url}` : saved ? `已保存：${androidApiConfig.url}（点按钮测试连接）` : '尚未连接');
   $('androidOnlineNote').textContent = connected
-    ? `已连接电脑服务：${androidApiConfig.url}。曲目信息和歌词可由手机直接查询；SpotDL 下载与转换可用。`
-    : saved ? `已保存电脑地址 ${androidApiConfig.url}；yt-dlp、MusicBrainz 曲目信息和 LRCLIB 歌词可由手机联网使用。` : 'yt-dlp 下载、MusicBrainz 曲目信息和 LRCLIB 歌词可由手机联网使用；转换与自定义封装需电脑服务。';
+    ? `已连接电脑服务：${androidApiConfig.url}。解析、歌词、下载、转换和封装任务由电脑处理，结果回传到手机。`
+    : saved ? `已保存电脑地址 ${androidApiConfig.url}；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。` : '当前使用手机本机能力；连接电脑 API 后，相关任务将交给电脑处理并回传结果。';
   $('androidCustomNote').firstChild.textContent = connected
-    ? '自定义封装已连接电脑服务。'
-    : '自定义封装暂不可用；连接并验证电脑 API 后开放。';
+    ? '已连接电脑：封装与格式转换会在电脑完成后回传；所选音频将通过配对的局域网连接发送到电脑。'
+    : '未连接电脑：选择本地音频后，可在手机本机编辑标签、裁剪、转换格式并封装导出。';
 }
 
 function updateAndroidApiGates() {
@@ -634,11 +671,12 @@ function updateAndroidApiGates() {
   $('downloadBtn').disabled = false;
   if (!androidApiConnected) $('enginePriority').value = 'ytdlp';
   updateAndroidDownloadButtonLabel();
-  const gated = document.querySelectorAll(
-    '#convert input, #convert select, #convert button, ' +
-    '#customTagForm input, #customTagForm select, #customTagForm textarea, #customTagForm button'
-  );
-  gated.forEach(control => { control.disabled = !androidApiConnected; });
+  // Android handles conversion and custom tagging natively. Only the optional
+  // remote metadata search and SpotDL source require a verified desktop API.
+  document.querySelectorAll('#convert input, #convert select, #convert button')
+    .forEach(control => { control.disabled = false; });
+  $('tagSearchBtn').disabled = !androidApiConnected;
+  $('customEngine').disabled = !androidApiConnected;
 }
 
 function updateAndroidDownloadButtonLabel() {
@@ -938,6 +976,21 @@ function lookupWithAndroidYtDlp(source) {
   });
 }
 
+async function searchAndroidKeywordWithFallback(query) {
+  try {
+    return {metadata: await lookupWithAndroidMusicBrainz(query), provider: 'MusicBrainz'};
+  } catch (musicBrainzError) {
+    try {
+      const metadata = await lookupWithAndroidYtDlp(`ytsearch1:${query}`);
+      return {metadata, provider: 'yt-dlp', musicBrainzError};
+    } catch (ytDlpError) {
+      const mbMessage = musicBrainzError && musicBrainzError.message ? musicBrainzError.message : String(musicBrainzError);
+      const ytMessage = ytDlpError && ytDlpError.message ? ytDlpError.message : String(ytDlpError);
+      throw new Error(`MusicBrainz 搜索失败（${mbMessage}）；yt-dlp 备用搜索也失败（${ytMessage}）。`);
+    }
+  }
+}
+
 function androidDownloadSource(metadata) {
   if (metadata && metadata.url && metadata.provider !== 'spotify') return metadata.url;
   return `ytsearch1:${metadata && metadata.artist || ''} ${metadata && metadata.title || ''}`.trim();
@@ -949,11 +1002,19 @@ function getDownloadSettings() {
 function saveDownloadSettings() {
   try { localStorage.setItem('musicdesk-download-settings', JSON.stringify(getDownloadSettings())); } catch (_) {}
   $('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
-  if (window.AndroidMusic) updateAndroidDownloadButtonLabel();
   updateOnlineDownloadLabel();
 }
+function updateDownloadSettingsSummary() {
+  const el = $('downloadSettingsSummary');
+  if (!el) return;
+  const format = $('downloadFormat').value;
+  const parts = [format.toUpperCase()];
+  if (!['flac', 'wav'].includes(format)) parts.push(`${$('downloadBitrate').value} kbps`);
+  if ($('downloadSidecarLrc').checked) parts.push('含 .lrc');
+  el.textContent = parts.join(' · ');
+}
 function updateOnlineDownloadLabel() {
-  if (!$('downloadBtn')) return;
+  updateDownloadSettingsSummary();
   if (window.AndroidMusic) { updateAndroidDownloadButtonLabel(); return; }
   const settings = getDownloadSettings();
   $('downloadBtn').textContent = `下载 ${settings.format.toUpperCase()}${settings.download_lrc ? ' + LRC' : ''}`;
@@ -962,8 +1023,7 @@ function youtubeVideoId(metadata) {
   const raw = metadata && (metadata.preview_url || metadata.url);
   if (!raw) return '';
   try {
-    const url = new URL(raw), host = url.hostname.toLowerCase();
-    let id = '';
+    const url = new URL(raw), host = url.hostname.toLowerCase(); let id = '';
     if (host === 'youtu.be') id = url.pathname.split('/').filter(Boolean)[0] || '';
     else if (['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com'].includes(host)) {
       if (url.pathname === '/watch') id = url.searchParams.get('v') || '';
@@ -980,8 +1040,7 @@ function updateYouTubePreview() {
     $('youtubeOpenLink').target = window.AndroidMusic ? '_self' : '_blank';
     $('youtubePreviewBtn').textContent = window.AndroidMusic ? '在浏览器试听' : 'YouTube 试听';
   }
-  $('youtubePreviewFrame').replaceChildren();
-  $('youtubePreviewFrame').style.display = 'none';
+  $('youtubePreviewFrame').replaceChildren(); $('youtubePreviewFrame').style.display = 'none';
 }
 try {
   const saved = JSON.parse(localStorage.getItem('musicdesk-download-settings') || '{}');
@@ -993,16 +1052,10 @@ try {
 $('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
 updateOnlineDownloadLabel();
 $('youtubePreviewBtn').addEventListener('click', () => {
-  const id = youtubeVideoId(currentMetadata);
-  if (!id) return;
-  if (window.AndroidMusic) {
-    window.location.href = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
-    return;
-  }
-  const frame = document.createElement('iframe');
-  frame.title = 'YouTube 歌曲试听'; frame.width = '100%'; frame.height = '220'; frame.style.border = '0';
-  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
-  frame.allowFullscreen = true; frame.referrerPolicy = 'strict-origin-when-cross-origin';
+  const id = youtubeVideoId(currentMetadata); if (!id) return;
+  if (window.AndroidMusic) { window.location.href = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`; return; }
+  const frame = document.createElement('iframe'); frame.title = 'YouTube 歌曲试听'; frame.width = '100%'; frame.height = '220'; frame.style.border = '0';
+  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'; frame.allowFullscreen = true; frame.referrerPolicy = 'strict-origin-when-cross-origin';
   frame.src = `https://www.youtube.com/embed/${encodeURIComponent(id)}?playsinline=1`;
   $('youtubePreviewFrame').replaceChildren(frame); $('youtubePreviewFrame').style.display = 'block';
 });
@@ -1171,16 +1224,15 @@ window.addEventListener('pagehide', () => persistAndroidPlayback(true));
 
 // Tab 切换逻辑
 function switchTab(tabName) {
-  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  if (!['online', 'custom', 'local', 'settings'].includes(tabName)) tabName = 'online';
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    const on = btn.dataset.tab === tabName;
+    btn.classList.toggle('active', on);
+    if (on) btn.setAttribute('aria-current', 'page'); else btn.removeAttribute('aria-current');
+  });
   document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-  if (!['online', 'custom', 'local', 'settings'].includes(tabName) || (tabName === 'settings' && !window.AndroidMusic)) tabName = 'local';
-  const tabIndex = {online: 0, custom: 1, local: 2, settings: 3}[tabName];
-  document.querySelectorAll('.tab-btn')[tabIndex].classList.add('active');
   $(`tab-${tabName}`).classList.add('active');
-  if (tabName === 'settings') refreshAndroidSettings();
-  updateMobileTabLabel(tabName);
-  $('navTabs').classList.remove('mobile-open');
-  $('navMobileBtn').setAttribute('aria-expanded', 'false');
+  if (tabName === 'settings' && window.AndroidMusic) refreshAndroidSettings();
 }
 
 // LRC 工具
@@ -1266,21 +1318,25 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
   $('youtubePreviewPanel').style.display = 'none';$('youtubePreviewFrame').replaceChildren();$('youtubePreviewFrame').style.display = 'none';
 
   try {
-    if (window.AndroidMusic && isKeywordSearch) {
+    if (shouldProcessOnAndroid() && isKeywordSearch) {
       if (/^spotify:/i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。');
-      const d = await lookupWithAndroidMusicBrainz(lookupValue);
-      currentMetadata = {...d, provider: 'MusicBrainz', keyword_search: true};
-      const cover = await resolveAndroidCover(currentMetadata);
+      const searchResult = await searchAndroidKeywordWithFallback(lookupValue);
+      const d = searchResult.metadata;
+      const usedMusicBrainz = searchResult.provider === 'MusicBrainz';
+      currentMetadata = {...d, provider: searchResult.provider, keyword_search: true};
+      const cover = usedMusicBrainz ? await resolveAndroidCover(currentMetadata) : d.thumbnail || '';
       $('title').textContent = d.title;
       $('artist').textContent = d.artist;
-      $('provider').textContent = '手机直连 MusicBrainz';
+      $('provider').textContent = usedMusicBrainz ? '手机直连 MusicBrainz' : '手机 yt-dlp 备用搜索';
       $('cover').src = cover || DEFAULT_COVER;
       $('result').style.display = 'flex';
       updateYouTubePreview();
-      $('lookupStatus').textContent = 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。';
+      $('lookupStatus').textContent = usedMusicBrainz
+        ? 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。'
+        : 'MusicBrainz 没有匹配结果，已自动改用手机 yt-dlp 搜索。';
       return;
     }
-    if (window.AndroidMusic && !androidApiConnected) {
+    if (shouldProcessOnAndroid()) {
       if (/spotify\.com\//i.test(lookupValue)) throw new Error('Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。');
       const source = isKeywordSearch ? `ytsearch1:${lookupValue}` : lookupValue;
       const d = await lookupWithAndroidYtDlp(source);
@@ -1315,7 +1371,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
       ? (d.provider === 'yt-dlp' ? 'MusicBrainz 没有匹配结果，已自动改用 yt-dlp 搜索；下载将使用该结果链接。' : '搜索完成，可继续查看歌词或下载。')
       : '信息已读取。';
   } catch(err) {
-    $('lookupStatus').textContent = err.message;
+    $('lookupStatus').textContent = friendlyMessage(err);
   } finally {
     $('lookupBtn').disabled = false;
   }
@@ -1328,7 +1384,7 @@ $('viewLrcBtn').addEventListener('click', async () => {
   viewer.style.display = 'block';
   $('lrcContainer').innerHTML = '正在检索并载入 LRC 歌词…';
   try {
-    if (window.AndroidMusic) {
+    if (shouldProcessOnAndroid()) {
       const result = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
       renderLyricsView(result.lyrics || '');
       return;
@@ -1344,7 +1400,7 @@ $('viewLrcBtn').addEventListener('click', async () => {
     if (!r.ok) throw Error(d.error || '未检索到歌词');
     renderLyricsView(d.lyrics || '');
   } catch (err) {
-    $('lrcContainer').innerHTML = `<div style="color:var(--muted);text-align:center;padding-top:80px">${escapeHTML(err.message)}</div>`;
+    $('lrcContainer').innerHTML = `<div style="color:var(--muted);text-align:center;padding-top:80px">${escapeHTML(friendlyMessage(err))}${/没有找到.*歌词/.test(err.message || '') ? '<br><small>可以在“编辑”里手动粘贴歌词。</small>' : ''}</div>`;
   }
 });
 
@@ -1352,23 +1408,35 @@ $('downloadBtn').addEventListener('click', async () => {
   if (!currentMetadata) return;
   $('downloadBtn').disabled = true;
   const preferredEngine = $('enginePriority').value;
-  const useAndroidYtDlp = !!window.AndroidMusic && preferredEngine === 'ytdlp';
+  const useAndroidYtDlp = shouldProcessOnAndroid() && preferredEngine === 'ytdlp';
   const downloadSettings = getDownloadSettings();
   const needsDesktopProcessing = downloadSettings.format !== 'mp3' || downloadSettings.bitrate !== '192' || downloadSettings.download_lrc;
   $('lookupStatus').textContent = useAndroidYtDlp
-    ? '正在使用手机内置 yt-dlp 下载音频…'
+    ? '正在使用手机内置 yt-dlp 下载并转换为 MP3…'
     : `正在按优先级 (${preferredEngine}) 下载音频并自动内嵌 LRC 歌词，请稍候...`;
   $('sourceStatus').textContent = '';
 
   try {
-    if (useAndroidYtDlp && !androidApiConnected && needsDesktopProcessing) {
-      throw Error('所选格式、比特率或独立 LRC 下载需要连接电脑服务。请先在设置中心连接电脑。');
+    if (useAndroidYtDlp && needsDesktopProcessing) {
+      throw Error('所选格式、比特率或独立 LRC 下载需要连接电脑服务。请在设置中心连接电脑后重试。');
     }
-    if (useAndroidYtDlp && !androidApiConnected) {
+    if (useAndroidYtDlp) {
       const source = androidDownloadSource(currentMetadata);
-      const result = await downloadWithAndroidYtDlp(source, currentMetadata);
-      $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}${result.warning ? `；${result.warning}` : ''}`;
-      $('sourceStatus').textContent = '本机 yt-dlp 保存来源格式并写入可用标签和封面；格式转换、内嵌歌词及 SpotDL 仍由电脑服务提供。';
+      let downloadMetadata = {...currentMetadata};
+      let lyricStatus = '未找到歌词，将不嵌入歌词';
+      try {
+        const lyricResult = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
+        const lyrics = lyricResult.synced_lyrics || lyricResult.lyrics || '';
+        if (lyrics) {
+          downloadMetadata.lyrics = lyrics;
+          lyricStatus = lyricResult.synced_lyrics ? '已嵌入同步 LRC 歌词' : '已嵌入普通歌词（来源无时间戳）';
+        }
+      } catch (_) {
+        // Lyrics are optional; a lyrics service failure must not block audio download.
+      }
+      const result = await downloadWithAndroidYtDlp(source, downloadMetadata);
+      $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}；${lyricStatus}${result.warning ? `；${result.warning}` : ''}`;
+      $('sourceStatus').textContent = '本机 yt-dlp 下载后会转换为 MP3，并写入可用的曲目信息与封面标签。';
       return;
     }
     const payload = { ...currentMetadata, ...downloadSettings, preferred_engine: preferredEngine };
@@ -1383,8 +1451,7 @@ $('downloadBtn').addEventListener('click', async () => {
     }
 
     const rawSourceUrl = r.headers.get('X-Source-Url');
-    const lrcStatus = downloadSettings.download_lrc && r.headers.get('X-Lyrics-Sidecar') === 'missing'
-      ? '压缩包里没有 LRC，因为未找到这首歌的歌词。' : '';
+    const lrcStatus = downloadSettings.download_lrc && r.headers.get('X-Lyrics-Sidecar') === 'missing' ? '压缩包里没有 LRC，因为未找到这首歌的歌词。' : '';
     let sourceUrl = '';
     try {
       const parsedSource = new URL(rawSourceUrl);
@@ -1417,7 +1484,7 @@ $('downloadBtn').addEventListener('click', async () => {
       $('sourceStatus').innerHTML = `音频抓取来源: <a href="${sourceUrl}" target="_blank" rel="noopener">${sourceUrl}</a>`;
     }
   } catch(err) {
-    $('lookupStatus').textContent = err.message;
+    $('lookupStatus').textContent = friendlyMessage(err);
   } finally {
     $('downloadBtn').disabled = false;
   }
@@ -1430,8 +1497,15 @@ $('convert').addEventListener('submit', async e => {
   if (!file && !desktopAudio) return;
   if (file && file.size > 150 * 1024 * 1024) { $('convertStatus').textContent = '文件不能超过 150 MB。'; return; }
   $('convertBtn').disabled = true;
-  $('convertStatus').textContent = '正在本机转换…';
+  $('convertStatus').textContent = androidApiConnected ? '正在发送到电脑转换…' : '正在本机转换…';
   try {
+    if (shouldProcessOnAndroid() && file) {
+      const immediateError = AndroidMusic.convertAudio(file.name, $('format').value);
+      if (immediateError) throw Error(immediateError);
+      $('convertBtn').dataset.androidPending = '1';
+      $('convertStatus').textContent = '正在 Android 设备本机转换…';
+      return;
+    }
     const body = new FormData();
     if (file) body.append('file', file);
     if (desktopAudio) body.append('local_audio_id', desktopAudio.url.split('/').pop());
@@ -1441,11 +1515,17 @@ $('convert').addEventListener('submit', async e => {
     const filename = await saveApiResponse(r, 'converted.' + $('format').value);
     $('convertStatus').textContent = `转换完成，已保存为 ${filename}`;
   } catch(err) {
-    $('convertStatus').textContent = err.message;
+    $('convertStatus').textContent = friendlyMessage(err);
   } finally {
-    $('convertBtn').disabled = false;
+    if (!$('convertBtn').dataset.androidPending) $('convertBtn').disabled = false;
   }
 });
+
+window.onAndroidConvertComplete = (error, filename) => {
+  delete $('convertBtn').dataset.androidPending;
+  $('convertBtn').disabled = false;
+  $('convertStatus').textContent = friendlyMessage(error) || `转换完成，已保存为 ${filename}`;
+};
 
 let selectedDesktopConvertAudio = null;
 $('audio').addEventListener('click', event => {
@@ -1914,10 +1994,21 @@ $('customAudioInput').addEventListener('change', async (e) => {
     setCustomAudioPreview('');
     return;
   }
+  if (shouldProcessOnAndroid()) {
+    const ext = (file.name.match(/\.([^.]+)$/) || [])[1];
+    if (ext && Array.from($('tagFormat').options).some(option => option.value.toLowerCase() === ext.toLowerCase())) {
+      $('tagFormat').value = ext.toLowerCase();
+    }
+  }
   setCustomAudioPreview(file, true);
   $('customCoverPreview').dataset.embeddedCover = '';
 
-  $('customStatus').textContent = '正在读取并解析音频标签元数据...';
+  $('customStatus').textContent = androidApiConnected ? '正在发送音频到电脑读取标签…' : '正在读取并解析音频标签元数据...';
+  if (shouldProcessOnAndroid()) {
+    const immediateError = AndroidMusic.readLocalTags(file.name);
+    if (immediateError) $('customStatus').textContent = immediateError;
+    return;
+  }
   const formData = new FormData();
   formData.append('file', file);
 
@@ -1948,7 +2039,7 @@ $('customAudioInput').addEventListener('change', async (e) => {
 
     $('customStatus').textContent = '已读取内部资料。您可以更改上述内容后点击导出。';
   } catch (err) {
-    $('customStatus').textContent = err.message;
+    $('customStatus').textContent = friendlyMessage(err);
   }
 });
 
@@ -1979,14 +2070,30 @@ $('tagSearchBtn').addEventListener('click', async () => {
     $('tagAlbum').value = d.album || '';
     $('tagAlbumArtist').value = d.albumartist || d.artist || '';
     $('tagYear').value = d.year || '';
-    $('tagLyrics').value = d.lyrics || '';
+    let lyrics = d.lyrics || '';
+    if (!lyrics && shouldProcessOnAndroid()) {
+      try {
+        const lyricResult = await lookupLyricsOnAndroid(d.title || '', d.artist || '');
+        lyrics = lyricResult.lyrics || '';
+      } catch (_) {}
+    } else if (!lyrics && window.AndroidMusic && androidApiConnected) {
+      try {
+        const response = await requestMusicDeskApi('/api/lyrics_text', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: d.title || '', artist: d.artist || ''})
+        });
+        const lyricResult = await response.json();
+        if (response.ok) lyrics = lyricResult.lyrics || '';
+      } catch (_) {}
+    }
+    $('tagLyrics').value = lyrics;
     customSelectedLyricKey = '';
     renderCustomLyricsPreview();
     $('customCoverPreview').dataset.embeddedCover = d.cover || '';
     $('customCoverPreview').src = d.cover || DEFAULT_COVER;
     $('customStatus').textContent = '已根据关键词补全信息，请检查后导出。';
   } catch (err) {
-    $('customStatus').textContent = err.message;
+    $('customStatus').textContent = friendlyMessage(err);
   } finally {
     $('tagSearchBtn').disabled = false;
   }
@@ -2011,7 +2118,9 @@ $('customTagForm').addEventListener('submit', async (e) => {
   }
 
   $('saveTagBtn').disabled = true;
-  $('customStatus').textContent = audioFile || desktopAudio ? '正在打包并写回标签元数据，请稍候...' : '正在搜索音源并封装标签，请稍候...';
+  $('customStatus').textContent = androidApiConnected
+    ? '正在发送到电脑封装并回传文件，请稍候…'
+    : audioFile || desktopAudio ? '正在打包并写回标签元数据，请稍候...' : '正在搜索音源并封装标签，请稍候...';
 
   const formData = new FormData();
   if (audioFile) formData.append('audio_file', audioFile);
@@ -2042,6 +2151,32 @@ $('customTagForm').addEventListener('submit', async (e) => {
 
   try {
     const embeddedCover = $('customCoverPreview').dataset.embeddedCover;
+    if (shouldProcessOnAndroid() && audioFile) {
+      const trimStart = Number($('customTrimStart').value || 0);
+      const duration = $('customAudioPreview').duration || 0;
+      const rangeEnd = Number($('customTrimEnd').value || 0);
+      const trimEnd = duration > 0 && rangeEnd < duration - 0.1 ? rangeEnd : 0;
+      const coverDataUrl = !coverFile && embeddedCover.startsWith('data:') ? embeddedCover : '';
+      const metadata = {
+        title: $('tagTitle').value.trim(), artist: $('tagArtist').value.trim(),
+        album: $('tagAlbum').value.trim(), album_artist: $('tagAlbumArtist').value.trim(),
+        release_year: $('tagYear').value.trim(), lyrics: $('tagLyrics').value,
+        lyrics_format: $('tagLyricsFormat').value,
+        track_num: $('tagTrackNumber').value.trim(), disc_num: $('tagDiscNumber').value.trim(),
+        genre: $('tagGenre').value.trim(), composer: $('tagComposer').value.trim()
+      };
+      let outputName = `${metadata.artist ? metadata.artist + ' - ' : ''}${metadata.title || audioFile.name.replace(/\.[^.]+$/, '')}`;
+      if ($('filenameAppendEnabled').checked && $('filenameAppend').value.trim()) outputName += ` ${$('filenameAppend').value.trim()}`;
+      outputName += `.${$('tagFormat').value}`;
+      const immediateError = AndroidMusic.packageAudio(
+        audioFile.name, coverFile ? coverFile.name : '', coverDataUrl,
+        JSON.stringify(metadata), outputName, $('tagFormat').value, trimStart, trimEnd
+      );
+      if (immediateError) throw Error(immediateError);
+      $('saveTagBtn').dataset.androidPending = '1';
+      $('customStatus').textContent = '正在本机写入音频标签…';
+      return;
+    }
     if (!coverFile && embeddedCover) {
       const coverBlob = await fetch(embeddedCover).then(response => response.blob());
       formData.append('cover_file', coverBlob, 'embedded-cover');
@@ -2059,11 +2194,58 @@ $('customTagForm').addEventListener('submit', async (e) => {
     const filename = await saveApiResponse(r, 'custom_audio.mp3');
     $('customStatus').textContent = `导出成功，已保存为 ${filename}`;
   } catch (err) {
-    $('customStatus').textContent = err.message;
+    $('customStatus').textContent = friendlyMessage(err);
   } finally {
-    $('saveTagBtn').disabled = false;
+    if (!$('saveTagBtn').dataset.androidPending) $('saveTagBtn').disabled = false;
   }
 });
+
+window.onAndroidCustomPackageComplete = (error, filename) => {
+  delete $('saveTagBtn').dataset.androidPending;
+  $('saveTagBtn').disabled = false;
+  $('customStatus').textContent = friendlyMessage(error) || `本机封装完成，已保存为 ${filename}`;
+};
+
+window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
+  if (error) { $('customStatus').textContent = friendlyMessage(error); return; }
+  const selectedFile = $('customAudioInput').files[0];
+  if (audioName && selectedFile && selectedFile.name !== audioName) return;
+  try {
+    const data = JSON.parse(tagsJson || '{}');
+    $('tagTitle').value = data.title || '';
+    $('tagArtist').value = data.artist || '';
+    $('tagAlbum').value = data.album || '';
+    $('tagAlbumArtist').value = data.albumartist || '';
+    $('tagYear').value = (data.year || '').slice(0, 4);
+    $('tagLyrics').value = data.lyrics || '';
+    if (artwork) {
+      $('customCoverPreview').src = artwork;
+      $('customCoverPreview').dataset.embeddedCover = artwork;
+    }
+    customSelectedLyricKey = '';
+    renderCustomLyricsPreview();
+    $('tagSearch').value = data.artist && data.title ? `${data.artist} - ${data.title}` : data.title || '';
+    $('customStatus').textContent = '已从所选音频读取标签。可以修改后本机封装。';
+    if (!data.lyrics && data.title && data.title !== '未知曲目') {
+      $('customStatus').textContent = '音频没有内嵌歌词，正在尝试从 LRCLIB 获取…';
+      lookupLyricsOnAndroid(data.title, data.artist || '').then(result => {
+        const currentFile = $('customAudioInput').files[0];
+        if (audioName && (!currentFile || currentFile.name !== audioName)) return;
+        const lyrics = result.lyrics || '';
+        if (!lyrics) throw new Error('公开歌词库中没有找到这首歌的歌词。');
+        $('tagLyrics').value = lyrics;
+        renderCustomLyricsPreview();
+        $('customStatus').textContent = result.synced_lyrics
+          ? '已从 LRCLIB 载入同步 LRC；点击“保存并打包导出文件”即可内嵌。'
+          : '已载入纯文本歌词（无时间戳）；点击“保存并打包导出文件”即可内嵌。';
+      }).catch(lyricError => {
+        const currentFile = $('customAudioInput').files[0];
+        if (audioName && (!currentFile || currentFile.name !== audioName)) return;
+        $('customStatus').textContent = `已读取音频标签，但未能补全歌词：${friendlyMessage(lyricError)}`;
+      });
+    }
+  } catch (_) { $('customStatus').textContent = '解析本机音频标签失败。'; }
+};
 
 // ===== 本地离线播放器 Tab 逻辑 =====
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|flac|wav|ogg)$/i;
@@ -3032,9 +3214,6 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   const viewport = document.querySelector('meta[name="viewport"]');
   if (viewport) viewport.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
   document.body.classList.add('android-app');
-  document.querySelectorAll('.tab-btn')[0].textContent = '在线解析';
-  document.querySelectorAll('.tab-btn')[1].textContent = '自定义';
-  document.querySelectorAll('.tab-btn')[2].textContent = '曲库';
   $('androidOnlineNote').style.display = 'block';
   $('androidCustomNote').style.display = 'block';
   $('androidApiConnectCard').style.display = 'block';

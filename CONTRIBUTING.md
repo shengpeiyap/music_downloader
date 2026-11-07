@@ -19,6 +19,7 @@ node tests/test_android_search_fallback.js
 node tests/test_android_processing_route.js
 node tests/test_android_ui_gates.js
 node tests/test_library_sort.js
+node tests/test_friendly_message.js
 ```
 
 For Android UI or Java changes, also build the app:
