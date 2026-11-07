@@ -117,7 +117,7 @@
     .playback-mode-button{background:transparent!important;color:var(--green)!important;font-size:12px!important;width:auto!important;border-radius:8px!important;padding:8px 10px!important}
     .playback-mode-button svg{display:block;width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
     .android-mini-player{display:none}
-    .queue-backdrop{position:fixed;inset:0;background:#0009;z-index:20;display:flex;align-items:flex-end}
+    .queue-backdrop{position:fixed;inset:0;background:#0009;z-index:70;display:flex;align-items:flex-end}
     .queue-sheet{width:100%;max-height:78dvh;background:#202321;border:1px solid #3a403b;border-radius:22px 22px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;box-shadow:0 -12px 40px #0007}
     .queue-sheet{touch-action:pan-y;overscroll-behavior-y:contain}
     .queue-sheet{transform:translateY(110%);transition:transform .22s ease;will-change:transform}
@@ -280,6 +280,27 @@
     .save-bar #saveTagBtn{flex:1;margin:0;min-height:52px}
     @media(max-width:768px){.save-bar{bottom:calc(72px + env(safe-area-inset-bottom))}body.android-app .save-bar{bottom:0}}
     @media(max-width:768px){.save-bar .save-format{flex-basis:104px}.save-bar #saveTagBtn{font-size:15px;padding:0 8px}}
+
+    /* ===== Player: quiet rows, controls that never move ===== */
+    .track-more{flex:none;width:44px;height:44px;margin:0 -6px 0 auto;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;border:0;color:var(--muted)}
+    .track-more:hover{color:var(--text);background:#ffffff14}
+    .track-menu-title{margin:0 0 12px;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .danger-row{color:#ff9d9d}
+    .player-main-card{justify-content:flex-start}
+    .player-main-card .player-page-tabs{order:1}
+    #playerSongPanel{order:2;flex:1;min-height:0;justify-content:center}
+    #localLyricsViewer{order:2;flex:1;min-height:0;height:auto!important;max-height:none!important;max-width:460px}
+    .player-main-card .player-controls{order:3;margin:auto 0 0;flex:none}
+
+    /* One lime action per screen: secondary buttons in the library are outlined; Android drops the second nav level */
+    .playlist-header button{background:transparent;border:1px solid #33403a;color:var(--text);font-weight:600}
+    #trackMenuSheet button{min-height:48px;background:#1f2823;border:1px solid var(--line);color:var(--text);font-weight:600}
+    #trackMenuSheet .danger-row{color:#ff9d9d}
+    .collapse-btn{display:none;width:44px;height:44px;margin:0;padding:0;align-items:center;justify-content:center;background:transparent;border:0;color:var(--text)}
+    body.android-app .collapse-btn{display:flex}
+    .player-page-tabs{position:relative}
+    .collapse-btn{position:absolute;left:-8px;top:-4px}
+    body.android-app .android-local-tabs{display:none}
   </style>
 </head>
 <body><main>
@@ -561,6 +582,7 @@
       <!-- 主播放控制面板 -->
       <div class="player-main-card" id="playerMainCard">
         <div class="player-page-tabs">
+          <button id="playerCollapseBtn" type="button" class="collapse-btn" aria-label="收起，回到曲库" title="收起"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
           <button id="playerSongViewBtn" type="button" class="active">歌曲</button>
           <button id="playerLyricsViewBtn" type="button">歌词</button>
         </div>
@@ -663,6 +685,15 @@
       <div id="queueDragHandle" class="queue-drag-handle" aria-label="向下拖动收起播放列表"><span></span></div>
       <div class="queue-header"><h2 id="queueTitle" style="margin:0;font-size:20px">播放列表</h2><div style="display:flex;gap:8px"><button id="clearQueueBtn" type="button">清空</button><button id="closeQueueBtn" class="queue-close" type="button" aria-label="收起播放列表">×</button></div></div>
       <div id="queueList" class="queue-list track-list"></div>
+    </section>
+  </div>
+
+  <div id="trackMenuBackdrop" class="queue-backdrop" hidden>
+    <section id="trackMenuSheet" class="queue-sheet play-all-sheet" role="dialog" aria-modal="true" aria-labelledby="trackMenuTitle">
+      <div class="queue-drag-handle"><span></span></div>
+      <h2 id="trackMenuTitle" class="track-menu-title"></h2>
+      <button id="trackMenuRemove" type="button" class="danger-row">从列表移除</button>
+      <button id="trackMenuCancel" type="button">取消</button>
     </section>
   </div>
 
@@ -2804,7 +2835,7 @@ function renderLocalPlaylist(filterText = "") {
           <strong id="track-title-${origIdx}">${escapeHTML(track.title)}</strong>
           <small id="track-artist-${origIdx}">${escapeHTML(track.artist)}</small>
         </div>
-        <button type="button" class="track-remove" aria-label="从列表移除 ${escapeHTML(track.title)}" title="从列表移除" onclick="event.stopPropagation();removeLocalTrack(${origIdx})">移除</button>
+        <button type="button" class="track-more" aria-label="更多操作：${escapeHTML(track.title)}" aria-haspopup="dialog" onclick="event.stopPropagation();openTrackMenu(${origIdx})"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></button>
       </div>
     `;
   }).join('');
@@ -3050,11 +3081,32 @@ function renderQueue() {
     <div class="track-item ${idx === currentTrackIdx ? 'active' : ''}" onclick="playLocalTrack(${idx},true);closeQueue()">
       <img src="${escapeHTML(track.cover || DEFAULT_COVER)}" alt="">
       <div class="track-item-info"><strong>${escapeHTML(track.title)}</strong><small>${escapeHTML(track.artist)} - ${escapeHTML(track.album)}</small></div>
-      <button type="button" class="track-remove" aria-label="移除 ${escapeHTML(track.title)}" onclick="event.stopPropagation();removeLocalTrack(${idx})">×</button>
+      <button type="button" class="track-more" aria-label="更多操作：${escapeHTML(track.title)}" aria-haspopup="dialog" onclick="event.stopPropagation();openTrackMenu(${idx})"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></button>
     </div>`;
   }).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">播放列表为空</div>';
 }
 
+let trackMenuIndex = -1, trackMenuOpener = null;
+function openTrackMenu(index) {
+  const track = localTracks[index];
+  if (!track) return;
+  trackMenuIndex = index;
+  trackMenuOpener = document.activeElement;
+  $('trackMenuTitle').textContent = track.title;
+  $('trackMenuBackdrop').hidden = false;
+  requestAnimationFrame(() => { $('trackMenuSheet').classList.add('open'); $('trackMenuCancel').focus(); });
+}
+function closeTrackMenu() {
+  $('trackMenuSheet').classList.remove('open');
+  $('trackMenuBackdrop').hidden = true;
+  trackMenuIndex = -1;
+  if (trackMenuOpener && trackMenuOpener.isConnected) trackMenuOpener.focus();
+  trackMenuOpener = null;
+}
+$('trackMenuCancel').addEventListener('click', closeTrackMenu);
+$('trackMenuBackdrop').addEventListener('click', event => { if (event.target === $('trackMenuBackdrop')) closeTrackMenu(); });
+$('trackMenuRemove').addEventListener('click', () => { const index = trackMenuIndex; closeTrackMenu(); if (index >= 0) removeLocalTrack(index); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('trackMenuBackdrop').hidden) closeTrackMenu(); });
 function openPlayAllChoice() {
   $('playAllBackdrop').hidden = false;
   $('playAllSheet').style.transform = '';
@@ -3265,6 +3317,7 @@ $('playbackModeBtn').addEventListener('click', () => {
 });
 $('playerSongViewBtn').addEventListener('click', () => setPlayerContentView('song'));
 $('playerLyricsViewBtn').addEventListener('click', () => setPlayerContentView('lyrics'));
+$('playerCollapseBtn').addEventListener('click', () => showAndroidLocalTab('library'));
 function setPlayerContentView(view) {
   androidContentView = view === 'lyrics' ? 'lyrics' : 'song';
   const lyrics = view === 'lyrics';
@@ -3400,7 +3453,6 @@ if (/MusicDeskAndroid/i.test(navigator.userAgent)) {
   $('selectFilesBtn').textContent = '选择歌曲';
   $('playlistDropZone').style.display = 'none';
   $('androidScopeNote').style.display = 'none';
-  $('androidLocalTabs').style.display = 'flex';
   $('libraryFilterTabs').style.display = 'flex';
   showAndroidLocalTab('library');
   switchTab('local');
