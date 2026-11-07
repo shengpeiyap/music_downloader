@@ -70,6 +70,7 @@ node tests/test_android_processing_route.js
 node tests/test_android_ui_gates.js
 node tests/test_library_sort.js
 node tests/test_friendly_message.js
+node tests/test_i18n_connection_copy.js
 ```
 
 GitHub Actions also compiles the Android Java app. To build it locally, run `gradlew.bat assembleDebug` from `android`. Test counts are intentionally omitted here because they change as coverage evolves; see the current CI run for results.

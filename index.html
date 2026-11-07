@@ -28,7 +28,7 @@
     .settings-about{color:var(--muted);font-size:13px}
     .settings-about a{color:var(--green)}
     body.android-app .android-only-tab{display:block!important}
-    body.android-app #tab-settings.active{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 2px calc(90px + env(safe-area-inset-bottom))}
+    body.android-app #tab-settings.active{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 2px calc(90px + var(--mini-h) + env(safe-area-inset-bottom))}
     .help-dialog{width:min(640px,calc(100vw - 28px));max-height:min(82vh,760px);overflow:auto;padding:24px;background:#151a17;color:var(--text);border:1px solid #39453b;border-radius:18px;box-shadow:0 24px 80px #000b}
     .help-dialog::backdrop{background:#000b;backdrop-filter:blur(3px)}
     .help-dialog-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
@@ -145,12 +145,14 @@
     body.android-app .android-mini-info{flex:1;overflow:hidden;text-align:left}
     body.android-app .android-mini-info strong,body.android-app .android-mini-info small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     body.android-app .android-mini-info small{color:var(--muted);font-size:12px}
+    body.android-app{--mini-h:0px}
+    body.android-app.has-mini{--mini-h:68px}
     body.android-app{position:fixed;inset:0;height:100%;overflow:hidden;overscroll-behavior:none;width:100%}
     body.android-app main{height:100dvh;overflow:hidden;display:flex;flex-direction:column;padding:10px 12px 0}
     body.android-app .header-bar{flex:none;margin-bottom:8px}
     body.android-app .tab-content:not(.active){display:none!important}
     body.android-app #tab-local{flex:1;min-height:0;overflow:hidden;padding-bottom:calc(78px + env(safe-area-inset-bottom));display:flex;flex-direction:column}
-    body.android-app #tab-online,body.android-app #tab-custom{flex:1;min-height:0;max-height:calc(100dvh - 82px - 72px - env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+    body.android-app #tab-online,body.android-app #tab-custom{flex:1;min-height:0;max-height:calc(100dvh - 82px - 72px - var(--mini-h) - env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
     body.android-app .now-playing-cover{width:min(58vw,36dvh,280px);height:min(58vw,36dvh,280px);margin:4px 0}
     body.android-app #nowTitle{font-size:24px!important}
     body.android-app .player-main-card{padding:14px;gap:8px}
@@ -519,19 +521,6 @@
         </div>
       </div>
     </div>
-    <div id="androidMiniPlayer" class="android-mini-player">
-      <img id="miniCover" src="default_song_img.png" alt="">
-      <div id="miniPlayerOpen" class="android-mini-info"><strong id="miniTitle">未选择歌曲</strong><small id="miniArtist">本地音乐离线播放器</small></div>
-      <button id="miniPlayBtn" type="button" aria-label="播放">▶</button>
-      <button id="miniQueueBtn" type="button" aria-label="播放队列">☷</button>
-    </div>
-    <div id="queueBackdrop" class="queue-backdrop" hidden>
-      <section id="queueSheet" class="queue-sheet" aria-label="播放列表">
-        <div id="queueDragHandle" class="queue-drag-handle" aria-label="向下拖动收起播放列表"><span></span></div>
-        <div class="queue-header"><h2 id="queueTitle" style="margin:0;font-size:20px">播放列表</h2><div style="display:flex;gap:8px"><button id="clearQueueBtn" type="button">清空</button><button id="closeQueueBtn" class="queue-close" type="button" aria-label="收起播放列表">×</button></div></div>
-        <div id="queueList" class="queue-list track-list"></div>
-      </section>
-    </div>
     <div id="playAllBackdrop" class="queue-backdrop" hidden>
       <section id="playAllSheet" class="queue-sheet play-all-sheet" aria-label="播放全部方式">
         <div class="queue-drag-handle"><span></span></div>
@@ -585,6 +574,21 @@
       <p>Android 可直接联网检索 MusicBrainz 曲目信息和 LRCLIB 歌词；格式转换与自定义封装仍需电脑服务。</p>
       <p><a href="https://github.com/shengpeiyap/music_downloader" rel="noopener">项目主页与更新记录</a></p>
       <button id="openSettingsHelpBtn" class="lrc-btn" type="button">使用帮助与快捷键</button>
+    </section>
+  </div>
+
+  <div id="androidMiniPlayer" class="android-mini-player">
+    <img id="miniCover" src="default_song_img.png" alt="">
+    <div id="miniPlayerOpen" class="android-mini-info"><strong id="miniTitle">未选择歌曲</strong><small id="miniArtist">本地音乐离线播放器</small></div>
+    <button id="miniPlayBtn" type="button" aria-label="播放">▶</button>
+    <button id="miniQueueBtn" type="button" aria-label="播放队列">☷</button>
+  </div>
+
+  <div id="queueBackdrop" class="queue-backdrop" hidden>
+    <section id="queueSheet" class="queue-sheet" aria-label="播放列表">
+      <div id="queueDragHandle" class="queue-drag-handle" aria-label="向下拖动收起播放列表"><span></span></div>
+      <div class="queue-header"><h2 id="queueTitle" style="margin:0;font-size:20px">播放列表</h2><div style="display:flex;gap:8px"><button id="clearQueueBtn" type="button">清空</button><button id="closeQueueBtn" class="queue-close" type="button" aria-label="收起播放列表">×</button></div></div>
+      <div id="queueList" class="queue-list track-list"></div>
     </section>
   </div>
 
@@ -1233,6 +1237,7 @@ function switchTab(tabName) {
   document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
   $(`tab-${tabName}`).classList.add('active');
   if (tabName === 'settings' && window.AndroidMusic) refreshAndroidSettings();
+  if (typeof updateMiniPlayerVisibility === 'function') updateMiniPlayerVisibility();
 }
 
 // LRC 工具
@@ -2483,7 +2488,7 @@ function showAndroidLocalTab(tab) {
   $('playerMainCard').style.display = showLibrary ? 'none' : 'flex';
   $('androidLibraryTab').classList.toggle('active', showLibrary);
   $('androidNowPlayingTab').classList.toggle('active', !showLibrary);
-  $('androidMiniPlayer').style.display = showLibrary && currentTrackIdx >= 0 ? 'flex' : 'none';
+  updateMiniPlayerVisibility();
   persistAndroidPlayback(true);
 }
 $('androidLibraryTab').addEventListener('click', () => showAndroidLocalTab('library'));
@@ -2837,7 +2842,19 @@ function syncAndroidMediaSession(force = false) {
   }));
 }
 
+function updateMiniPlayerVisibility() {
+  // The mini player follows you across Download / Edit / Settings, and steps aside
+  // only while the full Now Playing view is on screen.
+  const mini = $('androidMiniPlayer');
+  if (!mini || !document.body.classList.contains('android-app')) return;
+  const onLocal = $('tab-local').classList.contains('active');
+  const visible = currentTrackIdx >= 0 && !(onLocal && androidView === 'player');
+  mini.style.display = visible ? 'flex' : 'none';
+  document.body.classList.toggle('has-mini', visible && !onLocal);
+}
+
 function updateMiniPlayer() {
+  updateMiniPlayerVisibility();
   const track = localTracks[currentTrackIdx];
   if (!track) {
     $('miniTitle').textContent = '未选择歌曲';
@@ -3118,7 +3135,7 @@ $('favoriteTrackBtn').addEventListener('click', () => {
 $('openQueueBtn').addEventListener('click', openQueue);
 $('miniQueueBtn').addEventListener('click', openQueue);
 $('miniPlayBtn').addEventListener('click', () => $('togglePlaybackBtn').click());
-$('miniPlayerOpen').addEventListener('click', () => showAndroidLocalTab('player'));
+$('miniPlayerOpen').addEventListener('click', () => { switchTab('local'); showAndroidLocalTab('player'); });
 $('clearQueueBtn').addEventListener('click', clearQueue);
 $('closeQueueBtn').addEventListener('click', closeQueue);
 $('queueBackdrop').addEventListener('click', event => { if (event.target === $('queueBackdrop')) closeQueue(); });
