@@ -104,8 +104,8 @@ def _combine_metadata(info: dict, supplied_json: str):
         "album_artist": ("albumartist", "album_artist"),
         "release_year": ("year", "release_year"),
         "lyrics": ("lyrics",),
-        "track_number": ("track_num", "tracknumber"),
-        "disc_number": ("disc_num", "discnumber"),
+        "track_number": ("track_num", "tracknumber", "track_number"),
+        "disc_number": ("disc_num", "discnumber", "disc_number"),
         "genre": ("genre",),
         "composer": ("composer",),
     }.items():
@@ -264,6 +264,9 @@ def package_audio_file(source_path: str, output_path: str, metadata_json: str, c
     info = json.loads(metadata_json or "{}")
     if not isinstance(info, dict):
         raise ValueError("标签数据格式无效。")
+    # The page sends short keys (track_num, disc_num, ...) and a lyrics_format; map and
+    # normalize them here, before any output file is created.
+    info, _supplied_cover = _combine_metadata(info, metadata_json)
     cover = None
     if cover_path:
         cover_file = Path(cover_path)

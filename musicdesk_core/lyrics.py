@@ -17,16 +17,19 @@ def normalize_lyrics(lyrics: str, source_format: str = "auto") -> str:
     fmt = (source_format or "auto").lower()
     if fmt not in {"auto", "plain", "lrc", "enhanced-lrc", "srt", "vtt"}:
         raise ValueError("不支持的歌词格式。")
+    # Automatic detection only picks a subtitle format when a real cue timestamp
+    # exists, so ordinary lyrics that merely contain "-->" stay plain text.
+    has_cue = bool(_SUBTITLE_TIMESTAMP.search(text))
     if fmt == "auto":
-        if text.startswith("WEBVTT"):
-            fmt = "vtt"
-        elif "-->" in text:
-            fmt = "srt"
+        if has_cue:
+            fmt = "vtt" if text.startswith("WEBVTT") else "srt"
         elif _LINE_TIMESTAMP.search(text):
             fmt = "lrc"
         else:
             fmt = "plain"
     if fmt in {"srt", "vtt"}:
+        if text and not has_cue:
+            raise ValueError("歌词内容不是有效的 SRT 或 WebVTT 字幕。")
         converted = []
         lines = text.splitlines()
         index = 0
@@ -40,8 +43,12 @@ def normalize_lyrics(lyrics: str, source_format: str = "auto") -> str:
                 index += 1
                 cue = []
                 while index < len(lines) and lines[index].strip() and not _SUBTITLE_TIMESTAMP.search(lines[index]):
+                    # A bare number directly before a timestamp is the next cue's index,
+                    # but a bare number elsewhere is real lyric text (for example "1999").
+                    if lines[index].strip().isdigit() and index + 1 < len(lines) and _SUBTITLE_TIMESTAMP.search(lines[index + 1]):
+                        break
                     value = re.sub(r"<[^>]+>", "", lines[index]).strip()
-                    if value and not value.isdigit():
+                    if value:
                         cue.append(value)
                     index += 1
                 if cue:
