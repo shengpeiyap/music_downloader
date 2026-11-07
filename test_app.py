@@ -66,6 +66,26 @@ class FfmpegResolutionTests(unittest.TestCase):
         self.assertEqual(normalize_lyrics("1\n00:00:02,120 --> 00:00:03,000\nSubtitle line", "srt"), "[00:02.12]Subtitle line")
         self.assertEqual(normalize_lyrics("[00:01.20]<00:01.20>word", "enhanced-lrc"), "[00:01.20]<00:01.20>word")
 
+    def test_lyrics_normalization_does_not_destroy_non_subtitle_text(self):
+        plain = "Walk this way\nA --> B\nC --> D"
+        self.assertEqual(normalize_lyrics(plain), plain)
+        self.assertEqual(normalize_lyrics("WEBVTT\n\nplain words"), "WEBVTT\nplain words")
+        self.assertEqual(normalize_lyrics("", "srt"), "")
+        for text, fmt in (("[00:01.00]Hello", "srt"), ("plain words", "vtt"), ("A --> B", "srt")):
+            with self.subTest(text=text, fmt=fmt):
+                with self.assertRaises(ValueError):
+                    normalize_lyrics(text, fmt)
+
+    def test_subtitle_cues_keep_numeric_text(self):
+        self.assertEqual(
+            normalize_lyrics("1\n00:00:01,000 --> 00:00:02,000\n1999\n\n2\n00:00:03,000 --> 00:00:04,000\n7"),
+            "[00:01.00]1999\n[00:03.00]7",
+        )
+        self.assertEqual(
+            normalize_lyrics("1\n00:00:01,000 --> 00:00:02,000\nfirst\n2\n00:00:03,000 --> 00:00:04,000\nsecond", "srt"),
+            "[00:01.00]first\n[00:03.00]second",
+        )
+
     def test_prefers_app_managed_ffmpeg(self):
         with patch.dict(sys.modules, {"imageio_ffmpeg": SimpleNamespace(get_ffmpeg_exe=lambda: sys.executable)}):
             with patch("app.shutil.which", return_value="system-ffmpeg"):
