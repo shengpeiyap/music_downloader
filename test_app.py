@@ -384,6 +384,18 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("function downloadOptionNeedsComputer(", page)
         self.assertIn("(min-width:960px)", page)
 
+    def test_editor_shows_common_fields_and_folds_the_rest(self):
+        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        form = page[page.index('id="customTagForm"'):page.index('id="customStatus"')]
+        accordions = form.index('class="acc"')
+        for common in ("tagTitle", "tagArtist", "tagAlbum", "tagYear"):
+            self.assertLess(form.index(f'id="{common}"'), accordions, common)
+        for folded in ("tagLyrics", "customAudioEditor", "tagTrackNumber", "tagDiscNumber", "tagGenre", "tagComposer", "tagAlbumArtist", "filenameAppend"):
+            self.assertGreater(form.index(f'id="{folded}"'), accordions, folded)
+        self.assertIn('id="saveTagBtn"', form[form.index('class="save-bar"'):])
+        self.assertNotIn("(Title)", form)
+        self.assertIn("$('trimDetails').hidden = false;", page)
+
     def test_android_assets_are_synced_copies_of_the_shared_web_ui(self):
         root = Path(__file__).parent
         script = root / "tools" / "sync_android_assets.py"

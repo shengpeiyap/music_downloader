@@ -2,6 +2,19 @@
   'use strict';
 
   const translations = {
+    '标题': 'Title',
+    '年份': 'Year',
+    '从网上补全信息': 'Fill in from the web',
+    '按歌名搜索': 'Search by title',
+    '作者 - 标题，或只输入标题': 'Artist - Title, or just the title',
+    '未填写': 'Empty',
+    '裁剪': 'Trim',
+    '不裁剪': 'No trim',
+    '更多信息': 'More details',
+    '曲目号 · 流派 · 作曲': 'Track · Genre · Composer',
+    '输出格式': 'Output format',
+    '歌词内容': 'Lyrics text',
+    '不填写的字段会保持为空。': 'Fields you leave blank stay empty.',
     '完成': 'Done',
     '虚线选项需要连接电脑。': 'Dashed options need a connected computer.',
     '去连接': 'Connect',
@@ -182,6 +195,8 @@
        /^Connected to computer service: (\S+?)\. Lookup, lyrics, download, conversion, and packaging run on the computer and the results are sent back to the phone\.$/, '已连接电脑服务：$1。解析、歌词、下载、转换和封装任务由电脑处理，结果回传到手机。'],
       [/^已保存电脑地址 (\S+?)；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。$/, 'Saved computer address $1. After the connection is verified, these tasks run on the computer. Using this phone for now.',
        /^Saved computer address (\S+?)\. After the connection is verified, these tasks run on the computer\. Using this phone for now\.$/, '已保存电脑地址 $1；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。'],
+      [/^已填 (\d+) 项$/, '$1 filled', /^(\d+) filled$/, '已填 $1 项'],
+      [/^(\d+) 行$/, '$1 lines', /^(\d+) lines$/, '$1 行'],
       [/^已连接：(\S+)$/, 'Connected: $1', /^Connected: (\S+)$/, '已连接：$1'],
       [/^已保存：(\S+?)（点按钮测试连接）$/, 'Saved: $1 (tap the button to test the connection)', /^Saved: (\S+?) \(tap the button to test the connection\)$/, '已保存：$1（点按钮测试连接）'],
     ];

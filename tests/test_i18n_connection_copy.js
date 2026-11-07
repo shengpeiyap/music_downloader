@@ -32,3 +32,9 @@ const dynamic = '已连接电脑服务：http://192.168.1.20:8765。解析、歌
 assert.doesNotMatch(lookup(dynamic, 'en'), /[一-鿿]/);
 assert.equal(lookup(lookup(dynamic, 'en'), 'zh'), dynamic);
 console.log('connection copy translations passed (' + sentences.length + ' static sentences)');
+
+// Editor summaries are built from numbers, so they round-trip through patterns rather than the dictionary.
+assert.equal(lookup('已填 2 项', 'en'), '2 filled');
+assert.equal(lookup('2 filled', 'zh'), '已填 2 项');
+assert.equal(lookup('12 行', 'en'), '12 lines');
+console.log('editor summary translations passed');
