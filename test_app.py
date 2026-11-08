@@ -404,6 +404,14 @@ class LocalTagMetadataTests(unittest.TestCase):
         for text in ("下一步", "跳过", "开始使用", "用“添加”导入歌曲或文件夹，离线播放、收藏和排队。"):
             self.assertIn("'%s'" % text, i18n)
 
+    def test_connection_card_has_steps_badge_and_web_pairing_card(self):
+        html = open("index.html", encoding="utf-8").read()
+        for needle in ('id="apiStateBadge"', 'class="conn-steps"', 'conn-unlocks', 'web-setting', 'body.android-app .web-setting{display:none'):
+            self.assertIn(needle, html)
+        for needle in ('id="apiServerUrl"', 'id="apiPairingToken"', 'id="connectApiBtn"', 'id="forgetApiBtn"'):
+            self.assertIn(needle, html)
+        self.assertIn("input[type=password]", html)
+
     def test_library_has_single_add_menu_and_back_closes_overlays(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8") if "ROOT" in globals() else open("index.html", encoding="utf-8").read()
         self.assertIn('id="addMusicBtn"', html)
