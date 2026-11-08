@@ -284,6 +284,42 @@ def package_audio_file(source_path: str, output_path: str, metadata_json: str, c
     return str(output)
 
 
+def _read_embedded_lyrics(source_path: str) -> str:
+    """Read lyrics that the easy tag interface hides (ID3 USLT/SYLT, MP4 ©lyr, Vorbis, ASF)."""
+    try:
+        raw = mutagen.File(str(source_path))
+    except Exception:
+        return ""
+    tags = getattr(raw, "tags", None)
+    if not tags:
+        return ""
+    def text_of(value):
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else ""
+        return str(getattr(value, "text", value) or "")
+    # ID3: unsynchronised lyrics are stored under keys such as "USLT::eng".
+    for key in list(tags.keys()):
+        if str(key).startswith("USLT"):
+            text = text_of(tags[key])
+            if text.strip():
+                return text
+    for key in list(tags.keys()):
+        if str(key).startswith("SYLT"):
+            frame = tags[key]
+            lines = []
+            for text, millis in getattr(frame, "text", []) or []:
+                minutes, rest = divmod(int(millis), 60000)
+                lines.append(f"[{minutes:02d}:{rest / 1000:05.2f}]{text}")
+            if lines:
+                return "\n".join(lines)
+    for key in ("\xa9lyr", "lyrics", "LYRICS", "unsyncedlyrics", "UNSYNCEDLYRICS", "WM/Lyrics"):
+        if key in tags:
+            text = text_of(tags[key])
+            if text.strip():
+                return text
+    return ""
+
+
 def read_local_audio_tags(source_path: str):
     audio = mutagen.File(str(source_path), easy=True)
     if audio is None:
@@ -297,7 +333,7 @@ def read_local_audio_tags(source_path: str):
     return json.dumps({
         "title": first("title"), "artist": first("artist"), "album": first("album"),
         "albumartist": first("albumartist", "album artist"), "year": first("date", "year"),
-        "lyrics": normalize_lyrics(first("lyrics", "unsyncedlyrics")),
+        "lyrics": normalize_lyrics(first("lyrics", "unsyncedlyrics") or _read_embedded_lyrics(source_path)),
     }, ensure_ascii=False)
 
 
@@ -529,13 +565,39 @@ def lookup_lyrics(title: str, artist: str = "") -> str:
     return json.dumps({"lyrics": lyrics, "synced_lyrics": synced_lyrics, "provider": "LRCLIB"}, ensure_ascii=False)
 
 
+_BOT_CHECK = re.compile(r"confirm you.{0,3}re not a bot|sign in to confirm|not a bot", re.I)
+# YouTube sometimes asks shared or mobile-network IPs to prove they are not a bot. Other player
+# clients are often not challenged, so retry with them before giving up.
+_YOUTUBE_CLIENT_FALLBACKS = (None, ["android_vr"], ["tv"], ["web_embedded"], ["mweb"])
+BOT_CHECK_MESSAGE = ("YouTube 暂时要求验证身份（移动网络或共享网络上常见）。"
+                     "请换一个 Wi‑Fi 或稍后重试，也可以连接电脑后再下载。")
+
+
+def _run_with_client_fallbacks(options: dict, action):
+    """Run action(options) and, on a bot check, retry with other YouTube player clients."""
+    last_error = None
+    for clients in _YOUTUBE_CLIENT_FALLBACKS:
+        attempt = dict(options)
+        if clients:
+            attempt["extractor_args"] = {"youtube": {"player_client": clients}}
+        try:
+            return action(attempt)
+        except Exception as error:
+            if not _BOT_CHECK.search(str(error)):
+                raise
+            last_error = error
+    raise RuntimeError(BOT_CHECK_MESSAGE) from last_error
+
+
 def _resolve_info(source: str, download: bool):
     options = {"noplaylist": True, "quiet": True, "no_warnings": True, "cachedir": False}
     if not download:
         options["skip_download"] = True
-    with yt_dlp.YoutubeDL(options) as downloader:
-        info = _first_entry(downloader.extract_info(source, download=download))
-    return info
+
+    def action(attempt):
+        with yt_dlp.YoutubeDL(attempt) as downloader:
+            return _first_entry(downloader.extract_info(source, download=download))
+    return _run_with_client_fallbacks(options, action)
 
 
 def extract_metadata(source: str) -> str:
@@ -576,18 +638,22 @@ def download_audio_with_metadata(source: str, work_dir: str, supplied_metadata_j
         "writethumbnail": True,
     }
 
-    with yt_dlp.YoutubeDL(options) as downloader:
-        info = _first_entry(downloader.extract_info(source, download=True))
-        if not info:
-            raise RuntimeError("没有找到可下载的音频。")
-        candidates = [Path(item["filepath"]) for item in info.get("requested_downloads", []) if item.get("filepath")]
-        if not candidates:
-            candidates = [Path(downloader.prepare_filename(info))]
-        audio_path = next((item for item in candidates if item.is_file() and item.stat().st_size), None)
-        if audio_path is None:
-            audio_path = next((item for item in destination.iterdir() if item.is_file() and not item.name.endswith(".part") and item.name not in {"cover.jpg", "cover.png"}), None)
-        if audio_path is None:
-            raise RuntimeError("下载结束，但没有找到生成的音频文件。")
+    def action(attempt):
+        with yt_dlp.YoutubeDL(attempt) as downloader:
+            info = _first_entry(downloader.extract_info(source, download=True))
+            if not info:
+                raise RuntimeError("没有找到可下载的音频。")
+            candidates = [Path(item["filepath"]) for item in info.get("requested_downloads", []) if item.get("filepath")]
+            if not candidates:
+                candidates = [Path(downloader.prepare_filename(info))]
+            audio_path = next((item for item in candidates if item.is_file() and item.stat().st_size), None)
+            if audio_path is None:
+                audio_path = next((item for item in destination.iterdir() if item.is_file() and not item.name.endswith(".part") and item.name not in {"cover.jpg", "cover.png"}), None)
+            if audio_path is None:
+                raise RuntimeError("下载结束，但没有找到生成的音频文件。")
+            return info, audio_path
+
+    info, audio_path = _run_with_client_fallbacks(options, action)
 
     tag_info, cover_source = _combine_metadata(info, supplied_metadata_json)
     # MusicBrainz/CAA entries may return a valid-looking URL even when no front
