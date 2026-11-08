@@ -333,7 +333,11 @@ public final class MainActivity extends Activity {
             String resultFilename = filename;
             runOnUiThread(() -> {
                 File parent = source.getParentFile();
-                if (parent != null) parent.delete();
+                if (parent != null) {
+                    File grandparent = parent.getParentFile();
+                    parent.delete();
+                    if (grandparent != null) grandparent.delete();
+                }
                 notifyCustomPackageComplete(resultError, resultFilename);
             });
         });
@@ -393,7 +397,11 @@ public final class MainActivity extends Activity {
             String resultFilename = filename;
             runOnUiThread(() -> {
                 File parent = source.getParentFile();
-                if (parent != null) parent.delete();
+                if (parent != null) {
+                    File grandparent = parent.getParentFile();
+                    parent.delete();
+                    if (grandparent != null) grandparent.delete();
+                }
                 notifyAndroidConvertComplete(resultError, resultFilename);
             });
         });
@@ -662,10 +670,14 @@ public final class MainActivity extends Activity {
                         }
                     }
                     String ext = sourceExt.isEmpty() ? ".audio" : sourceExt;
-                    output = new File(work, safeDownloadFilename(outputName));
+                    // The result lives in its own folder: when the exported name equals the source name
+                    // (same format, same title) input and output must not be the same file.
+                    File outDir = new File(work, "out");
+                    if (!outDir.mkdirs()) throw new IOException("无法创建临时目录");
+                    output = new File(outDir, safeDownloadFilename(outputName));
                     String requestedExt = "." + outputFormat.toLowerCase();
                     if (!output.getName().toLowerCase().endsWith(requestedExt)) {
-                        output = new File(work, safeDownloadFilename(outputName) + requestedExt);
+                        output = new File(outDir, safeDownloadFilename(outputName) + requestedExt);
                     }
                     File tagSource = input;
                     if (needsTranscode) {
@@ -708,7 +720,9 @@ public final class MainActivity extends Activity {
                     if (!work.mkdirs()) throw new IOException("无法创建临时目录");
                     copyContentToFile(selectedUri, input);
                     String base = audioName == null ? "converted" : audioName.replaceFirst("(?i)\\.[^.]+$", "");
-                    output = new File(work, safeDownloadFilename(base + "." + outputFormat.toLowerCase()));
+                    File outDir = new File(work, "out");
+                    if (!outDir.mkdirs()) throw new IOException("无法创建临时目录");
+                    output = new File(outDir, safeDownloadFilename(base + "." + outputFormat.toLowerCase()));
                     transcodeAudio(input, output, outputFormat, 0, 0);
                     File converted = output;
                     runOnUiThread(() -> saveConversionOutput(converted));

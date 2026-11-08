@@ -274,7 +274,8 @@ def package_audio_file(source_path: str, output_path: str, metadata_json: str, c
             data = cover_file.read_bytes()
             mime = "image/png" if cover_file.suffix.lower() == ".png" else "image/jpeg"
             cover = (data, mime, str(cover_file))
-    shutil.copyfile(source, output)
+    if output.resolve() != source.resolve():
+        shutil.copyfile(source, output)
     try:
         if not _write_metadata(output, info, cover):
             raise ValueError("此音频格式暂不支持写入标签。")

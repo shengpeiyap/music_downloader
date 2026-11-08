@@ -1198,6 +1198,20 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
             self.module._run_with_client_fallbacks({}, action)
         self.assertEqual(len(calls), 1)
 
+    def test_packaging_over_the_same_path_does_not_fail(self):
+        import os, shutil
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("ffmpeg not available")
+        path = os.path.join(self.tmp, "same.mp3")
+        subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=d=1", path], check=True)
+        self.module.package_audio_file(path, path, json.dumps({"title": "Same", "artist": "A"}), "")
+        self.assertEqual(json.loads(self.module.read_local_audio_tags(path))["title"], "Same")
+
+    def test_native_export_uses_a_separate_output_folder(self):
+        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
+        self.assertGreaterEqual(activity.count('new File(work, "out")'), 2)
+
     def test_embedded_lyrics_are_read_back_from_packaged_mp3(self):
         import os, shutil
         ffmpeg = shutil.which("ffmpeg")
