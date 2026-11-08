@@ -53,14 +53,16 @@
     .result{display:none;margin-top:18px;padding-top:18px;border-top:1px solid var(--line);gap:14px;flex-direction:column}
     .result-header{display:flex;gap:14px;align-items:center;justify-content:space-between;width:100%}
     .result-info{display:flex;gap:14px;align-items:center}
+    .result-info>div{min-width:0;overflow-wrap:anywhere}
     .result img{width:76px;height:76px;border-radius:10px;object-fit:cover;background:#29332c}
     .result strong{display:block}
     .result small,.status{color:var(--muted)}
 
     .engine-box{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
     .engine-select{padding:6px 10px;font-size:12px;background:#151a17;border-color:#37433a;width:auto}
-    .btn-group{display:flex;gap:8px}
-    .dl-btn{margin-top:0;white-space:nowrap;padding:9px 12px;font-size:13px}
+    .btn-group{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+    .dl-btn{margin-top:0;white-space:normal;max-width:100%;padding:9px 12px;font-size:13px}
+    .status,.hint{overflow-wrap:anywhere}
     .lrc-btn{background:#29332c;color:var(--text);border:1px solid #37433a}
     .lrc-btn:hover{border-color:var(--green)}
 
@@ -516,7 +518,7 @@
                 <button id="customLyricsFinishTiming" type="button" hidden disabled>完成并生成 LRC</button>
               </div>
               <div id="customLyricsPreview" class="custom-lyrics-preview" aria-live="polite">
-                <p class="custom-lyrics-empty">选择音频并载入 LRC 歌词后，可试听并点选歌词校时。</p>
+                <p class="custom-lyrics-empty ui-text">选择音频并载入 LRC 歌词后，可试听并点选歌词校时。</p>
               </div>
             </div></div>
             </details>
@@ -772,6 +774,8 @@
 <script src="library_sort.js"></script>
 <script>
 const $=id=>document.getElementById(id);
+// Text injected into areas the page translator leaves alone (lyrics, track lists) goes through here.
+const ui = text => (window.translateUi ? window.translateUi(text) : text);
 function friendlyMessage(value) {
   // Show users a plain sentence: drop exception class prefixes such as "ValueError: ".
   let text = String(value && value.message !== undefined ? value.message : (value || '')).trim();
@@ -1232,7 +1236,7 @@ function renderChipGroups() {
       button.className = 'chip' + (on ? ' on' : '') + (gated ? ' needs-computer' : '');
       button.textContent = config.label(option);
       button.setAttribute('aria-pressed', String(on));
-      if (gated) button.setAttribute('aria-label', `${button.textContent}，需要连接电脑`);
+      if (gated) button.setAttribute('aria-label', ui(`${button.textContent}，需要连接电脑`));
       if (select.disabled && selectId === 'downloadBitrate') button.disabled = true;
       button.addEventListener('click', () => {
         if (blocked) { $('downloadComputerNote').hidden = false; $('downloadConnectLink').focus(); return; }
@@ -1572,7 +1576,7 @@ function renderPlainLyrics(container, lyricText, emptyMessage) {
   const lines = String(lyricText || '').replace(/^\uFEFF/, '').split(/\r?\n/);
   const visibleLines = lines.filter(line => line.trim());
   if (!visibleLines.length) {
-    container.innerHTML = `<div style="color:var(--muted);text-align:center;padding-top:50px">${escapeHTML(emptyMessage)}</div>`;
+    container.innerHTML = `<div class="ui-text" style="color:var(--muted);text-align:center;padding-top:50px">${escapeHTML(ui(emptyMessage))}</div>`;
     return;
   }
   container.innerHTML = visibleLines.map(line =>
@@ -1692,7 +1696,7 @@ $('viewLrcBtn').addEventListener('click', async () => {
   const viewer = $('lyricsViewer');
   if (viewer.style.display === 'block') { viewer.style.display = 'none'; return; }
   viewer.style.display = 'block';
-  $('lrcContainer').innerHTML = '正在检索并载入 LRC 歌词…';
+  $('lrcContainer').innerHTML = `<span class="ui-text">${escapeHTML(ui('正在检索并载入 LRC 歌词…'))}</span>`;
   try {
     if (shouldProcessOnAndroid()) {
       const result = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
@@ -1710,7 +1714,7 @@ $('viewLrcBtn').addEventListener('click', async () => {
     if (!r.ok) throw Error(d.error || '未检索到歌词');
     renderLyricsView(d.lyrics || '');
   } catch (err) {
-    $('lrcContainer').innerHTML = `<div style="color:var(--muted);text-align:center;padding-top:80px">${escapeHTML(friendlyMessage(err))}${/没有找到.*歌词/.test(err.message || '') ? '<br><small>可以在“编辑”里手动粘贴歌词。</small>' : ''}</div>`;
+    $('lrcContainer').innerHTML = `<div class="ui-text" style="color:var(--muted);text-align:center;padding-top:80px">${escapeHTML(ui(friendlyMessage(err)))}${/没有找到.*歌词/.test(err.message || '') ? '<br><small>' + escapeHTML(ui('可以在“编辑”里手动粘贴歌词。')) + '</small>' : ''}</div>`;
   }
 });
 
@@ -2005,13 +2009,13 @@ function renderCustomLyricsPreview() {
       const time = document.createElement('span');
       time.className = 'custom-lyric-time';
       const markedAt = customPlainTimingMarks.get(index);
-      time.textContent = Number.isFinite(markedAt) ? formatEditorTime(markedAt) : '待标记';
+      time.textContent = Number.isFinite(markedAt) ? formatEditorTime(markedAt) : ui('待标记');
       row.append(time, document.createTextNode(line.text));
       container.append(row);
     });
   } else if (!customLrcEntries.length) {
     const message = document.createElement('p');
-    message.className = 'custom-lyrics-empty';
+    message.className = 'custom-lyrics-empty ui-text';
     message.textContent = lyrics.trim()
       ? '这段歌词没有时间戳。选择音频后，可以开启逐句打点模式。'
       : '选择音频并载入 LRC 歌词后，可试听并点选歌词校时。';
@@ -2025,7 +2029,7 @@ function renderCustomLyricsPreview() {
       const time = document.createElement('span');
       time.className = 'custom-lyric-time';
       time.textContent = formatEditorTime(entry.seconds);
-      button.append(time, document.createTextNode(entry.text || '（空歌词行）'));
+      button.append(time, document.createTextNode(entry.text || ui('（空歌词行）')));
       container.append(button);
     });
   }
@@ -2718,7 +2722,7 @@ function addLocalAudioFiles(inputFiles, replace) {
     const fallbackFolder = file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(0, -1).join('/') : '已选歌曲';
     return {
       file, browserKey: source && source.key || '', fileHandle: source && source.handle || null,
-      title: file.name.replace(/\.[^/.]+$/, ''), artist: '未知歌手', album: '未知专辑',
+      title: file.name.replace(/\.[^/.]+$/, ''), artist: ui('未知歌手'), album: ui('未知专辑'),
       folderPath: source && source.folderPath || fallbackFolder,
       favorite: favoriteTrackKeys.has(key), cover: null, lrc: '', objectUrl: null
     };
@@ -2772,7 +2776,7 @@ function addDesktopAudioRecords(records, replace, restoring = false) {
   const added = items.filter(item => !known.has(item.path)).map(item => ({
     file: {name: item.name, size: Number(item.size) || 0, lastModified: Number(item.lastModified) || 0},
     desktopPath: item.path, streamUrl: item.url, metadataUrl: item.url,
-    title: item.name.replace(/\.[^/.]+$/, ''), artist: '未知歌手', album: '未知专辑',
+    title: item.name.replace(/\.[^/.]+$/, ''), artist: ui('未知歌手'), album: ui('未知专辑'),
     folderPath: item.folderPath || '已选歌曲', favorite: favoriteTrackKeys.has(item.path),
     cover: null, lrc: '', objectUrl: null
   }));
@@ -2814,8 +2818,8 @@ window.onAndroidFolderPicked = (raw, isFinal = true, wasCapped = false) => {
   try { records = JSON.parse(raw); } catch (_) {}
   const known = new Set(localTracks.map(localTrackKey));
   const added = records.filter(record => record && record.uri && !known.has(record.uri)).map(record => ({
-    file: null, contentUri: record.uri, title: record.title || record.name || '未知标题',
-    artist: record.artist || '未知歌手', album: record.album || '未知专辑',
+    file: null, contentUri: record.uri, title: record.title || record.name || ui('未知标题'),
+    artist: record.artist || ui('未知歌手'), album: record.album || ui('未知专辑'),
     cover: null, lrc: '', folderPath: record.folderPath || '已导入文件夹',
     favorite: favoriteTrackKeys.has(record.uri), objectUrl: null, androidCachedUrl: null
   }));
@@ -2917,7 +2921,7 @@ function renderLocalPlaylist(filterText = "") {
   displayedTrackIndices = [];
   const categoryTitles = {songs: '所有歌曲', artists: '歌手', albums: '专辑', folders: '文件夹', favorites: '我的收藏'};
   $('playlistHeading').textContent = libraryGroup || categoryTitles[libraryCategory] || '所有歌曲';
-  $('playlistHeading').title = `${localTracks.length} 首歌曲`;
+  $('playlistHeading').title = ui(`${localTracks.length} 首歌曲`);
   $('libraryTrackCount').textContent = `${libraryCategory === 'favorites' ? localTracks.filter(track => track.favorite).length : localTracks.length} 首`;
   $('libraryFilterTabs').querySelectorAll('[data-category]').forEach(button =>
     button.classList.toggle('active', button.dataset.category === libraryCategory));
@@ -2940,7 +2944,7 @@ function renderLocalPlaylist(filterText = "") {
     container.innerHTML = entries.length ? entries.map(([name, count]) => `
       <button type="button" class="track-item library-group-item" data-library-group="${escapeHTML(name)}" style="text-align:left;color:var(--text);width:100%;margin:0;background:#0d110e;border:1px solid transparent">
         <div class="track-item-info"><strong>${escapeHTML(name)}</strong><small>${count} 首歌曲</small></div>
-      </button>`).join('') : '<div style="color:var(--muted);text-align:center;padding:36px 8px">暂无分类内容</div>';
+      </button>`).join('') : '<div style="color:var(--muted);text-align:center;padding:36px 8px">' + ui('暂无分类内容') + '</div>';
     return;
   }
   if (libraryGroup) {
@@ -3068,7 +3072,7 @@ function playLocalTrack(idx, keepQueue = false) {
   $('nowCover').src = track.cover || DEFAULT_COVER;
   $('favoriteTrackBtn').textContent = track.favorite ? '♥' : '♡';
   $('favoriteTrackBtn').classList.toggle('active', !!track.favorite);
-  $('favoriteTrackBtn').setAttribute('aria-label', track.favorite ? '取消收藏' : '收藏歌曲');
+  $('favoriteTrackBtn').setAttribute('aria-label', ui(track.favorite ? '取消收藏' : '收藏歌曲'));
   updateMiniPlayer();
 
   requestTrackArtwork(track);
@@ -3155,8 +3159,8 @@ function syncPlayerControls() {
   $('nextTrackBtn').disabled = !hasTrack || (playbackMode === 'sequential' && position >= queue.length - 1);
   $('togglePlaybackBtn').disabled = !hasTrack;
   $('togglePlaybackBtn').textContent = player.paused ? '▶' : 'Ⅱ';
-  $('togglePlaybackBtn').setAttribute('aria-label', player.paused ? '播放' : '暂停');
-  $('togglePlaybackBtn').title = player.paused ? '播放' : '暂停';
+  $('togglePlaybackBtn').setAttribute('aria-label', ui(player.paused ? '播放' : '暂停'));
+  $('togglePlaybackBtn').title = ui(player.paused ? '播放' : '暂停');
   $('currentTimeLabel').textContent = formatPlayerTime(player.currentTime);
   $('durationLabel').textContent = formatPlayerTime(player.duration);
   const seek = $('playbackSeek');
@@ -3165,10 +3169,10 @@ function syncPlayerControls() {
   if (!seek.matches(':active')) seek.value = Number.isFinite(player.currentTime) ? player.currentTime : 0;
   $('playbackModeBtn').textContent = PLAYBACK_MODE_LABELS[playbackMode];
   $('playbackModeBtn').innerHTML = PLAYBACK_MODE_ICONS[playbackMode];
-  $('playbackModeBtn').title = `当前：${PLAYBACK_MODE_LABELS[playbackMode]}，点击切换`;
-  $('playbackModeBtn').setAttribute('aria-label', `当前：${PLAYBACK_MODE_LABELS[playbackMode]}，点击切换`);
+  $('playbackModeBtn').title = ui(`当前：${PLAYBACK_MODE_LABELS[playbackMode]}，点击切换`);
+  $('playbackModeBtn').setAttribute('aria-label', ui(`当前：${PLAYBACK_MODE_LABELS[playbackMode]}，点击切换`));
   $('miniPlayBtn').textContent = player.paused ? '▶' : 'Ⅱ';
-  $('miniPlayBtn').setAttribute('aria-label', player.paused ? '播放' : '暂停');
+  $('miniPlayBtn').setAttribute('aria-label', ui(player.paused ? '播放' : '暂停'));
   syncAndroidMediaSession();
 }
 
@@ -3184,7 +3188,7 @@ function syncAndroidMediaSession(force = false) {
   }
   const player = $('localAudioPlayer');
   AndroidMusic.updatePlayback(JSON.stringify({
-    title: track.title || '未知标题', artist: track.artist || '未知歌手', album: track.album || '',
+    title: track.title || ui('未知标题'), artist: track.artist || ui('未知歌手'), album: track.album || '',
     playing: !player.paused, position: Number(player.currentTime) || 0,
     duration: Number.isFinite(player.duration) ? player.duration : 0,
     artwork: track.cover || '', mode: playbackMode
@@ -3267,7 +3271,7 @@ function renderQueue() {
       <div class="track-item-info"><strong>${escapeHTML(track.title)}</strong><small>${escapeHTML(track.artist)} - ${escapeHTML(track.album)}</small></div>
       <button type="button" class="track-more" aria-label="更多操作：${escapeHTML(track.title)}" aria-haspopup="dialog" onclick="event.stopPropagation();openTrackMenu(${idx})"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></button>
     </div>`;
-  }).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">播放列表为空</div>';
+  }).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">' + ui('播放列表为空') + '</div>';
 }
 
 

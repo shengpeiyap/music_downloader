@@ -419,6 +419,19 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("public void loadArtwork(String contentUri)", activity)
         self.assertIn("musicdesk-art", activity)
 
+    def test_english_mode_copy_and_long_titles_do_not_break_layout(self):
+        html = open("index.html", encoding="utf-8").read()
+        i18n = open("i18n.js", encoding="utf-8").read()
+        # buttons may wrap and long titles break, so English copy cannot widen the page
+        self.assertNotIn(".dl-btn{margin-top:0;white-space:nowrap", html)
+        self.assertIn(".btn-group{display:flex;gap:8px;flex-wrap:wrap", html)
+        self.assertIn(".result-info>div{min-width:0;overflow-wrap:anywhere}", html)
+        # text placed in areas the page translator skips goes through translateUi / .ui-text
+        self.assertIn("window.translateUi", i18n)
+        self.assertIn("parent.closest('.ui-text')", i18n)
+        for needle in ("const ui = text =>", "ui('暂无内嵌歌词')" if "ui('暂无内嵌歌词')" in html else "emptyMessage"):
+            self.assertIn(needle, html)
+
     def test_library_has_single_add_menu_and_back_closes_overlays(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8") if "ROOT" in globals() else open("index.html", encoding="utf-8").read()
         self.assertIn('id="addMusicBtn"', html)

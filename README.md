@@ -71,6 +71,7 @@ node tests/test_android_ui_gates.js
 node tests/test_library_sort.js
 node tests/test_friendly_message.js
 node tests/test_i18n_connection_copy.js
+node tests/test_i18n_dynamic_copy.js
 node tests/test_download_settings_gating.js
 ```
 
