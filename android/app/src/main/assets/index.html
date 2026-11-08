@@ -48,7 +48,7 @@
     .tab-content{display:none}
     .tab-content.active{display:block}
 
-    h1{font-size:clamp(32px,6vw,52px);line-height:1.04;letter-spacing:-.05em;margin:16px 0 16px;max-width:750px}.intro{color:var(--muted);max-width:620px;margin:0 0 32px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:20px;padding:26px;box-shadow:0 20px 70px #0003}.card h2{margin:0 0 6px;font-size:21px}.hint{color:var(--muted);font-size:14px;margin:0 0 22px}label{font-size:13px;color:#c3cec5;display:block;margin-bottom:8px}input,select,button,textarea{font:inherit}input[type=url],input[type=text],input[type=number],select,textarea{width:100%;background:#0d110e;border:1px solid #37433a;border-radius:10px;color:var(--text);padding:12px 14px;outline:none}textarea{resize:vertical;min-height:100px}input:focus,select:focus,textarea:focus{border-color:var(--green)}button{border:0;border-radius:10px;background:var(--green);color:#17200f;padding:12px 17px;font-weight:750;cursor:pointer;margin-top:14px}button:disabled{opacity:.5;cursor:wait}.row{display:flex;gap:10px;align-items:end}.row>div{flex:1}
+    h1{font-size:clamp(32px,6vw,52px);line-height:1.04;letter-spacing:-.05em;margin:16px 0 16px;max-width:750px}.intro{color:var(--muted);max-width:620px;margin:0 0 32px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:20px;padding:26px;box-shadow:0 20px 70px #0003}.card h2{margin:0 0 6px;font-size:21px}.hint{color:var(--muted);font-size:14px;margin:0 0 22px}label{font-size:13px;color:#c3cec5;display:block;margin-bottom:8px}input,select,button,textarea{font:inherit}input[type=url],input[type=text],input[type=password],input[type=number],select,textarea{width:100%;background:#0d110e;border:1px solid #37433a;border-radius:10px;color:var(--text);padding:12px 14px;outline:none}textarea{resize:vertical;min-height:100px}input:focus,select:focus,textarea:focus{border-color:var(--green)}button{border:0;border-radius:10px;background:var(--green);color:#17200f;padding:12px 17px;font-weight:750;cursor:pointer;margin-top:14px}button:disabled{opacity:.5;cursor:wait}.row{display:flex;gap:10px;align-items:end}.row>div{flex:1}
 
     .result{display:none;margin-top:18px;padding-top:18px;border-top:1px solid var(--line);gap:14px;flex-direction:column}
     .result-header{display:flex;gap:14px;align-items:center;justify-content:space-between;width:100%}
@@ -210,6 +210,16 @@
     .engine-select{min-height:44px;font-size:14px}
     .help-shortcuts{display:block}
     body:not(.android-app) .android-setting{display:none!important}
+    body.android-app .web-setting{display:none!important}
+    .conn-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px}
+    .conn-head h2{margin:0}
+    .conn-badge{padding:4px 10px;border-radius:999px;background:#1f2823;border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700}
+    .conn-badge.on{background:var(--green);border-color:var(--green);color:#17200f}
+    .conn-steps{margin:0 0 14px;padding-left:20px;color:var(--muted);font-size:14px;line-height:1.7}
+    .conn-steps code{padding:1px 6px;border-radius:6px;background:#1f2823;color:var(--text);font-size:13px}
+    .conn-unlocks{margin-top:14px;padding:12px 14px;border-radius:14px;background:#111613;border:1px solid var(--line);font-size:13px;color:var(--muted)}
+    .conn-unlocks strong{color:var(--text)}
+    .conn-unlocks ul{margin:6px 0 0;padding-left:18px;line-height:1.7}
     body.android-app .help-shortcuts{display:none}
     @media(max-width:768px){
       main{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
@@ -661,8 +671,13 @@
       <div class="settings-row"><span>使用指南与快捷键</span><button id="helpBtn" class="lrc-btn" type="button" aria-label="帮助与快捷键" title="帮助与快捷键">查看</button></div>
     </section>
     <section id="androidApiConnectCard" class="card android-api-connect settings-card android-setting">
-      <h2>电脑服务连接</h2>
-      <p class="hint">连接成功后，在线解析、歌词、下载、转换和封装任务会交给电脑处理，结果再传回手机；断开连接时改用手机本机能力。传输仅发生在你配对的局域网电脑与手机之间。</p>
+      <div class="conn-head"><h2>电脑连接</h2><span id="apiStateBadge" class="conn-badge">未连接</span></div>
+      <p class="hint">连接后，下载、转换和歌词等任务交给电脑处理，结果传回手机；不连接也能用手机本机功能。</p>
+      <ol class="conn-steps">
+        <li>在电脑上双击 <code>start_lan.bat</code> 启动。</li>
+        <li>窗口里会显示“Phone server address”和“One-run pairing token”。</li>
+        <li>手机和电脑连同一个 Wi‑Fi，把它们填在下面。</li>
+      </ol>
       <label for="apiServerUrl">电脑服务地址</label>
       <input id="apiServerUrl" type="url" inputmode="url" placeholder="http://192.168.1.20:8765" autocomplete="url">
       <label for="apiPairingToken" style="margin-top:12px">一次性配对密钥</label>
@@ -672,7 +687,19 @@
         <button id="forgetApiBtn" class="lrc-btn" type="button">断开</button>
       </div>
       <p id="apiConnectionStatus" class="status" aria-live="polite">尚未连接</p>
-      <p class="settings-about">电脑在线时优先由电脑端处理并回传文件；无法连接时，本机支持的功能仍可离线使用。需要先在电脑上启动 MusicDesk LAN API。</p>
+      <div class="conn-unlocks"><strong>连接电脑后可用</strong>
+        <ul><li>WAV、FLAC、AAC 等所有格式和比特率</li><li>SpotDL 来源与在线标签搜索</li><li>歌词下载与格式转换</li></ul>
+      </div>
+    </section>
+    <section class="card settings-card web-setting">
+      <h2>手机配对</h2>
+      <p class="hint">想让手机用这台电脑处理下载和转换：</p>
+      <ol class="conn-steps">
+        <li>关闭当前窗口，改用 <code>start_lan.bat</code> 启动。</li>
+        <li>窗口会显示“Phone server address”和“One-run pairing token”。</li>
+        <li>在手机 MusicDesk 的“设置 → 电脑连接”里填入。</li>
+      </ol>
+      <p class="settings-about">密钥每次启动都会变化，只在你信任的家庭或办公 Wi‑Fi 中使用。</p>
     </section>
     <section class="card settings-card android-setting">
       <h2>曲库与权限</h2>
@@ -799,6 +826,9 @@ function updateApiConnectionMessage(connected, message = '') {
   androidApiConnected = !!connected;
   updateAndroidApiGates();
   const saved = !!androidApiConfig;
+  const badge = $('apiStateBadge');
+  badge.textContent = connected ? '已连接' : saved ? '已保存，未验证' : '未连接';
+  badge.classList.toggle('on', !!connected);
   $('apiConnectionStatus').textContent = message || (connected ? `已连接：${androidApiConfig.url}` : saved ? `已保存：${androidApiConfig.url}（点按钮测试连接）` : '尚未连接');
   $('androidOnlineNote').textContent = connected
     ? `已连接电脑服务：${androidApiConfig.url}。解析、歌词、下载、转换和封装任务由电脑处理，结果回传到手机。`
