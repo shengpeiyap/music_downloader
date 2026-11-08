@@ -11,6 +11,7 @@ assert.equal(friendlyMessage(new Error('ValueError: 公开歌词库中没有找�
 assert.equal(friendlyMessage('java.lang.IllegalStateException: 无法写入文件'), '无法写入文件');
 assert.equal(friendlyMessage('com.chaquo.python.PyException: ValueError: 不支持的歌词格式。'.replace('com.chaquo.python.PyException: ', '')), '不支持的歌词格式。');
 assert.equal(friendlyMessage(new TypeError('Failed to fetch')), '网络连接失败，请检查网络后重试。');
+assert.match(friendlyMessage('ERROR: [youtube] Y8IC8X-Ja_8: Sign in to confirm you’re not a bot. Use --cookies-from-browser'), /^YouTube 暂时要求验证身份/);
 assert.equal(friendlyMessage('已保存'), '已保存');
 assert.equal(friendlyMessage(null), '');
 console.log('friendlyMessage checks passed');

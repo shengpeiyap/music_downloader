@@ -257,7 +257,7 @@
     .download-settings-panel h2{margin:0;font-size:18px}
     .sheet-head{display:flex;align-items:center;justify-content:space-between}
     .sheet-done{margin:0;padding:0 8px;min-height:44px;background:transparent;color:var(--green);font-size:16px;font-weight:700}
-    .sheet-handle{display:none;width:40px;height:4px;border-radius:2px;background:#3a463f;align-self:center}
+    .sheet-handle{position:relative;display:none;width:40px;height:4px;border-radius:2px;background:#3a463f;align-self:center}
     .setting-label{font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px}
     .setting-note{color:#8b9a91;font-size:13px;font-weight:400;margin:0}
     .chip-row{display:flex;gap:8px}
@@ -281,6 +281,7 @@
       .download-settings-panel{position:fixed;left:0;right:0;bottom:0;z-index:60;max-height:82dvh;overflow:auto;border-radius:24px 24px 0 0;border-width:1px 0 0;padding:10px 20px calc(20px + env(safe-area-inset-bottom));transform:translateY(105%);visibility:hidden;transition:transform .22s ease,visibility 0s .22s}
       .download-settings-panel.open{transform:none;visibility:visible;transition:transform .22s ease}
       .sheet-handle{display:block}
+      .sheet-handle::after{content:'';position:absolute;inset:-16px -60px}
     }
     @media(min-width:960px){
       .online-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
@@ -299,6 +300,8 @@
     .acc-title{flex:1;font-size:16px}
     .acc-value{color:var(--muted);font-size:14px;font-weight:500;text-align:right}
     .acc-body{padding:4px 16px 16px;border-top:1px solid var(--line)}
+    body.android-app.typing .nav-tabs{display:none}
+    body.android-app.typing .save-bar{position:static}
     .save-bar{position:sticky;bottom:0;z-index:5;display:flex;align-items:flex-end;gap:12px;margin-top:8px;padding:12px 0;background:var(--bg);border-top:1px solid var(--line)}
     .save-bar .save-format{flex:0 0 140px}
     .save-bar .save-format label{margin-bottom:6px}
@@ -445,6 +448,7 @@
         <div id="bitrateChips" class="chip-row" role="group" aria-labelledby="bitrateLabel"></div>
         <select id="downloadBitrate" hidden><option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
       <div class="setting-group switch-row"><label for="downloadSidecarLrc">同时保存独立 .lrc 歌词</label><input id="downloadSidecarLrc" class="switch" type="checkbox" role="switch"></div>
+      <p id="sidecarLrcNote" class="needs-note" hidden>手机本机下载会把歌词直接写进 MP3；独立 .lrc 需要连接电脑。</p>
       <p class="setting-note">设置自动保存在这台设备上。同时保存歌词时，音频和 .lrc 会放进同一个 ZIP。</p>
     </aside>
     </div>
@@ -564,6 +568,7 @@
           </div>
         </div>
       </form>
+      <p class="hint android-setting" id="saveChoiceHint">保存时在系统选择器里选已有文件即可覆盖，输入新名字则另存为。</p>
       <p class="status" id="customStatus" aria-live="polite"></p>
     </div>
     <details class="card" id="quickConvert"><summary style="cursor:pointer;font-weight:700">只转换格式</summary><p class="hint">转换引擎由 MusicDesk 自动准备；选择你拥有或有权处理的音频文件</p>
@@ -772,6 +777,7 @@ function friendlyMessage(value) {
   let text = String(value && value.message !== undefined ? value.message : (value || '')).trim();
   text = text.replace(/^(?:[A-Za-z_][\w.]*\.)?[A-Za-z_]\w*(?:Error|Exception):\s*/, '');
   if (/Failed to fetch|NetworkError|Load failed/i.test(text)) return '网络连接失败，请检查网络后重试。';
+  if (/confirm you.{0,3}re not a bot|sign in to confirm/i.test(text)) return 'YouTube 暂时要求验证身份（移动网络或共享网络上常见）。请换一个 Wi‑Fi 或稍后重试，也可以连接电脑后再下载。';
   return text;
 }
 const escapeHTML=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -1173,10 +1179,29 @@ function androidDownloadSource(metadata) {
 }
 
 function getDownloadSettings() {
-  return {format:$('downloadFormat').value, bitrate:$('downloadBitrate').value, download_lrc:$('downloadSidecarLrc').checked};
+  return {format:$('downloadFormat').value, bitrate:$('downloadBitrate').value, download_lrc:sidecarLrcWanted()};
+}
+// A standalone .lrc needs the computer service. While the phone is unpaired the switch is
+// forced off and locked, but the person's own choice is kept and restored once connected.
+function sidecarLrcLocked() { return !!window.AndroidMusic && !androidApiConnected; }
+function sidecarLrcWanted() {
+  const box = $('downloadSidecarLrc');
+  return sidecarLrcLocked() ? false : box.checked;
+}
+function syncSidecarLrcLock() {
+  const box = $('downloadSidecarLrc');
+  if (sidecarLrcLocked()) {
+    if (!box.disabled) box.dataset.pref = String(box.checked);
+    box.checked = false; box.disabled = true;
+  } else if (box.disabled) {
+    box.checked = box.dataset.pref === 'true'; box.disabled = false;
+  }
+  $('sidecarLrcNote').hidden = !sidecarLrcLocked();
 }
 function saveDownloadSettings() {
-  try { localStorage.setItem('musicdesk-download-settings', JSON.stringify(getDownloadSettings())); } catch (_) {}
+  const box = $('downloadSidecarLrc');
+  const stored = {...getDownloadSettings(), download_lrc: box.disabled ? box.dataset.pref === 'true' : box.checked};
+  try { localStorage.setItem('musicdesk-download-settings', JSON.stringify(stored)); } catch (_) {}
   $('downloadBitrate').disabled = ['flac', 'wav'].includes($('downloadFormat').value);
   updateOnlineDownloadLabel();
 }
@@ -1194,6 +1219,7 @@ function downloadOptionNeedsComputer(selectId, value) {
   return false;
 }
 function renderChipGroups() {
+  syncSidecarLrcLock();
   for (const [selectId, config] of Object.entries(CHIP_GROUPS)) {
     const select = $(selectId), box = $(config.box);
     if (!select || !box) continue;
@@ -1238,6 +1264,35 @@ function closeDownloadSettings() {
   if (wasOpen) $('openDownloadSettings').focus();
   if (window.AndroidMusic) AndroidMusic.setQueueOpen(false);
 }
+// Swipe a sheet down from its handle/header to dismiss it (phone layouts only).
+function enableSwipeDown(handles, sheet, close) {
+  let startY = null, delta = 0, startTime = 0;
+  const reset = () => { sheet.style.transition = ''; sheet.style.transform = ''; startY = null; delta = 0; };
+  handles.forEach(handle => {
+    handle.style.touchAction = 'none';
+    handle.addEventListener('pointerdown', event => {
+      if (event.target.closest('button')) return;
+      startY = event.clientY; delta = 0; startTime = performance.now();
+      sheet.style.transition = 'none';
+      try { handle.setPointerCapture(event.pointerId); } catch (_) {}
+    });
+    handle.addEventListener('pointermove', event => {
+      if (startY === null) return;
+      delta = Math.max(0, event.clientY - startY);
+      sheet.style.transform = `translateY(${delta}px)`;
+    });
+    const end = () => {
+      if (startY === null) return;
+      const fast = delta / Math.max(1, performance.now() - startTime) > 0.6;
+      const dismiss = delta > 90 || (fast && delta > 30);
+      reset();
+      if (dismiss) close();
+    };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', reset);
+  });
+}
+enableSwipeDown([document.querySelector('#downloadSettingsPanel .sheet-handle'), document.querySelector('#downloadSettingsPanel .sheet-head')], $('downloadSettingsPanel'), () => { if (downloadSettingsAreSheet()) closeDownloadSettings(); });
 $('openDownloadSettings').addEventListener('click', openDownloadSettings);
 $('closeDownloadSettings').addEventListener('click', closeDownloadSettings);
 $('downloadSettingsBackdrop').addEventListener('click', closeDownloadSettings);
@@ -1263,7 +1318,7 @@ function updateDownloadSettingsSummary() {
   const format = $('downloadFormat').value;
   const parts = [format.toUpperCase()];
   if (!['flac', 'wav'].includes(format)) parts.push(`${$('downloadBitrate').value} kbps`);
-  if ($('downloadSidecarLrc').checked) parts.push('含 .lrc');
+  if (sidecarLrcWanted()) parts.push('含 .lrc');
   el.textContent = parts.join(' · ');
 }
 function updateOnlineDownloadLabel() {
@@ -2915,7 +2970,40 @@ function renderLocalPlaylist(filterText = "") {
       </div>
     `;
   }).join('');
+  observeLibraryArtwork(container);
 }
+
+// Library rows only know title/artist from the folder scan. Ask the phone for each visible
+// row's embedded artwork (small, disk-cached thumbnails) so covers survive an app restart.
+let artworkObserver = null;
+function requestTrackArtwork(track) {
+  if (!window.AndroidMusic || !track || !track.contentUri || track.cover || track.artworkRequested) return;
+  track.artworkRequested = true;
+  AndroidMusic.loadArtwork(track.contentUri);
+}
+function observeLibraryArtwork(container) {
+  if (!window.AndroidMusic || !('IntersectionObserver' in window)) return;
+  if (!artworkObserver) {
+    artworkObserver = new IntersectionObserver(entries => entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      artworkObserver.unobserve(entry.target);
+      const idx = Number(String(entry.target.id).replace('track-img-', ''));
+      requestTrackArtwork(localTracks[idx]);
+    }), {rootMargin: '200px'});
+  }
+  container.querySelectorAll('img[id^="track-img-"]').forEach(img => artworkObserver.observe(img));
+}
+window.onAndroidArtwork = (contentUri, data) => {
+  const idx = localTracks.findIndex(track => track.contentUri === contentUri);
+  if (idx < 0) return;
+  const track = localTracks[idx];
+  track.artworkRequested = true;
+  if (!data || track.cover) return;
+  track.cover = data;
+  const row = $(`track-img-${idx}`);
+  if (row) row.src = data;
+  if (idx === currentTrackIdx) { $('nowCover').src = data; updateMiniPlayer(); }
+};
 
 $('libraryFilterTabs').addEventListener('click', event => {
   const button = event.target.closest('[data-category]');
@@ -2983,6 +3071,7 @@ function playLocalTrack(idx, keepQueue = false) {
   $('favoriteTrackBtn').setAttribute('aria-label', track.favorite ? '取消收藏' : '收藏歌曲');
   updateMiniPlayer();
 
+  requestTrackArtwork(track);
   if (track.contentUri && window.AndroidMusic) {
     $('androidScopeNote').textContent = '正在从文件夹读取音频…';
     $('androidScopeNote').style.display = 'block';
@@ -3103,15 +3192,34 @@ function syncAndroidMediaSession(force = false) {
 }
 
 function updateMiniPlayerVisibility() {
-  // The mini player follows you across Download / Edit / Settings, and steps aside
-  // only while the full Now Playing view is on screen.
+  // The mini player follows you across Download / Settings, and steps aside while the full
+  // Now Playing view is on screen, on the Edit page (where fields need the room) and
+  // whenever the keyboard is up.
   const mini = $('androidMiniPlayer');
   if (!mini || !document.body.classList.contains('android-app')) return;
   const onLocal = $('tab-local').classList.contains('active');
-  const visible = currentTrackIdx >= 0 && !(onLocal && androidView === 'player');
+  const onEdit = $('tab-custom').classList.contains('active');
+  const visible = currentTrackIdx >= 0 && !(onLocal && androidView === 'player') && !onEdit && !document.body.classList.contains('typing');
   mini.style.display = visible ? 'flex' : 'none';
   document.body.classList.toggle('has-mini', visible && !onLocal);
 }
+
+// While a text field has focus the on-screen keyboard is up: give the field the whole screen.
+function isTextField(node) {
+  return node instanceof HTMLElement && (node.matches('textarea, select') || (node.matches('input') && !/^(checkbox|radio|range|button|file|submit)$/.test(node.type)));
+}
+document.addEventListener('focusin', event => {
+  if (!isTextField(event.target)) return;
+  document.body.classList.add('typing');
+  updateMiniPlayerVisibility();
+});
+document.addEventListener('focusout', () => {
+  setTimeout(() => {
+    if (isTextField(document.activeElement)) return;
+    document.body.classList.remove('typing');
+    updateMiniPlayerVisibility();
+  }, 50);
+});
 
 function updateMiniPlayer() {
   updateMiniPlayerVisibility();

@@ -404,13 +404,20 @@ class LocalTagMetadataTests(unittest.TestCase):
         for text in ("下一步", "跳过", "开始使用", "用“添加”导入歌曲或文件夹，离线播放、收藏和排队。"):
             self.assertIn("'%s'" % text, i18n)
 
-    def test_connection_card_has_steps_badge_and_web_pairing_card(self):
+    def test_device_feedback_fixes_are_in_the_page(self):
         html = open("index.html", encoding="utf-8").read()
-        for needle in ('id="apiStateBadge"', 'class="conn-steps"', 'conn-unlocks', 'web-setting', 'body.android-app .web-setting{display:none'):
+        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
+        # standalone .lrc is locked (not silently forced on) while the phone is unpaired
+        for needle in ("function sidecarLrcLocked()", "function syncSidecarLrcLock()", 'id="sidecarLrcNote"'):
             self.assertIn(needle, html)
-        for needle in ('id="apiServerUrl"', 'id="apiPairingToken"', 'id="connectApiBtn"', 'id="forgetApiBtn"'):
+        # sheets can be swiped down, and the keyboard gets the whole screen
+        for needle in ("function enableSwipeDown(", "document.body.classList.add('typing')", "body.android-app.typing .nav-tabs{display:none}", "!onEdit"):
             self.assertIn(needle, html)
-        self.assertIn("input[type=password]", html)
+        # library covers are fetched lazily from the phone and cached on disk
+        for needle in ("window.onAndroidArtwork", "AndroidMusic.loadArtwork"):
+            self.assertIn(needle, html)
+        self.assertIn("public void loadArtwork(String contentUri)", activity)
+        self.assertIn("musicdesk-art", activity)
 
     def test_library_has_single_add_menu_and_back_closes_overlays(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8") if "ROOT" in globals() else open("index.html", encoding="utf-8").read()
@@ -516,7 +523,7 @@ class LocalTagMetadataTests(unittest.TestCase):
             self.assertIn(mode, page)
         self.assertIn("window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData)", page)
         self.assertIn("scanDocumentTree(tree, id, results, depth + 1, childPath)", activity)
-        self.assertIn("while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 512)", activity)
+        self.assertIn("while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > maxEdge)", activity)
         self.assertIn("int chunkSize = 100", activity)
         self.assertIn("onAndroidFolderPicked(", activity)
         self.assertIn("isFinal = true", page)
@@ -1150,6 +1157,71 @@ class ProcessAndExportTests(unittest.TestCase):
                     parsed = load_music_tag(str(output))
                     self.assertEqual(str(parsed["title"]), "Test")
                     self.assertTrue(parsed["artwork"].values)
+
+
+class AndroidPythonBehaviourTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util, os, tempfile
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "android/app/src/main/python/musicdesk_downloader.py")
+        spec = importlib.util.spec_from_file_location("musicdesk_downloader_under_test", path)
+        cls.module = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        spec.loader.exec_module(cls.module)
+        cls.tmp = tempfile.mkdtemp()
+
+    def test_bot_check_retries_with_other_player_clients(self):
+        seen = []
+        def action(options):
+            clients = options.get("extractor_args", {}).get("youtube", {}).get("player_client")
+            seen.append(clients)
+            if clients != ["tv"]:
+                raise RuntimeError("Sign in to confirm you're not a bot")
+            return "ok"
+        self.assertEqual(self.module._run_with_client_fallbacks({}, action), "ok")
+        self.assertEqual(seen, [None, ["android_vr"], ["tv"]])
+
+    def test_bot_check_gives_readable_message_when_every_client_is_blocked(self):
+        def action(options):
+            raise RuntimeError("ERROR: Sign in to confirm you're not a bot")
+        with self.assertRaises(RuntimeError) as caught:
+            self.module._run_with_client_fallbacks({}, action)
+        self.assertIn("YouTube", str(caught.exception))
+        self.assertNotIn("ERROR", str(caught.exception))
+
+    def test_other_errors_are_not_retried(self):
+        calls = []
+        def action(options):
+            calls.append(1)
+            raise ValueError("Video unavailable")
+        with self.assertRaises(ValueError):
+            self.module._run_with_client_fallbacks({}, action)
+        self.assertEqual(len(calls), 1)
+
+    def test_packaging_over_the_same_path_does_not_fail(self):
+        import os, shutil
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("ffmpeg not available")
+        path = os.path.join(self.tmp, "same.mp3")
+        subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=d=1", path], check=True)
+        self.module.package_audio_file(path, path, json.dumps({"title": "Same", "artist": "A"}), "")
+        self.assertEqual(json.loads(self.module.read_local_audio_tags(path))["title"], "Same")
+
+    def test_native_export_uses_a_separate_output_folder(self):
+        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
+        self.assertGreaterEqual(activity.count('new File(work, "out")'), 2)
+
+    def test_embedded_lyrics_are_read_back_from_packaged_mp3(self):
+        import os, shutil
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("ffmpeg not available")
+        source = os.path.join(self.tmp, "in.mp3"); output = os.path.join(self.tmp, "out.mp3")
+        subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=d=1", source], check=True)
+        meta = {"title": "T", "artist": "A", "lyrics": "[00:01.00]hello\n[00:02.00]world", "lyrics_format": "auto"}
+        self.module.package_audio_file(source, output, json.dumps(meta), "")
+        self.assertIn("hello", json.loads(self.module.read_local_audio_tags(output))["lyrics"])
 
 
 if __name__ == "__main__":

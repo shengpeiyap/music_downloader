@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
     private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService nativeDownloadExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, JSONObject> cachedTracks = new HashMap<>();
@@ -332,7 +333,11 @@ public final class MainActivity extends Activity {
             String resultFilename = filename;
             runOnUiThread(() -> {
                 File parent = source.getParentFile();
-                if (parent != null) parent.delete();
+                if (parent != null) {
+                    File grandparent = parent.getParentFile();
+                    parent.delete();
+                    if (grandparent != null) grandparent.delete();
+                }
                 notifyCustomPackageComplete(resultError, resultFilename);
             });
         });
@@ -392,7 +397,11 @@ public final class MainActivity extends Activity {
             String resultFilename = filename;
             runOnUiThread(() -> {
                 File parent = source.getParentFile();
-                if (parent != null) parent.delete();
+                if (parent != null) {
+                    File grandparent = parent.getParentFile();
+                    parent.delete();
+                    if (grandparent != null) grandparent.delete();
+                }
                 notifyAndroidConvertComplete(resultError, resultFilename);
             });
         });
@@ -661,10 +670,14 @@ public final class MainActivity extends Activity {
                         }
                     }
                     String ext = sourceExt.isEmpty() ? ".audio" : sourceExt;
-                    output = new File(work, safeDownloadFilename(outputName));
+                    // The result lives in its own folder: when the exported name equals the source name
+                    // (same format, same title) input and output must not be the same file.
+                    File outDir = new File(work, "out");
+                    if (!outDir.mkdirs()) throw new IOException("无法创建临时目录");
+                    output = new File(outDir, safeDownloadFilename(outputName));
                     String requestedExt = "." + outputFormat.toLowerCase();
                     if (!output.getName().toLowerCase().endsWith(requestedExt)) {
-                        output = new File(work, safeDownloadFilename(outputName) + requestedExt);
+                        output = new File(outDir, safeDownloadFilename(outputName) + requestedExt);
                     }
                     File tagSource = input;
                     if (needsTranscode) {
@@ -707,7 +720,9 @@ public final class MainActivity extends Activity {
                     if (!work.mkdirs()) throw new IOException("无法创建临时目录");
                     copyContentToFile(selectedUri, input);
                     String base = audioName == null ? "converted" : audioName.replaceFirst("(?i)\\.[^.]+$", "");
-                    output = new File(work, safeDownloadFilename(base + "." + outputFormat.toLowerCase()));
+                    File outDir = new File(work, "out");
+                    if (!outDir.mkdirs()) throw new IOException("无法创建临时目录");
+                    output = new File(outDir, safeDownloadFilename(base + "." + outputFormat.toLowerCase()));
                     transcodeAudio(input, output, outputFormat, 0, 0);
                     File converted = output;
                     runOnUiThread(() -> saveConversionOutput(converted));
@@ -1041,6 +1056,19 @@ public final class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void loadArtwork(String contentUri) {
+            if (contentUri == null || contentUri.isEmpty()) return;
+            artworkExecutor.execute(() -> {
+                String data = readArtworkThumbnail(contentUri);
+                String script = "window.onAndroidArtwork && window.onAndroidArtwork("
+                        + JSONObject.quote(contentUri) + "," + JSONObject.quote(data) + ")";
+                runOnUiThread(() -> {
+                    if (webView != null) webView.evaluateJavascript(script, null);
+                });
+            });
+        }
+
+        @JavascriptInterface
         public void releaseAudio(String contentUri) {
             File folder = new File(getCacheDir(), "musicdesk-audio");
             File[] cachedFiles = folder.listFiles();
@@ -1253,6 +1281,44 @@ public final class MainActivity extends Activity {
     }
 
     private String readArtwork(Uri source) {
+        return readArtwork(source, 512);
+    }
+
+    /** Small, disk-cached thumbnail for library rows; empty string when the file has no artwork. */
+    private String readArtworkThumbnail(String contentUri) {
+        File folder = new File(getCacheDir(), "musicdesk-art");
+        if (!folder.exists() && !folder.mkdirs()) return readArtwork(Uri.parse(contentUri), 192);
+        String key = cacheKey(contentUri);
+        File thumb = new File(folder, key + ".jpg");
+        File none = new File(folder, key + ".none");
+        try {
+            if (none.isFile()) return "";
+            if (thumb.isFile() && thumb.length() > 0) {
+                byte[] bytes = new byte[(int) thumb.length()];
+                try (java.io.FileInputStream input = new java.io.FileInputStream(thumb)) {
+                    int offset = 0;
+                    while (offset < bytes.length) {
+                        int count = input.read(bytes, offset, bytes.length - offset);
+                        if (count < 0) break;
+                        offset += count;
+                    }
+                }
+                return "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+            }
+            String data = readArtwork(Uri.parse(contentUri), 192);
+            if (data.isEmpty()) {
+                none.createNewFile();
+                return "";
+            }
+            byte[] decoded = android.util.Base64.decode(data.substring(data.indexOf(',') + 1), android.util.Base64.DEFAULT);
+            try (FileOutputStream output = new FileOutputStream(thumb)) { output.write(decoded); }
+            return data;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private String readArtwork(Uri source, int maxEdge) {
         MediaMetadataRetriever metadata = new MediaMetadataRetriever();
         try {
             metadata.setDataSource(this, source);
@@ -1262,7 +1328,7 @@ public final class MainActivity extends Activity {
             bounds.inJustDecodeBounds = true;
             BitmapFactory.decodeByteArray(embedded, 0, embedded.length, bounds);
             int sample = 1;
-            while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > 512) sample *= 2;
+            while (Math.max(bounds.outWidth / sample, bounds.outHeight / sample) > maxEdge) sample *= 2;
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = sample;
             Bitmap bitmap = BitmapFactory.decodeByteArray(embedded, 0, embedded.length, options);
@@ -1294,6 +1360,7 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         folderExecutor.shutdownNow();
         audioExecutor.shutdownNow();
+        artworkExecutor.shutdownNow();
         updateExecutor.shutdownNow();
         nativeDownloadExecutor.shutdownNow();
         if (downloadOutput != null) {
