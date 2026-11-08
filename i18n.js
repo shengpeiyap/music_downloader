@@ -173,6 +173,168 @@
     '：播放 / 暂停当前页面的音频。': ': Play or pause audio on this page.',
   };
 
+  Object.assign(translations, {
+  "选择音频并载入 LRC 歌词后，可试听并点选歌词校时。": "Choose audio and load LRC lyrics to preview and click a line to adjust its timing.",
+  "收藏歌曲": "Favorite song", "取消收藏": "Remove from favorites", "播放": "Play", "暂停": "Pause", "播放列表": "Playlist",
+  "解析本机音频标签失败。": "Failed to read tags from this audio.",
+  "音频抓取来源:": "Audio source:",
+    "想让手机用这台电脑处理下载和转换：": "To let your phone use this computer for downloads and conversion:",
+    "暂无内嵌歌词": "No embedded lyrics",
+    "Spotify 曲目信息需要连接电脑服务；手机可直接搜索 MusicBrainz。": "Spotify track info needs the computer service. Your phone can search MusicBrainz directly.",
+    "电脑服务未连通，在线功能已锁定：检查同一 Wi‑Fi、电脑 LAN 地址/端口、配对码及防火墙。": "Cannot reach the computer service, so online features stay locked. Check the Wi‑Fi, the computer’s LAN address and port, the pairing token and the firewall.",
+    "播放进度": "Playback position",
+    "音轨编号": "Track number",
+    "碟片编号": "Disc number",
+    "专辑歌手": "Album artist",
+    "流派": "Genre",
+    "作曲": "Composer",
+    "连接后，下载、转换和歌词等任务交给电脑处理，结果传回手机；不连接也能用手机本机功能。": "When connected, downloads, conversion and lyrics run on your computer and the results come back to your phone. Without it, the phone still works on its own.",
+    "已保存，未验证": "Saved, not verified",
+    "所有歌词行已标记": "All lyric lines are marked",
+    "请先选择音频，或搜索并填写曲名后直接封装。": "Choose an audio file first, or search and fill in the title before packaging.",
+    "已断开电脑服务。": "Disconnected from the computer service.",
+    "WebVTT 字幕": "WebVTT subtitles",
+    "SRT 字幕": "SRT subtitles",
+    "标准 LRC": "Standard LRC",
+    "增强 LRC（逐词时间）": "Enhanced LRC (word timing)",
+    "纯文本": "Plain text",
+    "自动识别": "Auto-detect",
+    "歌词来源格式": "Lyrics source format",
+    "使用 YouTube 官方嵌入播放器；部分视频因版权、地区或禁止嵌入设置可能无法试听。": "Uses the official YouTube embedded player. Some videos cannot be previewed because of copyright, region or embedding settings.",
+    "手机 yt-dlp 备用搜索": "Phone yt-dlp fallback search",
+    "yt-dlp 备用搜索": "yt-dlp fallback search",
+    "手机 yt-dlp 搜索": "Phone yt-dlp search",
+    "手机 yt-dlp": "Phone yt-dlp",
+    "手机直连 MusicBrainz": "Phone → MusicBrainz",
+    "MusicBrainz 关键词搜索": "MusicBrainz keyword search",
+    "无法恢复上次的曲库，请重新选择文件夹或歌曲。": "Could not restore the last library. Choose folders or songs again.",
+    "无法恢复上次的音乐文件，请重新选择文件夹或歌曲。": "Could not restore the last music files. Choose folders or songs again.",
+    "上次的音乐文件暂时无法访问，请重新选择文件夹或歌曲。": "The last music files are not accessible right now. Choose folders or songs again.",
+    "歌曲已添加；标签解析库未加载，播放仍可用，但无法读取封面和内嵌歌词。": "Songs added. The tag reader did not load, so playback works but covers and embedded lyrics cannot be read.",
+    "手机端返回了无法读取的曲目信息。": "The phone returned track info that could not be read.",
+    "MusicBrainz 返回了无法读取的曲目信息。": "MusicBrainz returned track info that could not be read.",
+    "LRCLIB 返回了无法读取的歌词。": "LRCLIB returned lyrics that could not be read.",
+    "解析元数据失败": "Failed to read metadata",
+    "下载失败": "Download failed",
+    "转换失败": "Conversion failed",
+    "读取失败": "Read failed",
+    "定制封装失败": "Packaging failed",
+    "搜索曲目信息失败": "Track info search failed",
+    "正在搜索公开曲目信息…": "Searching public track info…",
+    "已根据关键词补全信息，请检查后导出。": "Filled in from your keywords. Review it, then export.",
+    "未知": "Unknown",
+    "未知标题": "Unknown title",
+    "未知歌手": "Unknown artist",
+    "未知艺人": "Unknown artist",
+    "未知专辑": "Unknown album",
+    "未知曲目": "Unknown track",
+    "搜索本地歌名/歌手...": "Search local songs or artists…",
+    "压缩包里没有 LRC，因为未找到这首歌的歌词。": "The ZIP has no LRC because no lyrics were found for this song.",
+    "公开歌词库中没有找到这首歌的歌词。": "No lyrics for this song were found in the public lyrics library.",
+    "音频没有内嵌歌词，正在尝试从 LRCLIB 获取…": "No embedded lyrics. Trying LRCLIB…",
+    "未找到歌词，将不嵌入歌词": "No lyrics found; none will be embedded",
+    "未检索到歌词": "No lyrics found",
+    "启动。": "to start it.",
+    "在电脑上双击": "On your computer, double-click",
+    "关闭当前窗口，改用": "Close this window and start with",
+    "暂停试听": "Pause preview",
+    "YouTube 歌曲试听": "YouTube song preview",
+    "在浏览器试听": "Preview in browser",
+    "YouTube 试听": "YouTube preview",
+    "在 YouTube 打开": "Open on YouTube",
+    "无法试听音频。": "Cannot preview the audio.",
+    "追加内容，例如：Live": "Extra text, e.g. Live",
+    "文件不能超过 150 MB。": "File must be 150 MB or smaller.",
+    "音频预听与裁剪": "Audio preview and trim",
+    "电脑连接": "Computer connection",
+    "手机配对": "Phone pairing",
+    "选择或读取音乐文件失败。": "Failed to choose or read music files.",
+    "选择音乐文件失败。": "Failed to choose music files.",
+    "打开文件夹选择窗口失败。": "Could not open the folder picker.",
+    "打开音乐文件选择窗口失败。": "Could not open the music file picker.",
+    "正在检索并载入 LRC 歌词…": "Searching and loading LRC lyrics…",
+    "播放全部方式": "Play all as",
+    "播放队列": "Play queue",
+    "收起播放列表": "Collapse play queue",
+    "向下拖动收起播放列表": "Drag down to collapse the play queue",
+    "此功能已锁定。请先连接电脑上的 MusicDesk 服务，确认 API 匹配后再使用。": "This feature is locked. Connect to the MusicDesk service on your computer and confirm the API matches first.",
+    "这些歌曲已在播放列表中": "These songs are already in the playlist",
+    "正在 Android 设备本机转换…": "Converting on this Android device…",
+    "正在本机转换…": "Converting on this device…",
+    "正在读取并解析音频标签元数据...": "Reading and parsing audio tag metadata…",
+    "连接电脑以处理设置": "Connect computer to use these settings",
+    "已读取内部资料。您可以更改上述内容后点击导出。": "Embedded info loaded. Edit anything above, then export.",
+    "密钥每次启动都会变化，只在你信任的家庭或办公 Wi‑Fi 中使用。": "The token changes on every start. Use it only on a home or office Wi‑Fi you trust.",
+    "MusicBrainz 没有匹配结果，已自动改用手机 yt-dlp 搜索。": "MusicBrainz had no match, so the phone searched with yt-dlp instead.",
+    "MusicBrainz 没有匹配结果，已自动改用 yt-dlp 搜索；下载将使用该结果链接。": "MusicBrainz had no match, so yt-dlp searched instead. The download will use that result’s link.",
+    "文件夹中没有新的支持格式音频，请选择包含音乐的文件夹。": "No new supported audio in that folder. Choose a folder that contains music.",
+    "文件夹中没有新的支持格式音频": "No new supported audio in the folder",
+    "已导入文件夹": "Imported folder",
+    "（空歌词行）": "(empty lyric line)",
+    "待标记": "To mark",
+    "可以粘贴 LRC 格式或纯文本歌词...": "Paste LRC or plain-text lyrics…",
+    "正在使用手机内置 yt-dlp 下载并转换为 MP3…": "Downloading with the phone’s built-in yt-dlp and converting to MP3…",
+    "无法读取所选音频": "Could not read the selected audio",
+    "窗口会显示“Phone server address”和“One-run pairing token”。": "The window shows “Phone server address” and “One-run pairing token”.",
+    "窗口里会显示“Phone server address”和“One-run pairing token”。": "The window shows “Phone server address” and “One-run pairing token”.",
+    "手机和电脑连同一个 Wi‑Fi，把它们填在下面。": "Put both devices on the same Wi‑Fi and enter them below.",
+    "在手机 MusicDesk 的“设置 → 电脑连接”里填入。": "Enter them in MusicDesk on your phone under Settings → Computer connection.",
+    "暂无分类内容": "Nothing in this category",
+    "播放列表为空": "The playlist is empty",
+    "配对密钥格式不正确，请从电脑终端完整复制。": "The pairing token looks wrong. Copy it in full from the computer terminal.",
+    "配对密钥无效或已过期；功能已锁定，请重新连接。": "The pairing token is invalid or expired. Features are locked; reconnect.",
+    "信息已读取。": "Info loaded.",
+    "音乐文件": "Music files",
+    "正在本机写入音频标签…": "Writing audio tags on this device…",
+    "所选格式、比特率或独立 LRC 下载需要连接电脑服务。请在设置中心连接电脑后重试。": "The chosen format, bitrate or standalone LRC needs the computer service. Connect your computer in Settings and try again.",
+    "SpotDL 来源与在线标签搜索": "SpotDL source and online tag search",
+    "WAV、FLAC、AAC 等所有格式和比特率": "All formats and bitrates, including WAV, FLAC and AAC",
+    "歌词下载与格式转换": "Lyrics download and format conversion",
+    "连接电脑后可用": "Available once connected",
+    "正在搜索音源并封装标签，请稍候...": "Searching for a source and packaging tags…",
+    "请输入“作者 - 标题”或歌曲标题。": "Enter “Artist - Title” or a song title.",
+    "没有选择受支持的音乐文件。": "No supported music files were chosen.",
+    "已嵌入普通歌词（来源无时间戳）": "Plain lyrics embedded (source has no timestamps)",
+    "已嵌入同步 LRC 歌词": "Synced LRC lyrics embedded",
+    "正在发送音频到电脑读取标签…": "Sending audio to the computer to read tags…",
+    "正在发送到电脑封装并回传文件，请稍候…": "Sending to the computer for packaging; the file will come back shortly…",
+    "正在发送到电脑转换…": "Sending to the computer for conversion…",
+    "封装区一次处理一个音频文件，已选取第一个文件。": "Only one audio file is processed at a time; the first file was chosen.",
+    "已载入纯文本歌词（无时间戳）；点击“保存并打包导出文件”即可内嵌。": "Plain-text lyrics loaded (no timestamps). Tap “Save and Export” to embed them.",
+    "已从 LRCLIB 载入同步 LRC；点击“保存并打包导出文件”即可内嵌。": "Synced LRC loaded from LRCLIB. Tap “Save and Export” to embed it.",
+    "单曲循环": "Repeat one",
+    "列表循环": "Repeat all",
+    "切换播放模式": "Switch play mode",
+    "无法读取所选音乐文件，请重新授权后重试。": "Could not read the chosen music file. Grant access again and retry.",
+    "退出逐句打点": "Exit line-by-line marking",
+    "正在打包并写回标签元数据，请稍候...": "Packaging and writing tag metadata…",
+    "浏览器需要重新授权访问上次的音乐文件；请点击“选择文件夹”或“选择歌曲”。": "The browser needs permission again to open the last music files. Choose a folder or songs again.",
+    "已从所选音频读取标签。可以修改后本机封装。": "Tags read from the chosen audio. Edit them, then package on this device.",
+    "电脑服务无法访问；在线功能已锁定。请确认电脑服务运行中且手机和电脑在同一 Wi‑Fi。": "The computer service cannot be reached, so online features are locked. Make sure it is running and both devices are on the same Wi‑Fi.",
+    "已选歌曲": "Selected songs",
+    "请拖入 MP3、M4A、FLAC、WAV 或 OGG 音频文件。": "Drop an MP3, M4A, FLAC, WAV or OGG audio file.",
+    "没有找到支持的音频；可拖入 MP3、M4A、FLAC、WAV 或 OGG": "No supported audio found. Drop an MP3, M4A, FLAC, WAV or OGG file.",
+    "正在读取…": "Reading…",
+    "我的收藏": "My favorites",
+    "未连接": "Not connected",
+    "已连接": "Connected",
+    "正在整理曲库…": "Organizing library…",
+    "正在从文件夹读取音频…": "Reading audio from the folder…",
+    "请输入电脑终端显示的 http://IP:端口 地址。": "Enter the http://IP:port address shown in the computer terminal.",
+    "Spotify 链接，或 作者 - 标题 / 标题": "Spotify link, or Artist - Title / Title",
+    "封面": "Cover",
+    "正在测试电脑服务…": "Testing the computer service…",
+    "MusicBrainz 曲目信息、LRCLIB 歌词和 yt-dlp 下载可由手机联网使用。": "Your phone can use MusicBrainz track info, LRCLIB lyrics and yt-dlp downloads over the internet.",
+    "MusicBrainz 曲目信息已载入，可继续检索歌词或下载。": "MusicBrainz track info loaded. You can look up lyrics or download next.",
+    "已由手机 yt-dlp 读取曲目信息，可直接下载音频。": "Track info read by the phone’s yt-dlp. You can download the audio now.",
+    "电脑端 API 版本或功能不匹配；请更新电脑端 MusicDesk 后再连接。功能已保持锁定。": "The computer’s API version or features do not match. Update MusicDesk on the computer, then reconnect. Features stay locked.",
+    "本机 yt-dlp 下载后会转换为 MP3，并写入可用的曲目信息与封面标签。": "Phone yt-dlp downloads are converted to MP3 with any available track info and cover tags.",
+    "电脑服务拒绝了连接。": "The computer service refused the connection.",
+    "这段歌词没有时间戳。选择音频后，可以开启逐句打点模式。": "These lyrics have no timestamps. Choose audio, then turn on line-by-line marking.",
+    "无法读取所选文件夹，请检查浏览器文件访问权限。": "Could not read the chosen folder. Check the browser’s file access permission.",
+    "已填 0 项": "0 filled"
+  });
+
   const reverse = new Map(Object.entries(translations).map(([zh, en]) => [en, zh]));
   const protectedSelectors = 'script,style,textarea,input,select,[contenteditable="true"],#lrcContainer,#localLrcContainer,#customLyricsPreview,.track-list,.queue-sheet,.result-info,#nowTitle,#nowArtist,#miniTitle,#miniArtist,#title,#artist';
   const mobileNames = {
@@ -199,6 +361,34 @@
        /^Connected to computer service: (\S+?)\. Lookup, lyrics, download, conversion, and packaging run on the computer and the results are sent back to the phone\.$/, '已连接电脑服务：$1。解析、歌词、下载、转换和封装任务由电脑处理，结果回传到手机。'],
       [/^已保存电脑地址 (\S+?)；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。$/, 'Saved computer address $1. After the connection is verified, these tasks run on the computer. Using this phone for now.',
        /^Saved computer address (\S+?)\. After the connection is verified, these tasks run on the computer\. Using this phone for now\.$/, '已保存电脑地址 $1；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。'],
+      [/^(\d+) 首歌曲$/, '$1 songs'],
+      [/^例如：3 或 3\/12$/, 'e.g. 3 or 3/12'],
+      [/^例如：(.+)$/, 'e.g. $1'],
+      [/^MusicBrainz 搜索失败（(.+)）；yt-dlp 备用搜索也失败（(.+)）。$/, 'MusicBrainz search failed ($1); the yt-dlp fallback search also failed ($2).'],
+      [/^导出成功，已保存为 (.+)$/, 'Exported and saved as $1'],
+      [/^本机封装完成，已保存为 (.+)$/, 'Packaged on this device and saved as $1'],
+      [/^转换完成，已保存为 (.+)$/, 'Conversion finished and saved as $1'],
+      [/^播放列表（(\d+) 首）$/, 'Playlist ($1 tracks)'],
+      [/^文件夹导入完成：曲库共 (\d+) 首（达到单次导入上限）$/, 'Folder imported: $1 tracks in the library (single-import limit reached)'],
+      [/^文件夹导入完成：曲库共 (\d+) 首$/, 'Folder imported: $1 tracks in the library'],
+      [/^曲库已就绪，共 (\d+) 首歌曲。已达到单次导入上限。$/, 'Library ready: $1 songs. The single-import limit was reached.'],
+      [/^曲库已就绪，共 (\d+) 首歌曲。$/, 'Library ready: $1 songs.'],
+      [/^正在载入曲库…已处理 (\d+) 首$/, 'Loading library… $1 processed'],
+      [/^正在导入歌曲：已加入 (\d+) 首$/, 'Importing songs: $1 added'],
+      [/^已添加 (\d+) 首；可继续拖入音乐$/, '$1 added. You can keep dropping music.'],
+      [/^已添加 (\d+) 首；关闭后会记住这次选择$/, '$1 added. This choice is remembered after you close the app.'],
+      [/^已选择：(.+)$/, 'Selected: $1'],
+      [/^已标记 (\d+) \/ (\d+) 句。播放到每句开始处，按空格或点击“标记当前句”。$/, '$1 / $2 lines marked. Play to the start of each line, then press Space or tap “Timestamp current line”.'],
+      [/^标记第 (\d+) 行（空格）$/, 'Mark line $1 (Space)'],
+      [/^本机下载完成，已保存音频：(.+?)；(.+)$/, 'Downloaded on this device and saved: $1; $2'],
+      [/^下载完成，已保存到你选择的位置：(.+?)(?:；(.+))?$/, 'Download finished and saved to the place you chose: $1'],
+      [/^下载完成！已自动装载至线上播放器试听。\s*(.*)$/, 'Download finished! Loaded into the online player for preview. $1'],
+      [/^下载完成！音频与 LRC 已打包为 ZIP。\s*(.*)$/, 'Download finished! Audio and LRC are packed in a ZIP. $1'],
+      [/^已读取音频标签，但未能补全歌词：(.+)$/, 'Audio tags read, but lyrics could not be filled in: $1'],
+      [/^正在按优先级 \((.+)\) 下载音频并自动内嵌 LRC 歌词，请稍候\.\.\.$/, 'Downloading audio by priority ($1) and embedding LRC lyrics…'],
+      [/^当前：(.+)，点击切换$/, 'Current: $1. Tap to switch.'],
+      [/^(.+)，需要连接电脑$/, '$1, needs a connected computer'],
+      [/^更多操作：(.+)$/, 'More actions: $1'],
       [/^已填 (\d+) 项$/, '$1 filled', /^(\d+) filled$/, '已填 $1 项'],
       [/^(\d+) 行$/, '$1 lines', /^(\d+) lines$/, '$1 行'],
       [/^已连接：(\S+)$/, 'Connected: $1', /^Connected: (\S+)$/, '已连接：$1'],
@@ -206,7 +396,19 @@
     ];
     for (const [zhRe, enText, enRe, zhText] of patterns) {
       const re = lang === 'en' ? zhRe : enRe;
-      if (re.test(trimmed)) return value.replace(trimmed, trimmed.replace(re, lang === 'en' ? enText : zhText));
+      if (!re) continue;
+      if (re.test(trimmed)) {
+        let out = lang === 'en'
+          ? trimmed.replace(re, (...match) => enText.replace(/\$(\d)/g, (_, n) => lookup(match[Number(n)] || '', lang)))
+          : trimmed.replace(re, zhText);
+        // Messages built from several parts ("saved X; <status>") can carry a Chinese tail.
+        const firstCjk = lang === 'en' ? out.search(/[\u4e00-\u9fff]/) : -1;
+        if (firstCjk >= 0) {
+          const tail = out.slice(firstCjk).split('；').map(part => lookup(part, lang)).join('; ');
+          out = out.slice(0, firstCjk) + tail;
+        }
+        return value.replace(trimmed, out);
+      }
     }
     const translated = lang === 'en' ? translations[trimmed] : reverse.get(trimmed);
     if (translated !== undefined) return value.replace(trimmed, translated);
@@ -217,9 +419,11 @@
     return prefix ? value.replace(trimmed, prefix[1] + trimmed.slice(prefix[0].length)) : value;
   }
 
+  window.translateUi = value => lookup(String(value), language);
+
   function translateTextNode(node) {
     const parent = node.parentElement;
-    if (!parent || parent.closest(protectedSelectors)) return;
+    if (!parent || (parent.closest(protectedSelectors) && !parent.closest('.ui-text'))) return;
     const translated = lookup(node.nodeValue, language);
     if (translated !== node.nodeValue) node.nodeValue = translated;
   }
@@ -231,7 +435,7 @@
       return;
     }
     if (root.nodeType !== Node.ELEMENT_NODE) return;
-    const protectedAttributeSelectors = 'script,style,[contenteditable="true"],#lrcContainer,#localLrcContainer,#customLyricsPreview,.track-list,.queue-sheet,.result-info,#nowTitle,#nowArtist,#miniTitle,#miniArtist,#title,#artist';
+    const protectedAttributeSelectors = 'script,style,[contenteditable="true"],#lrcContainer,#localLrcContainer,#customLyricsPreview,.track-list,.result-info,#nowTitle,#nowArtist,#miniTitle,#miniArtist,#title,#artist';
     const translateAttributes = element => {
       if (element.matches(protectedAttributeSelectors)) return;
       for (const attribute of ['placeholder', 'title', 'aria-label', 'alt']) {
