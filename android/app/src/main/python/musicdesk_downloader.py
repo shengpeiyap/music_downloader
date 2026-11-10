@@ -314,10 +314,30 @@ def _read_embedded_lyrics(source_path: str) -> str:
             if lines:
                 return "\n".join(lines)
     for key in ("\xa9lyr", "lyrics", "LYRICS", "unsyncedlyrics", "UNSYNCEDLYRICS", "WM/Lyrics"):
-        if key in tags:
-            text = text_of(tags[key])
-            if text.strip():
-                return text
+        try:  # Vorbis comments raise ValueError for keys with non-ASCII characters
+            if key in tags:
+                text = text_of(tags[key])
+                if text.strip():
+                    return text
+        except (ValueError, KeyError, TypeError):
+            continue
+    return ""
+
+
+def _read_raw_composer(source_path: str) -> str:
+    """Composer is not exposed by mutagen's easy MP4 interface; read the atom directly."""
+    try:
+        raw = mutagen.File(str(source_path))
+        tags = getattr(raw, "tags", None)
+        if not tags:
+            return ""
+        for key in ("\xa9wrt", "TCOM", "composer"):
+            if key in tags:
+                value = tags[key]
+                value = value[0] if isinstance(value, (list, tuple)) and value else value
+                return str(getattr(value, "text", [value])[0] if hasattr(value, "text") else value)
+    except Exception:
+        return ""
     return ""
 
 
@@ -334,6 +354,8 @@ def read_local_audio_tags(source_path: str):
     return json.dumps({
         "title": first("title"), "artist": first("artist"), "album": first("album"),
         "albumartist": first("albumartist", "album artist"), "year": first("date", "year"),
+        "track_num": first("tracknumber"), "disc_num": first("discnumber"),
+        "genre": first("genre"), "composer": first("composer") or _read_raw_composer(source_path),
         "lyrics": normalize_lyrics(first("lyrics", "unsyncedlyrics") or _read_embedded_lyrics(source_path)),
     }, ensure_ascii=False)
 

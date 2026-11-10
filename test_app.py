@@ -432,6 +432,11 @@ class LocalTagMetadataTests(unittest.TestCase):
         for needle in ("const ui = text =>", "ui('暂无内嵌歌词')" if "ui('暂无内嵌歌词')" in html else "emptyMessage"):
             self.assertIn(needle, html)
 
+    def test_editor_fills_more_info_fields_from_file_tags(self):
+        html = open("index.html", encoding="utf-8").read()
+        self.assertIn("function fillTagExtras(tags)", html)
+        self.assertEqual(html.count("fillTagExtras("), 4)  # definition + three file-read sites
+
     def test_library_has_single_add_menu_and_back_closes_overlays(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8") if "ROOT" in globals() else open("index.html", encoding="utf-8").read()
         self.assertIn('id="addMusicBtn"', html)
@@ -1224,6 +1229,25 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
     def test_native_export_uses_a_separate_output_folder(self):
         activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
         self.assertGreaterEqual(activity.count('new File(work, "out")'), 2)
+
+    def test_extra_tags_and_missing_lyrics_are_read_for_every_format(self):
+        import os, shutil
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("ffmpeg not available")
+        import app as desktop
+        for ext in ("mp3", "m4a", "flac", "ogg"):
+            with self.subTest(ext=ext):
+                path = os.path.join(self.tmp, "extras." + ext)
+                subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=d=1",
+                                "-metadata", "title=T", "-metadata", "genre=Vocaloid", "-metadata", "composer=wanko",
+                                "-metadata", "track=3/12", "-metadata", "disc=1", path], check=True)
+                android = json.loads(self.module.read_local_audio_tags(path))
+                web = desktop.read_music_metadata(path, os.path.basename(path))
+                for result in (android, web):
+                    self.assertEqual(
+                        (result["track_num"], result["disc_num"], result["genre"], result["composer"]),
+                        ("3/12", "1", "Vocaloid", "wanko"))
 
     def test_embedded_lyrics_are_read_back_from_packaged_mp3(self):
         import os, shutil

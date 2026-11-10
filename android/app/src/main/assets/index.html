@@ -1303,6 +1303,15 @@ $('downloadSettingsBackdrop').addEventListener('click', closeDownloadSettings);
 $('downloadConnectLink').addEventListener('click', () => { closeDownloadSettings(); switchTab('settings'); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && $('downloadSettingsPanel').classList.contains('open')) closeDownloadSettings(); });
 window.matchMedia('(min-width: 960px)').addEventListener('change', event => { if (event.matches) closeDownloadSettings(); });
+// Track/disc number, genre and composer live under "More info"; fill them from a file's tags.
+function fillTagExtras(tags) {
+  $('tagTrackNumber').value = tags.track_num || '';
+  $('tagDiscNumber').value = tags.disc_num || '';
+  $('tagGenre').value = tags.genre || '';
+  $('tagComposer').value = tags.composer || '';
+  updateEditorSummaries();
+}
+
 function updateEditorSummaries() {
   const lyrics = $('tagLyrics').value.trim();
   $('lyricsSummary').textContent = lyrics ? `${lyrics.split(/\n/).filter(Boolean).length} 行` : '未填写';
@@ -2291,6 +2300,7 @@ $('customAudioInput').addEventListener('click', event => {
     $('tagArtist').value = data.artist || '';
     $('tagAlbum').value = data.album || '';
     $('tagAlbumArtist').value = data.albumartist || '';
+    fillTagExtras(data);
     $('tagYear').value = data.year || '';
     $('tagLyrics').value = data.lyrics || '';
     customSelectedLyricKey = '';
@@ -2340,6 +2350,7 @@ $('customAudioInput').addEventListener('change', async (e) => {
     $('tagArtist').value = d.artist || '';
     $('tagAlbum').value = d.album || '';
     $('tagAlbumArtist').value = d.albumartist || '';
+    fillTagExtras(d);
     $('tagYear').value = d.year || '';
     $('tagLyrics').value = d.lyrics || '';
     customSelectedLyricKey = '';
@@ -2532,6 +2543,7 @@ window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
     $('tagArtist').value = data.artist || '';
     $('tagAlbum').value = data.album || '';
     $('tagAlbumArtist').value = data.albumartist || '';
+    fillTagExtras(data);
     $('tagYear').value = (data.year || '').slice(0, 4);
     $('tagLyrics').value = data.lyrics || '';
     if (artwork) {

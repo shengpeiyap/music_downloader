@@ -88,13 +88,43 @@ def load_music_tag(path: str):
 
 def read_music_metadata(path: str, filename: str) -> dict:
     audio = load_music_tag(path)
-    get_tag = lambda name: str(audio[name]) if audio[name] else ""
+    def get_tag(name: str) -> str:
+        # music-tag coerces some fields to int and raises on values such as "3/12" (FLAC/OGG).
+        try:
+            return str(audio[name]) if audio[name] else ""
+        except (KeyError, ValueError, TypeError):
+            return ""
 
     cover = None
-    artwork = audio["artwork"]
-    if artwork and artwork.values:
-        image = artwork.first
-        cover = f"data:{image.mime or 'image/jpeg'};base64," + base64.b64encode(image.data).decode("ascii")
+    try:
+        artwork = audio["artwork"]
+        if artwork and artwork.values:
+            image = artwork.first
+            cover = f"data:{image.mime or 'image/jpeg'};base64," + base64.b64encode(image.data).decode("ascii")
+    except (KeyError, IndexError, ValueError):
+        # music-tag raises KeyError for an M4A that has no 'covr' atom; a missing cover is fine.
+        cover = None
+
+    def raw_vorbis_number(key: str) -> str:
+        try:
+            import mutagen
+            easy = mutagen.File(path, easy=True)
+            values = easy.get(key) if easy is not None else None
+            return str(values[0]) if values else ""
+        except Exception:
+            return ""
+
+    def number_with_total(number_key: str, total_key: str) -> str:
+        number = get_tag(number_key)
+        total = get_tag(total_key)
+        if not number:
+            # "3/12" style values are kept verbatim by FLAC/OGG; read them straight from the file.
+            combined = raw_vorbis_number(number_key)
+            if combined:
+                return combined
+        if number in {"", "0"}:
+            return ""
+        return f"{number}/{total}" if total not in {"", "0"} else number
 
     return {
         "filename": filename,
@@ -103,6 +133,10 @@ def read_music_metadata(path: str, filename: str) -> dict:
         "album": get_tag("album"),
         "albumartist": get_tag("albumartist"),
         "year": get_tag("year"),
+        "track_num": number_with_total("tracknumber", "totaltracks"),
+        "disc_num": number_with_total("discnumber", "totaldiscs"),
+        "genre": get_tag("genre"),
+        "composer": get_tag("composer"),
         "lyrics": normalize_lyrics(get_tag("lyrics")),
         "cover": cover,
     }
