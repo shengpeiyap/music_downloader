@@ -457,6 +457,44 @@ def search_musicbrainz(query: str) -> str:
     }, ensure_ascii=False)
 
 
+def search_candidates(query: str, limit: int = 8):
+    """Other MusicBrainz recordings matching a keyword search, for the person to choose from."""
+    artist, title = _split_metadata_query(query)
+    if not title:
+        raise ValueError("请输入“作者 - 标题”或歌曲标题。")
+    params = urllib.parse.urlencode({
+        "query": build_musicbrainz_search_query(title, artist), "fmt": "json", "limit": 25,
+    })
+    data = _musicbrainz_json("https://musicbrainz.org/ws/2/recording/?" + params)
+    recordings = data.get("recordings", []) if isinstance(data, dict) else []
+    candidates, seen = [], set()
+    for recording in recordings:
+        if not isinstance(recording, dict):
+            continue
+        releases = [r for r in (recording.get("releases") or []) if isinstance(r, dict)]
+        releases.sort(key=lambda r: (
+            (r.get("release-group") or {}).get("primary-type") == "Album", bool(r.get("date")),
+        ), reverse=True)
+        release = releases[0] if releases else {}
+        item = {
+            "id": recording.get("id", ""),
+            "title": recording.get("title", ""),
+            "artist": _musicbrainz_artist_credit(recording.get("artist-credit")),
+            "album": release.get("title", ""),
+            "year": str(release.get("date") or "")[:4],
+            "duration": int(recording.get("length") or 0) // 1000,
+            "disambiguation": recording.get("disambiguation", ""),
+        }
+        key = (item["title"].casefold(), item["artist"].casefold(), item["album"].casefold())
+        if not item["title"] or key in seen:
+            continue
+        seen.add(key)
+        candidates.append(item)
+        if len(candidates) >= limit:
+            break
+    return json.dumps({"candidates": candidates}, ensure_ascii=False)
+
+
 def _lyrics_normalize(value: str):
     return _normalize_match(value)
 

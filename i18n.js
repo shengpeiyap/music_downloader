@@ -174,6 +174,7 @@
   };
 
   Object.assign(translations, {
+  "其他匹配结果": "Other matches", "搜索其他匹配结果失败。": "Could not search other matches.", "无法读取匹配结果": "Could not read the matches",
   "选择音频并载入 LRC 歌词后，可试听并点选歌词校时。": "Choose audio and load LRC lyrics to preview and click a line to adjust its timing.",
   "收藏歌曲": "Favorite song", "取消收藏": "Remove from favorites", "播放": "Play", "暂停": "Pause", "播放列表": "Playlist",
   "解析本机音频标签失败。": "Failed to read tags from this audio.",
@@ -362,6 +363,7 @@
       [/^已保存电脑地址 (\S+?)；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。$/, 'Saved computer address $1. After the connection is verified, these tasks run on the computer. Using this phone for now.',
        /^Saved computer address (\S+?)\. After the connection is verified, these tasks run on the computer\. Using this phone for now\.$/, '已保存电脑地址 $1；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。'],
       [/^(\d+) 首歌曲$/, '$1 songs'],
+      [/^其他匹配结果（(\d+)）$/, 'Other matches ($1)'],
       [/^例如：3 或 3\/12$/, 'e.g. 3 or 3/12'],
       [/^例如：(.+)$/, 'e.g. $1'],
       [/^MusicBrainz 搜索失败（(.+)）；yt-dlp 备用搜索也失败（(.+)）。$/, 'MusicBrainz search failed ($1); the yt-dlp fallback search also failed ($2).'],
