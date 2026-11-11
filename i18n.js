@@ -351,6 +351,15 @@
     '读取播放列表失败。': 'Failed to read the playlist.',
     '批量任务状态读取失败。': 'Failed to read the batch job status.',
   });
+  Object.assign(translations, {
+    '显示歌词译文（双语歌词）': 'Show lyric translations (bilingual lyrics)',
+    '添加译文（可选）': 'Add translation (optional)',
+    '每行一句译文，按顺序对应带时间戳的歌词；点击后会在每句歌词下插入同一时间戳的译文行。': 'One translated line per row, matched in order to the timestamped lyrics. Each translation is inserted under its line with the same timestamp.',
+    '第一句译文\n第二句译文\n…': 'First translated line\nSecond translated line\n…',
+    '合并译文到歌词': 'Merge translation into lyrics',
+    '请先在上面填入带时间戳的 LRC 歌词。': 'Enter timestamped LRC lyrics above first.',
+    '请先填入译文。': 'Enter the translation first.',
+  });
   const reverse = new Map(Object.entries(translations).map(([zh, en]) => [en, zh]));
   const protectedSelectors = 'script,style,textarea,input,select,[contenteditable="true"],#lrcContainer,#localLrcContainer,#customLyricsPreview,.track-list,.queue-sheet,.result-info,#nowTitle,#nowArtist,#miniTitle,#miniArtist,#title,#artist';
   const mobileNames = {
@@ -383,6 +392,8 @@
       [/^已取消，已完成 (\d+) 首。$/, 'Cancelled. $1 tracks finished.'],
       [/^完成：成功 (\d+) 首，失败 (\d+) 首。正在保存压缩包…$/, 'Done: $1 succeeded, $2 failed. Saving the ZIP…'],
       [/^完成：成功 (\d+) 首，失败 (\d+) 首。压缩包已保存。$/, 'Done: $1 succeeded, $2 failed. ZIP saved.'],
+      [/^已合并 (\d+) 行译文。$/, 'Merged $1 translated lines.'],
+      [/^已合并 (\d+) 行译文（歌词 (\d+) 行，译文 (\d+) 行，数量不一致，请检查对应关系）。$/, 'Merged $1 translated lines (lyrics: $2 lines, translation: $3 lines — the counts differ, please check the pairing).'],
       [/^(\d+) 首歌曲$/, '$1 songs'],
       [/^其他匹配结果（(\d+)）$/, 'Other matches ($1)'],
       [/^例如：3 或 3\/12$/, 'e.g. 3 or 3/12'],
