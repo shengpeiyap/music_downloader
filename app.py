@@ -210,12 +210,13 @@ def search_ytdlp_metadata(query: str) -> dict:
     }
 
 
-def lookup_metadata_by_keyword(query: str) -> dict:
+def lookup_metadata_by_keyword(query: str, album_hint: str = "") -> dict:
     artist, title = parse_metadata_search_query(query)
     if not title:
         raise ValueError("请输入“作者 - 标题”或歌曲标题。")
 
-    metadata = lookup_musicbrainz_metadata(title, artist)
+    metadata = (lookup_musicbrainz_metadata(title, artist, album_hint) if album_hint
+                else lookup_musicbrainz_metadata(title, artist))
     lyric_track = search_lrc_track(title, artist)
     found_artist = metadata.get("artist") or artist
     if found_artist in {"未知艺人", "Unknown Artist", title} and lyric_track:
@@ -311,6 +312,43 @@ def process_batch_track(track: dict, options: dict, dest_dir: Path) -> Path:
             sidecar = target.with_suffix(".lrc")
             sidecar.write_bytes(normalize_lyrics(lyrics).encode("utf-8-sig"))
         return target
+
+
+def search_metadata_candidates(query: str, limit: int = 8) -> list[dict]:
+    """Other MusicBrainz recordings that match a keyword search, so the person can pick one."""
+    artist, title = parse_metadata_search_query(query)
+    if not title:
+        raise ValueError("请输入“作者 - 标题”或歌曲标题。")
+    clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} or artist.strip() == title.strip() else artist.strip()
+    result = musicbrainzngs.search_recordings(query=build_musicbrainz_search_query(title, clean_artist), limit=25)
+    candidates, seen = [], set()
+    for recording in result.get("recording-list", []):
+        credit = recording.get("artist-credit", [])
+        names = [part.get("artist", {}).get("name", "") if isinstance(part, dict) else "" for part in credit]
+        artist_name = ", ".join(name for name in names if name)
+        releases = [rel for rel in recording.get("release-list", []) if isinstance(rel, dict)]
+        releases.sort(key=lambda rel: (
+            (rel.get("release-group") or {}).get("type", "").lower() == "album",
+            bool(rel.get("date")),
+        ), reverse=True)
+        release = releases[0] if releases else {}
+        item = {
+            "id": recording.get("id", ""),
+            "title": recording.get("title", ""),
+            "artist": artist_name,
+            "album": release.get("title", ""),
+            "year": str(release.get("date", ""))[:4],
+            "duration": int(recording.get("length") or 0) // 1000,
+            "disambiguation": recording.get("disambiguation", ""),
+        }
+        key = (item["title"].casefold(), item["artist"].casefold(), item["album"].casefold())
+        if not item["title"] or key in seen:
+            continue
+        seen.add(key)
+        candidates.append(item)
+        if len(candidates) >= limit:
+            break
+    return candidates
 
 
 def build_download_query(url: str, title: str, artist: str, keyword_search: bool) -> str:
@@ -1361,10 +1399,24 @@ class Handler(SimpleHTTPRequestHandler):
                 query = req_data.get("query", "")
                 if not isinstance(query, str) or len(query) > 512:
                     raise ValueError("搜索内容无效或过长。")
-                result = lookup_metadata_by_keyword(query)
+                album_hint = req_data.get("album", "")
+                if not isinstance(album_hint, str) or len(album_hint) > 256:
+                    raise ValueError("专辑名称无效。")
+                result = lookup_metadata_by_keyword(query, album_hint.strip())
                 self.send_json(200, result)
             except Exception as exc:
                 self.send_json(400, {"error": str(exc) or "搜索曲目信息失败。"})
+            return
+
+        if self.path == "/api/search_candidates":
+            try:
+                req_data = self.read_json_object()
+                query = req_data.get("query", "")
+                if not isinstance(query, str) or len(query) > 512:
+                    raise ValueError("搜索内容无效或过长。")
+                self.send_json(200, {"candidates": search_metadata_candidates(query)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc) or "搜索其他匹配结果失败。"})
             return
 
         if self.path == "/api/parse_local_tag":

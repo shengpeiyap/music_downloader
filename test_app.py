@@ -1258,6 +1258,34 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
                         (result["track_num"], result["disc_num"], result["genre"], result["composer"]),
                         ("3/12", "1", "Vocaloid", "wanko"))
 
+    def test_android_candidates_are_deduplicated_and_ranked_by_album(self):
+        recordings = {"recordings": [
+            {"id": "1", "title": "Song", "length": 212000, "artist-credit": [{"name": "A", "artist": {"name": "A"}}],
+             "releases": [{"title": "Single", "date": "2020-01-01", "release-group": {"primary-type": "Single"}},
+                          {"title": "Album", "date": "2021-05-05", "release-group": {"primary-type": "Album"}}]},
+            {"id": "2", "title": "Song", "length": 212000, "artist-credit": [{"name": "A", "artist": {"name": "A"}}],
+             "releases": [{"title": "Album", "date": "2021-05-05", "release-group": {"primary-type": "Album"}}]},
+            {"id": "3", "title": "Song", "disambiguation": "live", "artist-credit": [{"name": "B", "artist": {"name": "B"}}]},
+        ]}
+        original = self.module._musicbrainz_json
+        self.module._musicbrainz_json = lambda url: recordings
+        try:
+            result = json.loads(self.module.search_candidates("Song"))["candidates"]
+        finally:
+            self.module._musicbrainz_json = original
+        self.assertEqual([(c["artist"], c["album"]) for c in result], [("A", "Album"), ("B", "")])
+        self.assertEqual(result[0]["duration"], 212)
+
+    def test_desktop_candidates_endpoint_and_ui_are_wired(self):
+        source = open("app.py", encoding="utf-8").read()
+        html = open("index.html", encoding="utf-8").read()
+        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
+        for needle in ('"/api/search_candidates"', "def search_metadata_candidates(", "album_hint"):
+            self.assertIn(needle, source)
+        for needle in ('id="candidatesPanel"', "function pickCandidate(", "function finishKeywordSearch(", "AndroidMusic.searchCandidates"):
+            self.assertIn(needle, html)
+        self.assertIn("public String searchCandidates(String query)", activity)
+
     def test_embedded_lyrics_are_read_back_from_packaged_mp3(self):
         import os, shutil
         ffmpeg = shutil.which("ffmpeg")

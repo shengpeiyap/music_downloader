@@ -324,6 +324,18 @@
     @media(max-width:768px){.save-bar{bottom:calc(72px + env(safe-area-inset-bottom))}body.android-app .save-bar{bottom:0}}
     @media(max-width:768px){.save-bar .save-format{flex-basis:104px}.save-bar #saveTagBtn{font-size:15px;padding:0 8px}}
 
+    /* ===== Search: other matches ===== */
+    .candidates{border:1px solid var(--line);border-radius:14px;background:#111613}
+    .candidates>summary{cursor:pointer;padding:12px 14px;font-size:14px;font-weight:600;color:var(--muted);list-style:none}
+    .candidates>summary::-webkit-details-marker{display:none}
+    .candidates>summary::after{content:'›';float:right;transition:transform .15s}
+    .candidates[open]>summary::after{transform:rotate(90deg)}
+    .candidates-list{display:flex;flex-direction:column;border-top:1px solid var(--line)}
+    .cand-row{display:block;width:100%;margin:0;padding:12px 14px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;color:var(--text);text-align:left;font-size:14px;min-height:48px;overflow-wrap:anywhere}
+    .cand-row:last-child{border-bottom:0}
+    .cand-row small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+    .cand-row[aria-current="true"]{background:rgba(155,226,107,.12);box-shadow:inset 3px 0 0 var(--green)}
+    .cand-row:hover,.cand-row:focus-visible{background:rgba(155,226,107,.08)}
     /* ===== Library: single add menu ===== */
     .add-menu{position:relative}
     .add-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:150px;padding:6px;border-radius:12px;background:#151a17;border:1px solid #26302a;box-shadow:0 10px 30px rgba(0,0,0,.45)}
@@ -423,6 +435,10 @@
               </div>
             </div>
           </div>
+          <details id="candidatesPanel" class="candidates" hidden>
+            <summary id="candidatesSummary">其他匹配结果</summary>
+            <div id="candidatesList" class="candidates-list" role="list"></div>
+          </details>
 
           <div class="player-box" id="playerBox">
             <audio id="audioPlayer" controls></audio>
@@ -1749,6 +1765,76 @@ $('batchCancel').addEventListener('click', async () => {
   try { await requestMusicDeskApi(`/api/batch/${batchJobId}/cancel`, {method: 'POST'}); } catch (_) {}
 });
 
+// ===== Other matches for a keyword search =====
+let pendingCandidate = null;   // set while re-running a search for a chosen candidate
+let lastCandidates = [];
+let candidateSearchId = 0;
+function formatDuration(seconds) {
+  if (!seconds) return '';
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+function renderCandidates(selectedId) {
+  const panel = $('candidatesPanel'), list = $('candidatesList');
+  list.replaceChildren();
+  if (lastCandidates.length < 2) { panel.hidden = true; return; }
+  lastCandidates.forEach(candidate => {
+    const row = document.createElement('button');
+    row.type = 'button'; row.className = 'cand-row'; row.setAttribute('role', 'listitem');
+    row.setAttribute('aria-current', String(candidate.id === selectedId));
+    const name = document.createElement('span');
+    name.textContent = candidate.title + (candidate.disambiguation ? ` (${candidate.disambiguation})` : '');
+    const detail = document.createElement('small');
+    detail.textContent = [candidate.artist, candidate.album, candidate.year, formatDuration(candidate.duration)].filter(Boolean).join(' · ');
+    row.append(name, detail);
+    row.addEventListener('click', () => pickCandidate(candidate));
+    list.appendChild(row);
+  });
+  $('candidatesSummary').textContent = `其他匹配结果（${lastCandidates.length}）`;
+  panel.hidden = false;
+}
+function pickCandidate(candidate) {
+  pendingCandidate = candidate;
+  $('share').value = candidate.artist ? `${candidate.artist} - ${candidate.title}` : candidate.title;
+  $('lookup').requestSubmit();
+}
+function fetchCandidatesOnAndroid(query) {
+  return new Promise((resolve, reject) => {
+    window.onAndroidCandidatesComplete = (error, result) => {
+      window.onAndroidCandidatesComplete = null;
+      if (error) reject(new Error(error));
+      else { try { resolve(JSON.parse(result).candidates || []); } catch (_) { reject(new Error('无法读取匹配结果')); } }
+    };
+    try {
+      const error = AndroidMusic.searchCandidates(query);
+      if (error) { window.onAndroidCandidatesComplete = null; reject(new Error(error)); }
+    } catch (error) { window.onAndroidCandidatesComplete = null; reject(error); }
+  });
+}
+// Best effort: the main result is already on screen, so a failure here just hides the list.
+async function loadCandidates(query) {
+  const requestId = ++candidateSearchId;
+  $('candidatesPanel').hidden = true;
+  try {
+    let candidates;
+    if (shouldProcessOnAndroid()) candidates = await fetchCandidatesOnAndroid(query);
+    else {
+      const r = await requestMusicDeskApi('/api/search_candidates', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({query}),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || '');
+      candidates = data.candidates || [];
+    }
+    if (requestId !== candidateSearchId) return;
+    lastCandidates = candidates;
+    const current = currentMetadata || {};
+    const best = candidates.find(c => c.title === current.title && (!current.artist || c.artist === current.artist)) || null;
+    renderCandidates(best ? best.id : '');
+  } catch (_) {
+    if (requestId === candidateSearchId) $('candidatesPanel').hidden = true;
+  }
+}
+
 $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('lookupBtn').disabled = true;
   const lookupValue = $('share').value.trim();
   if (PLAYLIST_URL_RE.test(lookupValue)) {
@@ -1761,6 +1847,8 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
   }
   resetBatchPanel();
   const isKeywordSearch = !/^https?:\/\//i.test(lookupValue);
+  const chosen = pendingCandidate; pendingCandidate = null;
+  if (!isKeywordSearch) { candidateSearchId++; $('candidatesPanel').hidden = true; }
   $('lookupStatus').textContent = '正在读取…';
   $('sourceStatus').textContent = '';$('result').style.display = 'none';
   $('lyricsViewer').style.display = 'none';$('playerBox').style.display = 'none';
@@ -1783,6 +1871,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
       $('lookupStatus').textContent = usedMusicBrainz
         ? 'MusicBrainz 曲目信息已载入，可继续检索歌词或下载。'
         : 'MusicBrainz 没有匹配结果，已自动改用手机 yt-dlp 搜索。';
+      finishKeywordSearch(lookupValue, chosen);
       return;
     }
     if (shouldProcessOnAndroid()) {
@@ -1802,7 +1891,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
     const r = await requestMusicDeskApi(isKeywordSearch ? '/api/search_metadata' : '/api/metadata', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(isKeywordSearch ? {query: lookupValue} : {url: lookupValue})
+      body: JSON.stringify(isKeywordSearch ? {query: lookupValue, album: chosen ? chosen.album : ''} : {url: lookupValue})
     });
     const d = await r.json();
     if(!r.ok) throw Error(d.error || '读取失败');
@@ -1816,6 +1905,7 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
     $('cover').src = isKeywordSearch ? (d.cover || d.thumbnail || DEFAULT_COVER) : (d.thumbnail || DEFAULT_COVER);
     $('result').style.display = 'flex';
     updateYouTubePreview();
+    if (isKeywordSearch) finishKeywordSearch(lookupValue, chosen);
     $('lookupStatus').textContent = isKeywordSearch
       ? (d.provider === 'yt-dlp' ? 'MusicBrainz 没有匹配结果，已自动改用 yt-dlp 搜索；下载将使用该结果链接。' : '搜索完成，可继续查看歌词或下载。')
       : '信息已读取。';
@@ -1825,6 +1915,17 @@ $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('look
     $('lookupBtn').disabled = false;
   }
 });
+
+// After a keyword search: honour a picked candidate's album/year, and list the other matches.
+function finishKeywordSearch(query, chosen) {
+  if (chosen) {
+    if (chosen.album) currentMetadata.album = chosen.album;
+    if (chosen.year) currentMetadata.year = chosen.year;
+    renderCandidates(chosen.id);
+    return;
+  }
+  loadCandidates(query);
+}
 
 $('viewLrcBtn').addEventListener('click', async () => {
   if (!currentMetadata) return;
