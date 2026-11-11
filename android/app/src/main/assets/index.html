@@ -109,6 +109,8 @@
     .custom-lyrics-preview{max-height:210px;overflow:auto;background:#0d110e;border:1px solid #29332c;border-radius:10px;padding:8px}
     .custom-lyric-line{display:block;width:100%;margin:2px 0;padding:7px 9px;text-align:left;background:transparent;color:var(--muted);font-size:13px;font-weight:500}
     .custom-lyric-line.selected,.custom-lyric-line.active{background:#1f2b15;color:var(--green)}
+    .custom-lyric-line.is-translation{margin-top:-2px;padding-top:2px;padding-left:61px;font-size:12px;opacity:.8}
+    .custom-lyric-line.is-translation .custom-lyric-time{display:none}
     .custom-lyric-time{display:inline-block;min-width:52px;color:#91a18e;font-variant-numeric:tabular-nums}
     .custom-lyrics-empty{margin:8px;color:var(--muted);font-size:12px}
     @media(max-width:560px){.custom-trim-grid{grid-template-columns:1fr}.custom-trim-grid button{justify-self:start}.custom-lyrics-tools button{flex:1 1 auto}}
@@ -2313,7 +2315,9 @@ function renderCustomLyricsPreview() {
     customLrcEntries.forEach((entry, index) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'custom-lyric-line';
+      const previous = customLrcEntries[index - 1];
+      const isTranslation = Boolean(previous) && Math.abs(previous.seconds - entry.seconds) < 0.005 && entry.text;
+      button.className = `custom-lyric-line${isTranslation ? ' is-translation' : ''}`;
       button.dataset.lyricIndex = String(index);
       const time = document.createElement('span');
       time.className = 'custom-lyric-time';
@@ -2458,8 +2462,17 @@ $('customLyricsSetTime').addEventListener('click', () => {
   const player = $('customAudioPreview');
   if (!entry || !Number.isFinite(player.currentTime)) return;
   const replacement = `[${formatLrcTimestamp(player.currentTime)}]`;
-  const text = $('tagLyrics').value;
-  $('tagLyrics').value = text.slice(0, entry.offset) + replacement + text.slice(entry.offset + entry.length);
+  // An original line and its translation share one timestamp, so they move together.
+  const at = customLrcEntries.indexOf(entry);
+  let first = at, last = at;
+  while (first > 0 && Math.abs(customLrcEntries[first - 1].seconds - entry.seconds) < 0.005) first--;
+  while (last + 1 < customLrcEntries.length && Math.abs(customLrcEntries[last + 1].seconds - entry.seconds) < 0.005) last++;
+  let text = $('tagLyrics').value;
+  for (let i = last; i >= first; i--) {
+    const target = customLrcEntries[i];
+    text = text.slice(0, target.offset) + replacement + text.slice(target.offset + target.length);
+  }
+  $('tagLyrics').value = text;
   customSelectedLyricKey = entry.key;
   renderCustomLyricsPreview();
 });
@@ -4126,7 +4139,9 @@ $('eqPreset').addEventListener('change', () => {
   updateEq();
 });
 $('localAudioPlayer').addEventListener('play', () => { if (eqContext && eqContext.state === 'suspended') eqContext.resume().catch(() => {}); });
-if (!(window.AudioContext || window.webkitAudioContext)) $('eqCard').style.display = 'none';
+// The Android app loads audio from file:// URLs; Web Audio silences cross-origin media, so the equalizer stays off there.
+const eqSupported = !window.AndroidMusic && Boolean(window.AudioContext || window.webkitAudioContext);
+if (!eqSupported) { $('eqCard').style.display = 'none'; if (eqState.enabled) { eqState.enabled = false; saveEq(); } }
 else { renderEq(); if (eqState.enabled) { if (ensureEqGraph()) applyEq(); else eqState.enabled = false; renderEq(); } }
 syncPlayerControls();
 </script></body></html>
