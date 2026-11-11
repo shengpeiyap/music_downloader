@@ -1093,6 +1093,15 @@ class LanApiTests(unittest.TestCase):
             worker.join(timeout=3)
 
 
+class BatchDownloadWiringTests(unittest.TestCase):
+    def test_batch_ui_and_capability_are_wired(self):
+        html = Path("index.html").read_text(encoding="utf-8")
+        for needle in ("batchPanel", "/api/playlist", "/api/batch", "PLAYLIST_URL_RE", "批量下载暂时只支持电脑网页端"):
+            self.assertIn(needle, html)
+        self.assertIn("playlist_batch", MUSICDESK_API_CAPABILITIES)
+        self.assertIn("Download selected", Path("i18n.js").read_text(encoding="utf-8"))
+
+
 class SmartPaddingCropTests(unittest.TestCase):
     def test_crops_uniform_padding_from_all_sides(self):
         canvas = Image.new("RGB", (200, 200), (240, 240, 240))

@@ -29,6 +29,7 @@ from io import BytesIO
 from PIL import Image
 import musicbrainzngs
 from desktop_media import resolve_selected_audio, serve_local_audio
+from musicdesk_core import batch as batch_queue
 from musicdesk_core import (
     SAFE_NAME,
     build_audio_trim_args,
@@ -58,7 +59,7 @@ SAFE_THUMBNAIL_HOSTS = {
 }
 MUSICDESK_API_CAPABILITIES = (
     "metadata", "search_metadata", "lyrics_text", "download", "convert",
-    "parse_local_tag", "package_custom_tag",
+    "parse_local_tag", "package_custom_tag", "playlist_batch",
 )
 
 
@@ -255,6 +256,62 @@ def lookup_metadata_by_keyword(query: str, album_hint: str = "") -> dict:
         "cover": cover,
         "provider": "MusicBrainz",
     }
+
+
+def list_playlist_entries(url: str) -> dict:
+    """List a YouTube / YouTube Music playlist without downloading anything."""
+    playlist_url = batch_queue.parse_playlist_url(url)["url"]
+    command = find_executable("yt-dlp") + get_ytdlp_js_runtime_args() + [
+        "--flat-playlist", "--dump-json", "--no-warnings",
+        "--playlist-end", str(batch_queue.MAX_BATCH_TRACKS), playlist_url,
+    ]
+    process = subprocess.run(
+        command, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=get_env_with_utf8(), shell=False, timeout=120,
+    )
+    entries, title = [], ""
+    for line in process.stdout.splitlines():
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        title = title or str(raw.get("playlist_title") or "")
+        entry = batch_queue.clean_playlist_entry(raw)
+        if entry:
+            entries.append(entry)
+    if not entries:
+        details = (process.stderr or "").strip().splitlines()
+        raise ValueError(" ".join(details[-2:])[-300:] or "没有读取到可下载的曲目（播放列表可能是私有的或为空）。")
+    return {"title": title, "entries": entries}
+
+
+def process_batch_track(track: dict, options: dict, dest_dir: Path) -> Path:
+    """Download one playlist entry, tag it, and move the finished file into dest_dir."""
+    video_url = parse_share_url(f"https://www.youtube.com/watch?v={track['id']}")["url"]
+    title, artist = track["title"], track["artist"]
+    export_format, bitrate = options["format"], options["bitrate"]
+    with tempfile.TemporaryDirectory(prefix="musicdesk-batch-dl-") as temp_dir:
+        downloaded_file, _source = fetch_media_stream(video_url, title, artist, "ytdlp", temp_dir)
+        cover_path = Path(temp_dir) / "cover.jpg"
+        try:
+            cover_path.write_bytes(crop_yt_padding_smart(fetch_thumbnail(validate_thumbnail_url(track["thumbnail"]))))
+        except Exception:
+            cover_path.write_bytes(b"")
+        try:  # lyrics are a bonus: never fail a track because the lyric service is down
+            lyrics = fetch_lrc_lyrics(title, artist) or ""
+        except Exception:
+            lyrics = ""
+        meta = {"title": title, "artist": artist, "album": "", "albumartist": artist, "year": ""}
+        final = process_and_export_media(
+            source_path=downloaded_file, meta_info=meta, cover_path=cover_path,
+            export_format=export_format, output_dir=Path(temp_dir) / "out", bitrate=bitrate, lyrics_text=lyrics,
+        )
+        target = batch_queue.unique_name(dest_dir, final.name)
+        shutil.move(str(final), str(target))
+        if options.get("download_lrc") and lyrics:
+            sidecar = target.with_suffix(".lrc")
+            sidecar.write_bytes(normalize_lyrics(lyrics).encode("utf-8-sig"))
+        return target
 
 
 def search_metadata_candidates(query: str, limit: int = 8) -> list[dict]:
@@ -1176,6 +1233,32 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_api_cors_headers()
         self.end_headers()
 
+    def handle_batch_get(self, job_id: str, want_zip: bool):
+        if not self.is_api_authorized():
+            self.send_json(401, {"error": "配对密钥无效。"})
+            return
+        manager = self.server.batch_manager
+        manager.prune()
+        job = manager.get(job_id)
+        if job is None:
+            self.send_json(404, {"error": "批量任务不存在或已过期。"})
+            return
+        if not want_zip:
+            self.send_json(200, job.snapshot())
+            return
+        if job.zip_path is None or not job.zip_path.is_file():
+            self.send_json(409, {"error": "压缩包还没有准备好。"})
+            return
+        size = job.zip_path.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote("MusicDesk-批量下载.zip"))
+        self.send_header("Content-Length", str(size))
+        self.send_api_cors_headers()
+        self.end_headers()
+        with job.zip_path.open("rb") as handle:
+            shutil.copyfileobj(handle, self.wfile)
+
     def do_GET(self):
         if self.reject_invalid_request():
             return
@@ -1189,6 +1272,10 @@ class Handler(SimpleHTTPRequestHandler):
                 "api_version": MUSICDESK_API_VERSION,
                 "capabilities": list(MUSICDESK_API_CAPABILITIES),
             })
+            return
+        batch_match = re.fullmatch(r"/api/batch/([0-9a-f]{32})(/zip)?", urllib.parse.urlsplit(self.path).path)
+        if batch_match:
+            self.handle_batch_get(batch_match.group(1), bool(batch_match.group(2)))
             return
         if getattr(self.server, "lan_mode", False) and not is_loopback_address(self.client_address[0]):
             # Remote LAN clients get the API only; keep the browser UI local to this computer.
@@ -1253,6 +1340,57 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(200, {"lyrics": lrc})
             except Exception as exc:
                 self.send_json(400, {"error": str(exc)})
+            return
+
+        if self.path == "/api/playlist":
+            try:
+                req_data = self.read_json_object()
+                url = req_data.get("url", "")
+                if not isinstance(url, str) or len(url) > 2048:
+                    raise ValueError("播放列表链接无效。")
+                self.send_json(200, list_playlist_entries(url))
+            except subprocess.TimeoutExpired:
+                self.send_json(400, {"error": "读取播放列表超时，请稍后重试。"})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc) or "读取播放列表失败。"})
+            return
+
+        if self.path == "/api/batch":
+            try:
+                req_data = self.read_json_object(256 * 1024)
+                export_format = str(req_data.get("format", "mp3")).lower()
+                if export_format not in FORMATS:
+                    raise ValueError("不支持的音频格式。")
+                bitrate = str(req_data.get("bitrate", "192"))
+                if bitrate not in {"128", "192", "256", "320"}:
+                    raise ValueError("不支持的音频比特率。")
+                download_lrc = req_data.get("download_lrc", False)
+                if not isinstance(download_lrc, bool):
+                    raise ValueError("download_lrc 必须是布尔值。")
+                raw_tracks = req_data.get("tracks")
+                if not isinstance(raw_tracks, list):
+                    raise ValueError("tracks 必须是列表。")
+                tracks, seen = [], set()
+                for raw in raw_tracks:
+                    entry = batch_queue.clean_playlist_entry(raw if isinstance(raw, dict) else {})
+                    if entry and entry["id"] not in seen:
+                        seen.add(entry["id"])
+                        tracks.append(entry)
+                job = self.server.batch_manager.start(
+                    tracks, {"format": export_format, "bitrate": bitrate, "download_lrc": download_lrc}, process_batch_track)
+                self.send_json(200, {"job_id": job.id, "total": len(tracks)})
+            except RuntimeError as exc:
+                self.send_json(409, {"error": str(exc)})
+            except Exception as exc:
+                self.send_json(400, {"error": str(exc) or "无法开始批量下载。"})
+            return
+
+        cancel_match = re.fullmatch(r"/api/batch/([0-9a-f]{32})/cancel", self.path)
+        if cancel_match:
+            if self.server.batch_manager.cancel(cancel_match.group(1)):
+                self.send_json(200, {"ok": True})
+            else:
+                self.send_json(404, {"error": "批量任务不存在或已过期。"})
             return
 
         if self.path == "/api/search_metadata":
@@ -1586,6 +1724,7 @@ def create_musicdesk_server(host: str = "127.0.0.1", port: int = 8765, api_token
     server = ThreadingHTTPServer((host, port), Handler)
     server.lan_mode = lan_mode
     server.api_token = api_token
+    server.batch_manager = batch_queue.BatchManager()
     return server
 
 

@@ -154,6 +154,19 @@
     body.android-app .header-bar{flex:none;margin-bottom:8px}
     body.android-app .tab-content:not(.active){display:none!important}
     body.android-app #tab-local{flex:1;min-height:0;overflow:hidden;padding-bottom:calc(78px + env(safe-area-inset-bottom));display:flex;flex-direction:column}
+    .batch{margin-top:14px;display:flex;flex-direction:column;gap:10px;width:0;min-width:100%}
+    .batch-head{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+    .batch-tools{display:flex;gap:8px}
+    .batch-list{max-height:min(46vh,420px);overflow-y:auto;border:1px solid var(--border,rgba(128,128,128,.3));border-radius:12px}
+    .batch-row{display:flex;gap:10px;align-items:center;padding:8px 12px;cursor:pointer;min-width:0}
+    .batch-row+.batch-row{border-top:1px solid var(--border,rgba(128,128,128,.2))}
+    .batch-row input{flex:none;width:18px;height:18px}
+    .batch-row span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .batch-row small{flex:none;opacity:.65}
+    .batch-bar{height:8px;border-radius:99px;background:rgba(128,128,128,.25);overflow:hidden}
+    .batch-bar i{display:block;height:100%;width:0;background:var(--accent,#4f8cff);transition:width .3s}
+    .batch-progress{display:flex;flex-direction:column;gap:8px}
+    .batch-failed{margin:0;padding-left:18px;font-size:13px;overflow-wrap:anywhere}
     body.android-app #tab-online,body.android-app #tab-custom{flex:1;min-height:0;max-height:calc(100dvh - 82px - 72px - var(--mini-h) - env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
     body.android-app .now-playing-cover{width:min(58vw,36dvh,280px);height:min(58vw,36dvh,280px);margin:4px 0}
     body.android-app #nowTitle{font-size:24px!important}
@@ -442,6 +455,18 @@
           </div>
         </div>
 
+        <div id="batchPanel" class="batch" style="display:none">
+          <div class="batch-head"><strong id="batchTitle"></strong><small id="batchCount" class="hint"></small></div>
+          <div class="batch-tools"><button type="button" id="batchAll" class="lrc-btn">全选</button><button type="button" id="batchNone" class="lrc-btn">全不选</button></div>
+          <div id="batchList" class="batch-list"></div>
+          <button type="button" id="batchStart" class="dl-btn">下载所选</button>
+          <div id="batchProgress" class="batch-progress" style="display:none">
+            <div class="batch-bar"><i id="batchBar"></i></div>
+            <small id="batchStatus" class="hint"></small>
+            <ul id="batchFailed" class="batch-failed"></ul>
+            <button type="button" id="batchCancel" class="lrc-btn">取消</button>
+          </div>
+        </div>
         <p class="status" id="lookupStatus" aria-live="polite"></p>
         <p class="source-info" id="sourceStatus"></p>
       </section>
@@ -1648,6 +1673,98 @@ $('audioPlayer').addEventListener('timeupdate', () => {
   }
 });
 
+// ---- Playlist batch download (computer web page only) ----
+const PLAYLIST_URL_RE = /^https:\/\/(?:music\.|www\.)?youtube\.com\/playlist\?(?:[^#]*&)?list=[A-Za-z0-9_-]{10,64}/i;
+let batchEntries = [], batchJobId = '', batchTimer = null;
+function resetBatchPanel() {
+  clearTimeout(batchTimer); batchTimer = null; batchJobId = ''; batchEntries = [];
+  $('batchPanel').style.display = 'none'; $('batchProgress').style.display = 'none'; $('batchStart').style.display = '';
+  $('batchList').replaceChildren(); $('batchFailed').replaceChildren();
+}
+function formatBatchDuration(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '';
+}
+function updateBatchSelection() {
+  const picked = [...document.querySelectorAll('#batchList input:checked')].length;
+  $('batchStart').textContent = `下载所选（${picked}）`;
+  $('batchStart').disabled = picked === 0;
+}
+async function openBatchPanel(url) {
+  const r = await requestMusicDeskApi('/api/playlist', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url})});
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || '读取播放列表失败。');
+  resetBatchPanel();
+  batchEntries = data.entries;
+  $('batchTitle').textContent = data.title || '播放列表';
+  $('batchCount').textContent = `共 ${data.entries.length} 首，一次只下载一首，最后打包成一个 ZIP`;
+  const list = $('batchList');
+  data.entries.forEach((entry, index) => {
+    const row = document.createElement('label'); row.className = 'batch-row';
+    const box = document.createElement('input'); box.type = 'checkbox'; box.checked = true; box.dataset.index = String(index);
+    box.addEventListener('change', updateBatchSelection);
+    const name = document.createElement('span'); name.textContent = entry.artist ? `${entry.artist} - ${entry.title}` : entry.title;
+    const time = document.createElement('small'); time.textContent = formatBatchDuration(entry.duration);
+    row.append(box, name, time); list.append(row);
+  });
+  updateBatchSelection();
+  $('batchPanel').style.display = 'flex';
+}
+async function startBatchDownload() {
+  const tracks = [...document.querySelectorAll('#batchList input:checked')].map(box => batchEntries[Number(box.dataset.index)]);
+  if (!tracks.length) return;
+  const settings = getDownloadSettings();
+  $('batchStart').disabled = true;
+  try {
+    const r = await requestMusicDeskApi('/api/batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tracks, ...settings})});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || '无法开始批量下载。');
+    batchJobId = data.job_id;
+    $('batchStart').style.display = 'none'; $('batchProgress').style.display = 'flex';
+    $('batchCancel').disabled = false; $('batchFailed').replaceChildren();
+    pollBatch();
+  } catch (error) {
+    $('lookupStatus').textContent = error.message; $('batchStart').disabled = false;
+  }
+}
+async function pollBatch() {
+  if (!batchJobId) return;
+  try {
+    const r = await requestMusicDeskApi(`/api/batch/${batchJobId}`);
+    const s = await r.json();
+    if (!r.ok) throw new Error(s.error || '批量任务状态读取失败。');
+    const pct = s.total ? Math.round(s.done / s.total * 100) : 0;
+    $('batchBar').style.width = `${pct}%`;
+    const failedList = $('batchFailed'); failedList.replaceChildren();
+    s.failed.forEach(item => { const li = document.createElement('li'); li.textContent = `${item.artist ? item.artist + ' - ' : ''}${item.title}：${item.error}`; failedList.append(li); });
+    if (s.state === 'running' || s.state === 'queued') {
+      $('batchStatus').textContent = `正在处理 ${s.done + 1} / ${s.total}：${s.current || ''}`;
+      batchTimer = setTimeout(pollBatch, 1500); return;
+    }
+    $('batchCancel').disabled = true;
+    if (s.state === 'cancelled') { $('batchStatus').textContent = `已取消，已完成 ${s.succeeded} 首。`; }
+    else if (s.ready) {
+      $('batchStatus').textContent = `完成：成功 ${s.succeeded} 首，失败 ${s.failed.length} 首。正在保存压缩包…`;
+      const zip = await requestMusicDeskApi(`/api/batch/${batchJobId}/zip`);
+      if (!zip.ok) throw new Error('压缩包下载失败。');
+      await saveApiResponse(zip, 'MusicDesk-批量下载.zip');
+      $('batchStatus').textContent = `完成：成功 ${s.succeeded} 首，失败 ${s.failed.length} 首。压缩包已保存。`;
+    } else { $('batchStatus').textContent = '没有成功下载任何曲目。'; }
+    batchJobId = '';
+    $('batchStart').style.display = ''; $('batchStart').disabled = false;
+  } catch (error) {
+    $('batchStatus').textContent = error.message; batchJobId = ''; $('batchStart').style.display = ''; $('batchStart').disabled = false;
+  }
+}
+$('batchAll').addEventListener('click', () => { document.querySelectorAll('#batchList input').forEach(b => { b.checked = true; }); updateBatchSelection(); });
+$('batchNone').addEventListener('click', () => { document.querySelectorAll('#batchList input').forEach(b => { b.checked = false; }); updateBatchSelection(); });
+$('batchStart').addEventListener('click', startBatchDownload);
+$('batchCancel').addEventListener('click', async () => {
+  if (!batchJobId) return;
+  $('batchCancel').disabled = true;
+  try { await requestMusicDeskApi(`/api/batch/${batchJobId}/cancel`, {method: 'POST'}); } catch (_) {}
+});
+
 // ===== Other matches for a keyword search =====
 let pendingCandidate = null;   // set while re-running a search for a chosen candidate
 let lastCandidates = [];
@@ -1720,6 +1837,15 @@ async function loadCandidates(query) {
 
 $('lookup').addEventListener('submit', async e => {   e.preventDefault();$('lookupBtn').disabled = true;
   const lookupValue = $('share').value.trim();
+  if (PLAYLIST_URL_RE.test(lookupValue)) {
+    $('result').style.display = 'none';
+    if (window.AndroidMusic) { resetBatchPanel(); $('lookupStatus').textContent = '批量下载暂时只支持电脑网页端。'; $('lookupBtn').disabled = false; return; }
+    $('lookupStatus').textContent = '正在读取播放列表…';
+    try { await openBatchPanel(lookupValue); $('lookupStatus').textContent = ''; }
+    catch (error) { $('lookupStatus').textContent = friendlyMessage ? friendlyMessage(error.message) : error.message; }
+    $('lookupBtn').disabled = false; return;
+  }
+  resetBatchPanel();
   const isKeywordSearch = !/^https?:\/\//i.test(lookupValue);
   const chosen = pendingCandidate; pendingCandidate = null;
   if (!isKeywordSearch) { candidateSearchId++; $('candidatesPanel').hidden = true; }
