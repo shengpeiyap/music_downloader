@@ -335,6 +335,21 @@
     "已填 0 项": "0 filled"
   });
 
+  Object.assign(translations, {
+    '全选': 'Select all',
+    '全不选': 'Select none',
+    '播放列表': 'Playlist',
+    '下载所选': 'Download selected',
+    '正在读取播放列表…': 'Reading playlist…',
+    '批量下载暂时只支持电脑网页端。': 'Batch download is only available on the computer web page for now.',
+    '播放列表链接无效。': 'Invalid playlist link.',
+    '批量任务不存在或已过期。': 'The batch job does not exist or has expired.',
+    '压缩包下载失败。': 'Failed to download the ZIP.',
+    '没有成功下载任何曲目。': 'No tracks were downloaded successfully.',
+    '无法开始批量下载。': 'Could not start the batch download.',
+    '读取播放列表失败。': 'Failed to read the playlist.',
+    '批量任务状态读取失败。': 'Failed to read the batch job status.',
+  });
   const reverse = new Map(Object.entries(translations).map(([zh, en]) => [en, zh]));
   const protectedSelectors = 'script,style,textarea,input,select,[contenteditable="true"],#lrcContainer,#localLrcContainer,#customLyricsPreview,.track-list,.queue-sheet,.result-info,#nowTitle,#nowArtist,#miniTitle,#miniArtist,#title,#artist';
   const mobileNames = {
@@ -361,6 +376,12 @@
        /^Connected to computer service: (\S+?)\. Lookup, lyrics, download, conversion, and packaging run on the computer and the results are sent back to the phone\.$/, '已连接电脑服务：$1。解析、歌词、下载、转换和封装任务由电脑处理，结果回传到手机。'],
       [/^已保存电脑地址 (\S+?)；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。$/, 'Saved computer address $1. After the connection is verified, these tasks run on the computer. Using this phone for now.',
        /^Saved computer address (\S+?)\. After the connection is verified, these tasks run on the computer\. Using this phone for now\.$/, '已保存电脑地址 $1；验证连接后，相关任务将由电脑处理。当前使用手机本机能力。'],
+      [/^共 (\d+) 首，一次只下载一首，最后打包成一个 ZIP$/, '$1 tracks. One is downloaded at a time and everything is packed into one ZIP.'],
+      [/^下载所选（(\d+)）$/, 'Download selected ($1)'],
+      [/^正在处理 (\d+) \/ (\d+)：(.*)$/, 'Processing $1 / $2: $3'],
+      [/^已取消，已完成 (\d+) 首。$/, 'Cancelled. $1 tracks finished.'],
+      [/^完成：成功 (\d+) 首，失败 (\d+) 首。正在保存压缩包…$/, 'Done: $1 succeeded, $2 failed. Saving the ZIP…'],
+      [/^完成：成功 (\d+) 首，失败 (\d+) 首。压缩包已保存。$/, 'Done: $1 succeeded, $2 failed. ZIP saved.'],
       [/^(\d+) 首歌曲$/, '$1 songs'],
       [/^例如：3 或 3\/12$/, 'e.g. 3 or 3/12'],
       [/^例如：(.+)$/, 'e.g. $1'],
