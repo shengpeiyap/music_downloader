@@ -360,6 +360,19 @@
     '请先在上面填入带时间戳的 LRC 歌词。': 'Enter timestamped LRC lyrics above first.',
     '请先填入译文。': 'Enter the translation first.',
   });
+  Object.assign(translations, {
+    '音效': 'Sound effects',
+    '启用均衡器（音乐播放器）': 'Enable equalizer (music player)',
+    '预设': 'Preset',
+    '原声': 'Flat',
+    '低音增强': 'Bass boost',
+    '人声突出': 'Vocal',
+    '高音增强': 'Treble boost',
+    '柔和': 'Soft',
+    '自定义': 'Custom',
+    '只对“音乐”页的播放器生效；调节后立即听到效果。': 'Applies to the music page player only; changes are heard immediately.',
+    '当前环境不支持均衡器。': 'The equalizer is not supported here.',
+  });
   const reverse = new Map(Object.entries(translations).map(([zh, en]) => [en, zh]));
   const protectedSelectors = 'script,style,textarea,input,select,[contenteditable="true"],#lrcContainer,#localLrcContainer,#customLyricsPreview,.track-list,.queue-sheet,.result-info,#nowTitle,#nowArtist,#miniTitle,#miniArtist,#title,#artist';
   const mobileNames = {
