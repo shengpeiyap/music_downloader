@@ -1102,6 +1102,14 @@ class BatchDownloadWiringTests(unittest.TestCase):
         self.assertIn("Download selected", Path("i18n.js").read_text(encoding="utf-8"))
 
 
+class BilingualLyricsWiringTests(unittest.TestCase):
+    def test_bilingual_lyrics_ui_is_wired(self):
+        html = Path("index.html").read_text(encoding="utf-8")
+        for needle in ("bilingualLyricsToggle", "groupLyricTranslations", "mergeTranslationIntoLyrics", "mergeTranslationBtn", "musicdesk-bilingual-lyrics"):
+            self.assertIn(needle, html)
+        self.assertIn("Show lyric translations", Path("i18n.js").read_text(encoding="utf-8"))
+
+
 class SmartPaddingCropTests(unittest.TestCase):
     def test_crops_uniform_padding_from_all_sides(self):
         canvas = Image.new("RGB", (200, 200), (240, 240, 240))
