@@ -1110,6 +1110,14 @@ class BilingualLyricsWiringTests(unittest.TestCase):
         self.assertIn("Show lyric translations", Path("i18n.js").read_text(encoding="utf-8"))
 
 
+class EqualizerWiringTests(unittest.TestCase):
+    def test_equalizer_ui_is_wired(self):
+        html = Path("index.html").read_text(encoding="utf-8")
+        for needle in ("eqCard", "createMediaElementSource", "EQ_PRESETS", "musicdesk-eq", "eqPreset"):
+            self.assertIn(needle, html)
+        self.assertIn("Enable equalizer", Path("i18n.js").read_text(encoding="utf-8"))
+
+
 class SmartPaddingCropTests(unittest.TestCase):
     def test_crops_uniform_padding_from_all_sides(self):
         canvas = Image.new("RGB", (200, 200), (240, 240, 240))

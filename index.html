@@ -72,6 +72,11 @@
     .lyrics-viewer{display:none;margin-top:12px;background:#0d110e;border:1px solid #29332c;border-radius:12px;padding:16px;height:220px;overflow-y:auto;scroll-behavior:smooth}
     img[src$="default_song_img.png"]{background:#f3f6f1;padding:12px}
     .lrc-line{padding:6px 10px;border-radius:6px;font-size:14px;color:var(--muted);cursor:pointer;transition:all .2s ease}
+    .eq-bands{display:flex;flex-direction:column;gap:6px;padding:8px 0}
+    .eq-band{display:grid;grid-template-columns:56px minmax(0,1fr) 52px;align-items:center;gap:10px;font-size:13px}
+    .eq-band input{width:100%;margin:0}
+    .eq-band output{text-align:right;color:var(--muted)}
+    .eq-bands.off{opacity:.45}
     .lrc-line .tr{display:block;margin-top:2px;font-size:12px;font-weight:400;opacity:.72}
     .lrc-line.active .tr{font-size:13px;opacity:.85}
     .lrc-line:hover{background:#17200f;color:var(--text)}
@@ -727,6 +732,14 @@
         <select id="languageSelect" class="language-select" aria-label="选择语言" title="选择语言"><option value="zh">简体中文</option><option value="en">English</option></select></div>
       <div class="settings-row"><label for="bilingualLyricsToggle">显示歌词译文（双语歌词）</label><input id="bilingualLyricsToggle" class="switch" type="checkbox" role="switch" checked></div>
       <div class="settings-row"><span>使用指南与快捷键</span><button id="helpBtn" class="lrc-btn" type="button" aria-label="帮助与快捷键" title="帮助与快捷键">查看</button></div>
+    </section>
+    <section id="eqCard" class="card settings-card">
+      <h2>音效</h2>
+      <div class="settings-row"><label for="eqEnabled">启用均衡器（音乐播放器）</label><input id="eqEnabled" class="switch" type="checkbox" role="switch"></div>
+      <div class="settings-row"><label for="eqPreset">预设</label>
+        <select id="eqPreset" class="language-select"><option value="flat">原声</option><option value="bass">低音增强</option><option value="vocal">人声突出</option><option value="treble">高音增强</option><option value="soft">柔和</option><option value="custom">自定义</option></select></div>
+      <div id="eqBands" class="eq-bands"></div>
+      <p class="settings-about" id="eqNote">只对“音乐”页的播放器生效；调节后立即听到效果。</p>
     </section>
     <section id="androidApiConnectCard" class="card android-api-connect settings-card android-setting">
       <div class="conn-head"><h2>电脑连接</h2><span id="apiStateBadge" class="conn-badge">未连接</span></div>
@@ -4052,5 +4065,68 @@ $('mergeTranslationBtn').addEventListener('click', () => {
     ? `已合并 ${result.used} 行译文。`
     : `已合并 ${result.used} 行译文（歌词 ${result.timed} 行，译文 ${result.translations} 行，数量不一致，请检查对应关系）。`;
 });
+// ---- Equalizer (Web Audio) for the music player ----
+const EQ_BANDS = [[60, '60 Hz'], [250, '250 Hz'], [1000, '1 kHz'], [4000, '4 kHz'], [12000, '12 kHz']];
+const EQ_PRESETS = {flat: [0, 0, 0, 0, 0], bass: [6, 4, 0, -1, 0], vocal: [-2, -1, 3, 3, 0], treble: [-1, 0, 0, 4, 6], soft: [2, 1, 0, -2, -4]};
+let eqState = {enabled: false, preset: 'flat', gains: [0, 0, 0, 0, 0]};
+try {
+  const saved = JSON.parse(localStorage.getItem('musicdesk-eq') || 'null');
+  if (saved && Array.isArray(saved.gains) && saved.gains.length === 5) {
+    eqState = {enabled: !!saved.enabled, preset: String(saved.preset || 'custom'), gains: saved.gains.map(v => Math.max(-12, Math.min(12, Number(v) || 0)))};
+  }
+} catch (_) {}
+let eqContext = null, eqFilters = [];
+function eqEffectiveGains() { return eqState.enabled ? eqState.gains : [0, 0, 0, 0, 0]; }
+function applyEq() {
+  eqFilters.forEach((filter, index) => { filter.gain.value = eqEffectiveGains()[index]; });
+}
+function ensureEqGraph() {
+  if (eqContext) return true;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return false;
+  try {
+    eqContext = new Ctx();
+    const source = eqContext.createMediaElementSource($('localAudioPlayer'));
+    let node = source;
+    eqFilters = EQ_BANDS.map(([freq], index) => {
+      const filter = eqContext.createBiquadFilter();
+      filter.type = index === 0 ? 'lowshelf' : index === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking';
+      filter.frequency.value = freq; filter.Q.value = 1; filter.gain.value = 0;
+      node.connect(filter); node = filter; return filter;
+    });
+    node.connect(eqContext.destination);
+    return true;
+  } catch (_) { eqContext = null; eqFilters = []; return false; }
+}
+function saveEq() { try { localStorage.setItem('musicdesk-eq', JSON.stringify(eqState)); } catch (_) {} }
+function renderEq() {
+  $('eqEnabled').checked = eqState.enabled;
+  $('eqPreset').value = eqState.preset in EQ_PRESETS || eqState.preset === 'custom' ? eqState.preset : 'custom';
+  $('eqBands').classList.toggle('off', !eqState.enabled);
+  EQ_BANDS.forEach((_, index) => {
+    $(`eqBand${index}`).value = eqState.gains[index];
+    $(`eqBand${index}`).disabled = !eqState.enabled;
+    $(`eqOut${index}`).textContent = `${eqState.gains[index] > 0 ? '+' : ''}${eqState.gains[index]} dB`;
+  });
+}
+function updateEq() {
+  if (eqState.enabled && !ensureEqGraph()) { eqState.enabled = false; $('eqNote').textContent = '当前环境不支持均衡器。'; }
+  applyEq(); saveEq(); renderEq();
+}
+EQ_BANDS.forEach(([, label], index) => {
+  const row = document.createElement('div'); row.className = 'eq-band';
+  row.innerHTML = `<span>${label}</span><input id="eqBand${index}" type="range" min="-12" max="12" step="1" value="0" aria-label="${label}"><output id="eqOut${index}">0 dB</output>`;
+  $('eqBands').append(row);
+  $(`eqBand${index}`).addEventListener('input', () => { eqState.gains[index] = Number($(`eqBand${index}`).value); eqState.preset = 'custom'; updateEq(); });
+});
+$('eqEnabled').addEventListener('change', () => { eqState.enabled = $('eqEnabled').checked; updateEq(); if (eqContext && eqContext.state === 'suspended' && !$('localAudioPlayer').paused) eqContext.resume().catch(() => {}); });
+$('eqPreset').addEventListener('change', () => {
+  const preset = $('eqPreset').value; eqState.preset = preset;
+  if (EQ_PRESETS[preset]) eqState.gains = EQ_PRESETS[preset].slice();
+  updateEq();
+});
+$('localAudioPlayer').addEventListener('play', () => { if (eqContext && eqContext.state === 'suspended') eqContext.resume().catch(() => {}); });
+if (!(window.AudioContext || window.webkitAudioContext)) $('eqCard').style.display = 'none';
+else { renderEq(); if (eqState.enabled) { if (ensureEqGraph()) applyEq(); else eqState.enabled = false; renderEq(); } }
 syncPlayerControls();
 </script></body></html>
