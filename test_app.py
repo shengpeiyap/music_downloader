@@ -1116,6 +1116,8 @@ class EqualizerWiringTests(unittest.TestCase):
         for needle in ("eqCard", "createMediaElementSource", "EQ_PRESETS", "musicdesk-eq", "eqPreset"):
             self.assertIn(needle, html)
         self.assertIn("Enable equalizer", Path("i18n.js").read_text(encoding="utf-8"))
+        self.assertIn("!window.AndroidMusic", html)  # file:// audio is silenced by Web Audio on Android
+        self.assertIn("is-translation", html)
 
 
 class SmartPaddingCropTests(unittest.TestCase):
