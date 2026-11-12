@@ -30,6 +30,10 @@ jobs:
         run: python -m unittest test_app -v
       - name: Run Android Python tests
         run: python -m unittest discover -s android/app/src/test/python -v
+      - name: Run batch download queue tests
+        run: python tests/test_batch_queue.py
+      - name: Check Android web assets match the root page
+        run: python tools/sync_android_assets.py --check
       - name: Run JavaScript regression tests
         run: |
           node tests/test_android_search_fallback.js
@@ -62,6 +66,6 @@ jobs:
       - name: Make Gradle wrapper executable
         working-directory: android
         run: chmod +x ./gradlew
-      - name: Compile Android app
+      - name: Compile Android app and run Java unit tests
         working-directory: android
-        run: ./gradlew --no-daemon --console=plain :app:compileDebugJavaWithJavac
+        run: ./gradlew --no-daemon --console=plain :app:compileDebugJavaWithJavac :app:testDebugUnitTest

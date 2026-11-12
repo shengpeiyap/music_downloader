@@ -593,6 +593,46 @@ class LocalTagMetadataTests(unittest.TestCase):
             self.assertIn(f"\n  {job}:", ci)
         self.assertTrue((root / "docs/architecture-plan.md").is_file())
 
+    def test_release_apk_is_signed_only_from_environment_secrets(self):
+        # Ordinary builds must not need the key; CI and the author sign by exporting four values.
+        gradle = (Path(__file__).parent / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+        names = ("MUSICDESK_KEYSTORE_FILE", "MUSICDESK_KEYSTORE_PASSWORD", "MUSICDESK_KEY_ALIAS", "MUSICDESK_KEY_PASSWORD")
+        for name in names:
+            self.assertIn(f'"{name}"', gradle)
+        self.assertIn("if (releaseSigningReady) signingConfig = signingConfigs.getByName(\"release\")", gradle)
+        self.assertNotRegex(gradle, r"(storePassword|keyPassword)\s*=\s*\"")  # no literal passwords
+
+    def test_release_workflow_signs_checks_the_certificate_and_only_drafts(self):
+        root = Path(__file__).parent
+        workflow = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        guide = (root / "AGENTS.md").read_text(encoding="utf-8")
+        fingerprint = re.search(r"RELEASE_CERT_SHA256: ([0-9a-f]{64})", workflow).group(1)
+        # The certificate every release so far was signed with; a different one breaks upgrades.
+        self.assertEqual(fingerprint, "5a826e425ba008a81add2f0fa861811c25e664aea31056da4a2d86c007553b9b")
+        self.assertIn(fingerprint, guide)
+        self.assertIn('certificate SHA-256 digest: $RELEASE_CERT_SHA256', workflow)
+        self.assertIn("SIGN_RELEASE: ${{ github.event_name != 'pull_request' }}", workflow)  # never sign PRs
+        for secret in ("MUSICDESK_KEYSTORE_BASE64", "MUSICDESK_KEYSTORE_PASSWORD", "MUSICDESK_KEY_ALIAS", "MUSICDESK_KEY_PASSWORD"):
+            self.assertIn(f"secrets.{secret}", workflow)
+            self.assertIn(f"`{secret}`", guide)
+        self.assertIn('"$GITHUB_REF_NAME" != "v$version"', workflow)  # tag must equal versionName
+        self.assertIn("--draft --verify-tag", workflow)  # the author publishes, not CI
+        self.assertIn("docs/release-notes/$tag.md", workflow)
+        self.assertIn('rm -f "$RUNNER_TEMP/musicdesk-release.jks"', workflow)
+        # Every file the portable package must contain is checked after the CI build.
+        for required in ("MusicDesk.exe", "yt-dlp.exe", "spotdl.exe", "deno.exe", "_internal/library_sort.js"):
+            self.assertIn(f'"{required}"', workflow)
+
+    def test_ci_runs_every_test_suite(self):
+        root = Path(__file__).parent
+        ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        for command in ("python -m unittest test_app", "python -m unittest discover -s android/app/src/test/python",
+                        "python tests/test_batch_queue.py", "python tools/sync_android_assets.py --check",
+                        ":app:testDebugUnitTest"):
+            self.assertIn(command, ci)
+        for script in sorted((root / "tests").glob("*.js")):
+            self.assertIn(f"node tests/{script.name}", ci, f"{script.name} is not run in CI")
+
     def test_android_player_supports_repeat_shuffle_and_large_library_views(self):
         root = Path(__file__).parent
         page = (root / "index.html").read_text(encoding="utf-8")
