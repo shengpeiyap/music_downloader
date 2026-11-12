@@ -1122,12 +1122,12 @@ async function saveApiResponse(response, fallbackName) {
 function downloadWithAndroidYtDlp(source, metadata) {
   return new Promise((resolve, reject) => {
     let settled = false;
-    window.onAndroidNativeDownloadComplete = (error, filename, warning) => {
+    window.onAndroidNativeDownloadComplete = (error, filename, warning, lyricsStatus) => {
       if (settled) return;
       settled = true;
       window.onAndroidNativeDownloadComplete = null;
       if (error) reject(new Error(error));
-      else resolve({filename, warning});
+      else resolve({filename, warning, lyricsStatus: lyricsStatus || ''});
     };
     try {
       const error = AndroidMusic.downloadWithYtDlp(source, JSON.stringify(metadata || {}));
@@ -1241,6 +1241,12 @@ async function searchAndroidKeywordWithFallback(query) {
       throw new Error(`MusicBrainz 搜索失败（${mbMessage}）；yt-dlp 备用搜索也失败（${ytMessage}）。`);
     }
   }
+}
+
+function androidLyricsStatusText(status) {
+  if (status === 'synced') return '已嵌入同步 LRC 歌词';
+  if (status === 'plain') return '已嵌入普通歌词（来源无时间戳）';
+  return '未找到歌词，将不嵌入歌词';
 }
 
 function androidDownloadSource(metadata) {
@@ -2027,19 +2033,12 @@ $('downloadBtn').addEventListener('click', async () => {
     }
     if (useAndroidYtDlp) {
       const source = androidDownloadSource(currentMetadata);
-      let downloadMetadata = {...currentMetadata};
-      let lyricStatus = '未找到歌词，将不嵌入歌词';
-      try {
-        const lyricResult = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
-        const lyrics = lyricResult.synced_lyrics || lyricResult.lyrics || '';
-        if (lyrics) {
-          downloadMetadata.lyrics = lyrics;
-          lyricStatus = lyricResult.synced_lyrics ? '已嵌入同步 LRC 歌词' : '已嵌入普通歌词（来源无时间戳）';
-        }
-      } catch (_) {
-        // Lyrics are optional; a lyrics service failure must not block audio download.
-      }
+      // Lyrics are looked up after the download, against the audio's own title and length,
+      // so a translated catalog title (e.g. "Idol" for アイドル) cannot pull the lyrics of a
+      // different-language version of the song.
+      const downloadMetadata = {...currentMetadata, lookup_lyrics: true};
       const result = await downloadWithAndroidYtDlp(source, downloadMetadata);
+      const lyricStatus = androidLyricsStatusText(result.lyricsStatus);
       $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}；${lyricStatus}${result.warning ? `；${result.warning}` : ''}`;
       $('sourceStatus').textContent = '本机 yt-dlp 下载后会转换为 MP3，并写入可用的曲目信息与封面标签。';
       return;
@@ -3150,6 +3149,15 @@ window.onAndroidFolderPicked = (raw, isFinal = true, wasCapped = false) => {
   if (isFinal) tryRestoreSavedPlayback();
 };
 
+// The Android app serves cached tracks from this https path with CORS headers. Requesting them
+// as CORS lets Web Audio (the equalizer) process them; file:// media would be silenced.
+const ANDROID_MEDIA_PREFIX = 'https://appassets.androidplatform.net/musicdesk-audio/';
+function setPlayerSource(player, url) {
+  if (String(url || '').startsWith(ANDROID_MEDIA_PREFIX)) player.crossOrigin = 'anonymous';
+  else player.removeAttribute('crossorigin');
+  player.src = url;
+}
+
 window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
   const track = localTracks[idx];
   if (!track || idx !== currentTrackIdx || track.contentUri !== contentUri) {
@@ -3171,7 +3179,7 @@ window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
     renderLocalPlaylist($('searchLocal').value);
   }
   const player = $('localAudioPlayer');
-  player.src = fileUri;
+  setPlayerSource(player, fileUri);
   const resume = window.pendingAudioResume && window.pendingAudioResume.uri === contentUri ? window.pendingAudioResume : null;
   if (resume) {
     player.addEventListener('loadedmetadata', function restorePosition() {
@@ -3394,10 +3402,10 @@ function playLocalTrack(idx, keepQueue = false) {
     $('androidScopeNote').style.display = 'block';
     AndroidMusic.loadAudio(track.contentUri, idx);
   } else {
-    if (track.streamUrl) player.src = track.streamUrl;
+    if (track.streamUrl) setPlayerSource(player, track.streamUrl);
     else {
       track.objectUrl = URL.createObjectURL(track.file);
-      player.src = track.objectUrl;
+      setPlayerSource(player, track.objectUrl);
     }
     const resume = window.pendingLocalAudioResume && window.pendingLocalAudioResume.uri === localTrackKey(track)
       ? window.pendingLocalAudioResume : null;
@@ -4147,8 +4155,8 @@ $('eqPreset').addEventListener('change', () => {
   updateEq();
 });
 $('localAudioPlayer').addEventListener('play', () => { if (eqContext && eqContext.state === 'suspended') eqContext.resume().catch(() => {}); });
-// The Android app loads audio from file:// URLs; Web Audio silences cross-origin media, so the equalizer stays off there.
-const eqSupported = !window.AndroidMusic && Boolean(window.AudioContext || window.webkitAudioContext);
+// On Android the player's tracks come from ANDROID_MEDIA_PREFIX with CORS, so Web Audio can process them there too.
+const eqSupported = Boolean(window.AudioContext || window.webkitAudioContext);
 if (!eqSupported) { $('eqCard').style.display = 'none'; if (eqState.enabled) { eqState.enabled = false; saveEq(); } }
 else { renderEq(); if (eqState.enabled) { if (ensureEqGraph()) applyEq(); else eqState.enabled = false; renderEq(); } }
 syncPlayerControls();
