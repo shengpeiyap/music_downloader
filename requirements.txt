@@ -1,7 +1,7 @@
 imageio-ffmpeg==0.8.1
-mutagen>=1.47,<2
+mutagen>=1.48.1,<2
 yt-dlp>=2024.0.0
-spotdl>=4.2.0
+spotdl>=4.6.0,<5
 musicbrainzngs>=0.7.1
-Pillow>=10,<13
+Pillow>=13,<14
 music-tag>=0.4.3,<1
