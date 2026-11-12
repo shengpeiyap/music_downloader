@@ -109,3 +109,68 @@ def shift_lrc_timestamps(lyrics: str, offset_seconds: float) -> str:
             continue
         shifted_lines.append(_ANY_TIMESTAMP.sub(shift, line))
     return "\n".join(shifted_lines)
+
+
+_VORBIS_LYRIC_KEYS = ("LYRICS", "UNSYNCEDLYRICS", "UNSYNCED LYRICS")
+_TXXX_LYRIC_KEYS = ("USLT", "LYRICS", "UNSYNCEDLYRICS", "UNSYNCED LYRICS")
+
+
+def describe_embedded_lyrics(path: str) -> list[str]:
+    """Name every tag field in an audio file that holds lyrics, e.g. ["ID3 USLT", "ID3 SYLT"].
+
+    The editor shows this so people can see where (and in which tag format) a file keeps its
+    lyrics; whether they are timestamped is judged from the lyric text itself.
+    """
+    try:
+        import mutagen
+        audio = mutagen.File(str(path))
+    except Exception:
+        return []
+    tags = getattr(audio, "tags", None)
+    if not tags:
+        return []
+    kind = type(tags).__name__
+    fields: list[str] = []
+
+    def has_text(value) -> bool:
+        value = getattr(value, "text", value)
+        if isinstance(value, (list, tuple)):
+            return any(str(item[0] if isinstance(item, tuple) else item).strip() for item in value)
+        return bool(str(value or "").strip())
+
+    def add(name: str) -> None:
+        if name not in fields:
+            fields.append(name)
+
+    try:
+        keys = list(tags.keys())
+    except Exception:
+        return []
+    if kind == "ID3":
+        for key in keys:
+            name = str(key)
+            if name.startswith("USLT") and has_text(tags[key]):
+                add("ID3 USLT")
+            elif name.startswith("SYLT") and has_text(tags[key]):
+                add("ID3 SYLT")
+            elif name.upper().startswith("TXXX:") and name[5:].upper() in _TXXX_LYRIC_KEYS and has_text(tags[key]):
+                add(f"ID3 TXXX:{name[5:]}")
+    elif kind == "MP4Tags":
+        if "\xa9lyr" in keys and has_text(tags["\xa9lyr"]):
+            add("MP4 ©lyr")
+    elif kind == "ASFTags":
+        if "WM/Lyrics" in keys and has_text(tags["WM/Lyrics"]):
+            add("ASF WM/Lyrics")
+    else:
+        # Vorbis comments (FLAC, Ogg Vorbis, Opus) and APEv2 use case-insensitive text keys.
+        label = "APEv2" if "APEv2" in kind else "Vorbis"
+        for key in keys:
+            name = str(key[0] if isinstance(key, tuple) else key)
+            if name.upper() in _VORBIS_LYRIC_KEYS:
+                try:
+                    value = tags[name]
+                except (KeyError, ValueError):
+                    continue
+                if has_text(value):
+                    add(f"{label} {name.upper()}")
+    return fields

@@ -37,6 +37,7 @@ from musicdesk_core import (
     build_musicbrainz_search_query,
     limit_filename_length,
     make_tag_export_filename,
+    describe_embedded_lyrics,
     normalize_lyrics,
     parse_metadata_search_query,
     parse_lrc_timestamps,
@@ -139,6 +140,7 @@ def read_music_metadata(path: str, filename: str) -> dict:
         "genre": get_tag("genre"),
         "composer": get_tag("composer"),
         "lyrics": normalize_lyrics(get_tag("lyrics")),
+        "lyrics_fields": describe_embedded_lyrics(path),
         "cover": cover,
     }
 

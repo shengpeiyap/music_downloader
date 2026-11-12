@@ -558,6 +558,7 @@
               <label for="tagLyrics" class="sr-only">歌词内容</label>
               <select id="tagLyricsFormat" aria-label="歌词来源格式" style="margin-bottom:8px"><option value="auto">自动识别</option><option value="lrc">标准 LRC</option><option value="enhanced-lrc">增强 LRC（逐词时间）</option><option value="plain">纯文本</option><option value="srt">SRT 字幕</option><option value="vtt">WebVTT 字幕</option></select>
               <textarea id="tagLyrics" placeholder="可以粘贴 LRC 格式或纯文本歌词..."></textarea>
+              <small id="tagLyricsSource" class="hint" aria-live="polite"></small>
               <details class="acc-sub" id="translationDetails" style="margin-top:8px">
                 <summary>添加译文（可选）</summary>
                 <p class="hint">每行一句译文，按顺序对应带时间戳的歌词；点击后会在每句歌词下插入同一时间戳的译文行。</p>
@@ -2595,6 +2596,7 @@ $('customAudioInput').addEventListener('click', event => {
     fillTagExtras(data);
     $('tagYear').value = data.year || '';
     $('tagLyrics').value = data.lyrics || '';
+    showEmbeddedLyricsSource(data);
     customSelectedLyricKey = '';
     renderCustomLyricsPreview();
     $('tagSearch').value = data.artist && data.artist !== '未知艺人' ? `${data.artist} - ${data.title}` : data.title || '';
@@ -2825,6 +2827,21 @@ window.onAndroidCustomPackageComplete = (error, filename) => {
   $('customStatus').textContent = friendlyMessage(error) || `本机封装完成，已保存为 ${filename}`;
 };
 
+// Tells the person which tag fields of the chosen file hold lyrics (e.g. "ID3 USLT + ID3 SYLT")
+// and whether those lyrics carry LRC timestamps.
+function showEmbeddedLyricsSource(data) {
+  const fields = Array.isArray(data && data.lyrics_fields) ? data.lyrics_fields.map(String) : [];
+  const lyrics = String(data && data.lyrics || '');
+  let text = '';
+  if (fields.length) {
+    const timed = /^\s*\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/m.test(lyrics);
+    text = `内嵌歌词：${fields.join(' + ')} · ${timed ? '带时间戳（同步 LRC）' : '纯文本（无时间戳）'}`;
+  } else if (!lyrics.trim()) {
+    text = '音频没有内嵌歌词';
+  }
+  $('tagLyricsSource').textContent = text;
+}
+
 window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
   if (error) { $('customStatus').textContent = friendlyMessage(error); return; }
   const selectedFile = $('customAudioInput').files[0];
@@ -2838,6 +2855,7 @@ window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
     fillTagExtras(data);
     $('tagYear').value = (data.year || '').slice(0, 4);
     $('tagLyrics').value = data.lyrics || '';
+    showEmbeddedLyricsSource(data);
     if (artwork) {
       $('customCoverPreview').src = artwork;
       $('customCoverPreview').dataset.embeddedCover = artwork;
@@ -2854,6 +2872,7 @@ window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
         const lyrics = result.lyrics || '';
         if (!lyrics) throw new Error('公开歌词库中没有找到这首歌的歌词。');
         $('tagLyrics').value = lyrics;
+        $('tagLyricsSource').textContent = '歌词来自 LRCLIB，保存后才会写入文件';
         renderCustomLyricsPreview();
         $('customStatus').textContent = result.synced_lyrics
           ? '已从 LRCLIB 载入同步 LRC；点击“保存并打包导出文件”即可内嵌。'
@@ -3278,7 +3297,7 @@ function renderLocalPlaylist(filterText = "") {
     const coverSrc = track.cover || DEFAULT_COVER;
     return `
       <div class="track-item ${activeCls}" onclick="playLocalTrack(${origIdx})">
-        <img id="track-img-${origIdx}" src="${escapeHTML(coverSrc)}" alt="封面">
+        <img id="track-img-${origIdx}" data-artwork-idx="${origIdx}" src="${escapeHTML(coverSrc)}" alt="封面">
         <div class="track-item-info">
           <strong id="track-title-${origIdx}">${escapeHTML(track.title)}</strong>
           <small id="track-artist-${origIdx}">${escapeHTML(track.artist)}</small>
@@ -3298,17 +3317,20 @@ function requestTrackArtwork(track) {
   track.artworkRequested = true;
   AndroidMusic.loadArtwork(track.contentUri);
 }
+function setTrackCoverImages(idx, src) {
+  document.querySelectorAll(`img[data-artwork-idx="${idx}"]`).forEach(img => { img.src = src; });
+}
 function observeLibraryArtwork(container) {
   if (!window.AndroidMusic || !('IntersectionObserver' in window)) return;
   if (!artworkObserver) {
     artworkObserver = new IntersectionObserver(entries => entries.forEach(entry => {
       if (!entry.isIntersecting) return;
       artworkObserver.unobserve(entry.target);
-      const idx = Number(String(entry.target.id).replace('track-img-', ''));
+      const idx = Number(entry.target.dataset.artworkIdx);
       requestTrackArtwork(localTracks[idx]);
     }), {rootMargin: '200px'});
   }
-  container.querySelectorAll('img[id^="track-img-"]').forEach(img => artworkObserver.observe(img));
+  container.querySelectorAll('img[data-artwork-idx]').forEach(img => artworkObserver.observe(img));
 }
 window.onAndroidLyrics = (contentUri, lyrics) => {
   const idx = localTracks.findIndex(track => track.contentUri === contentUri);
@@ -3325,8 +3347,8 @@ window.onAndroidArtwork = (contentUri, data) => {
   track.artworkRequested = true;
   if (!data || track.cover) return;
   track.cover = data;
-  const row = $(`track-img-${idx}`);
-  if (row) row.src = data;
+  // Library rows and the play-queue sheet both show this track's cover.
+  setTrackCoverImages(idx, data);
   if (idx === currentTrackIdx) { $('nowCover').src = data; updateMiniPlayer(); }
 };
 
@@ -3363,7 +3385,7 @@ function updatePlaylistTrackItem(idx) {
 
   if (titleEl) titleEl.textContent = t.title;
   if (artistEl) artistEl.textContent = t.artist;
-  if (imgEl && t.cover) imgEl.src = t.cover;
+  if (imgEl && t.cover) setTrackCoverImages(idx, t.cover);
 }
 
 $('searchLocal').addEventListener('input', (e) => { renderLocalPlaylist(e.target.value); persistAndroidPlayback(true); });
@@ -3588,11 +3610,13 @@ function renderQueue() {
     const idx = localTracks.indexOf(track);
     return `
     <div class="track-item ${idx === currentTrackIdx ? 'active' : ''}" onclick="playLocalTrack(${idx},true);closeQueue()">
-      <img src="${escapeHTML(track.cover || DEFAULT_COVER)}" alt="">
+      <img data-artwork-idx="${idx}" src="${escapeHTML(track.cover || DEFAULT_COVER)}" alt="">
       <div class="track-item-info"><strong>${escapeHTML(track.title)}</strong><small>${escapeHTML(track.artist)} - ${escapeHTML(track.album)}</small></div>
       <button type="button" class="track-more" aria-label="更多操作：${escapeHTML(track.title)}" aria-haspopup="dialog" onclick="event.stopPropagation();openTrackMenu(${idx})"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></button>
     </div>`;
   }).join('') || '<div style="color:var(--muted);text-align:center;padding:30px">' + ui('播放列表为空') + '</div>';
+  // Queue rows load embedded covers lazily, like library rows, as they scroll into view.
+  observeLibraryArtwork($('queueList'));
 }
 
 

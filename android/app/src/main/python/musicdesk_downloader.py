@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from musicdesk_core.lyrics import normalize_lyrics, parse_lrc_timestamps as _parse_lrc_timestamps
+from musicdesk_core.lyrics import describe_embedded_lyrics, normalize_lyrics, parse_lrc_timestamps as _parse_lrc_timestamps
 from musicdesk_core.metadata import build_musicbrainz_search_query, split_artist_title
 
 import mutagen
@@ -383,6 +383,7 @@ def read_local_audio_tags(source_path: str):
         "track_num": first("tracknumber"), "disc_num": first("discnumber"),
         "genre": first("genre"), "composer": first("composer") or _read_raw_composer(source_path),
         "lyrics": normalize_lyrics(first("lyrics", "unsyncedlyrics") or _read_embedded_lyrics(source_path)),
+        "lyrics_fields": describe_embedded_lyrics(source_path),
     }, ensure_ascii=False)
 
 
