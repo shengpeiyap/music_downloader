@@ -1243,6 +1243,44 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
         tags = ID3(syl); tags.delall("TXXX"); tags.add(SYLT(encoding=3, lang="eng", format=2, type=1, desc="", text=[("a", 1000)])); tags.save()
         self.assertEqual(self.module.read_local_lyrics(syl), "[00:01.00]a")
 
+    def test_editor_names_the_tag_fields_that_hold_lyrics(self):
+        import shutil, subprocess
+        from mutagen.id3 import ID3, USLT, SYLT
+        from musicdesk_core import describe_embedded_lyrics
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("ffmpeg is required to generate test audio")
+        expected = {"m4a": ["MP4 ©lyr"], "flac": ["Vorbis LYRICS"], "ogg": ["Vorbis LYRICS"]}
+        for ext, fields in expected.items():
+            path = os.path.join(self.tmp, f"describe.{ext}")
+            subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=1",
+                            "-metadata", "lyrics=[00:01.00]hi", path], check=True)
+            self.assertEqual(describe_embedded_lyrics(path), fields, ext)
+        mp3 = os.path.join(self.tmp, "describe.mp3")
+        subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=1", mp3], check=True)
+        self.assertEqual(describe_embedded_lyrics(mp3), [])
+        tags = ID3(mp3)
+        tags.add(USLT(encoding=3, lang="eng", desc="", text="line one"))
+        tags.add(SYLT(encoding=3, lang="eng", format=2, type=1, desc="", text=[("a", 1000)]))
+        tags.save()
+        self.assertEqual(sorted(describe_embedded_lyrics(mp3)), ["ID3 SYLT", "ID3 USLT"])
+        self.assertEqual(describe_embedded_lyrics(os.path.join(self.tmp, "missing.mp3")), [])
+        tags_json = json.loads(self.module.read_local_audio_tags(mp3))
+        self.assertEqual(sorted(tags_json["lyrics_fields"]), ["ID3 SYLT", "ID3 USLT"])
+        self.assertEqual(sorted(read_music_metadata(mp3, "describe.mp3")["lyrics_fields"]), ["ID3 SYLT", "ID3 USLT"])
+
+    def test_editor_shows_where_lyrics_are_embedded(self):
+        html = Path("index.html").read_text(encoding="utf-8")
+        self.assertIn('id="tagLyricsSource"', html)
+        self.assertEqual(html.count("showEmbeddedLyricsSource(data);"), 2)  # desktop and Android readers
+        self.assertIn("Embedded lyrics: $1 · $2", Path("i18n.js").read_text(encoding="utf-8"))
+
+    def test_queue_sheet_requests_and_receives_track_covers(self):
+        html = Path("index.html").read_text(encoding="utf-8")
+        self.assertIn('<img data-artwork-idx="${idx}"', html)
+        self.assertIn("observeLibraryArtwork($('queueList'))", html)
+        self.assertIn('document.querySelectorAll(`img[data-artwork-idx="${idx}"]`)', html)
+
     def test_android_player_requests_lyrics_after_loading_audio(self):
         java = Path("android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
         html = Path("index.html").read_text(encoding="utf-8")
