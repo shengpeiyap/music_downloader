@@ -2282,6 +2282,7 @@ function updateCustomLyricsHighlight() {
 }
 
 function renderCustomLyricsPreview() {
+  refreshLyricsSourceNote();
   const container = $('customLyricsPreview');
   const lyrics = $('tagLyrics').value;
   customLrcEntries = parseCustomLrc(lyrics);
