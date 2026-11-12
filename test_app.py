@@ -562,6 +562,37 @@ class LocalTagMetadataTests(unittest.TestCase):
             self.assertIn(f'--add-data "{asset};."', build_script, asset)
         self.assertIn('--add-data "index.html;."', build_script)
 
+    def test_agents_guide_matches_the_repository(self):
+        # AGENTS.md is the map agents and contributors start from; a stale path, version, or
+        # required-check name there sends them the wrong way.
+        root = Path(__file__).parent
+        guide = (root / "AGENTS.md").read_text(encoding="utf-8")
+        gradle = (root / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+        version = re.search(r'versionName = "([^"]+)"', gradle).group(1)
+        self.assertIn(f"| 当前版本 | {version}", guide)
+        # Every repository path the guide names in backticks or the directory map must exist.
+        named = set(re.findall(r"`((?:[\w.-]+/)*[\w.-]+\.(?:py|js|html|java|bat|md|kts|png|jks))`", guide))
+        tree = re.search(r"```\n(index\.html.*?)```", guide, re.S).group(1)
+        prefixes = {"java/com/musicdesk/android/": "android/app/src/main/java/com/musicdesk/android/",
+                    "python/": "android/app/src/main/python/"}
+        for line in tree.splitlines():
+            match = re.match(r"\s*([\w./-]+\.(?:py|js|html|java|bat|png))\b", line)
+            if match:
+                named.add(match.group(1))
+        for name in sorted(named):
+            if name.startswith("releases/") or "<" in name or "X.Y.Z" in name:
+                continue  # local-only signing material and placeholders
+            candidates = [name] + [full + name[len(short):] for short, full in prefixes.items() if name.startswith(short)]
+            candidates += [p.relative_to(root).as_posix() for p in root.glob(f"**/{Path(name).name}")
+                           if ".venv" not in p.parts and "build" not in p.parts and "dist" not in p.parts]
+            self.assertTrue(any((root / c).exists() for c in candidates), f"AGENTS.md names missing file {name}")
+        # Required checks named in the guide are the CI job names the ruleset enforces.
+        ci = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        for job in ("desktop-and-android-python", "android-compile"):
+            self.assertIn(f"`{job}`", guide)
+            self.assertIn(f"\n  {job}:", ci)
+        self.assertTrue((root / "docs/architecture-plan.md").is_file())
+
     def test_android_player_supports_repeat_shuffle_and_large_library_views(self):
         root = Path(__file__).parent
         page = (root / "index.html").read_text(encoding="utf-8")
