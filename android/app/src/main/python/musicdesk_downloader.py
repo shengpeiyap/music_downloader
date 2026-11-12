@@ -297,7 +297,10 @@ def _read_embedded_lyrics(source_path: str) -> str:
     def text_of(value):
         if isinstance(value, (list, tuple)):
             value = value[0] if value else ""
-        return str(getattr(value, "text", value) or "")
+        value = getattr(value, "text", value)
+        if isinstance(value, (list, tuple)):
+            value = "\n".join(str(item) for item in value)
+        return str(value or "")
     # ID3: unsynchronised lyrics are stored under keys such as "USLT::eng".
     for key in list(tags.keys()):
         if str(key).startswith("USLT"):
@@ -313,6 +316,12 @@ def _read_embedded_lyrics(source_path: str) -> str:
                 lines.append(f"[{minutes:02d}:{rest / 1000:05.2f}]{text}")
             if lines:
                 return "\n".join(lines)
+    # Some taggers (including ffmpeg) store lyrics as a custom text frame such as "TXXX:USLT" or "TXXX:LYRICS".
+    for key in list(tags.keys()):
+        if str(key).upper().startswith("TXXX:") and str(key)[5:].upper() in ("USLT", "LYRICS", "UNSYNCEDLYRICS", "UNSYNCED LYRICS"):
+            text = text_of(tags[key])
+            if text.strip():
+                return text
     for key in ("\xa9lyr", "lyrics", "LYRICS", "unsyncedlyrics", "UNSYNCEDLYRICS", "WM/Lyrics"):
         try:  # Vorbis comments raise ValueError for keys with non-ASCII characters
             if key in tags:
@@ -339,6 +348,23 @@ def _read_raw_composer(source_path: str) -> str:
     except Exception:
         return ""
     return ""
+
+
+def read_local_lyrics(source_path: str) -> str:
+    """Embedded lyrics of any supported format (ID3 USLT/SYLT, MP4 ©lyr, Vorbis, ASF), normalized."""
+    text = ""
+    try:
+        easy = mutagen.File(str(source_path), easy=True)
+        for key in ("lyrics", "unsyncedlyrics"):
+            values = easy.get(key) if easy is not None else None
+            if values:
+                text = str(values[0])
+                break
+    except Exception:
+        text = ""
+    if not text.strip():
+        text = _read_embedded_lyrics(source_path)
+    return normalize_lyrics(text or "")
 
 
 def read_local_audio_tags(source_path: str):

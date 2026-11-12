@@ -1058,6 +1058,20 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (webView != null) webView.evaluateJavascript(script, null);
                 });
+                if (cached != null && resultUri != null) {
+                    // Embedded lyrics are read after playback has been handed over, so a slow tag parse never delays audio.
+                    String lyrics = "";
+                    try {
+                        if (!Python.isStarted()) Python.start(new AndroidPlatform(MainActivity.this));
+                        lyrics = Python.getInstance().getModule("musicdesk_downloader")
+                                .callAttr("read_local_lyrics", cached.getAbsolutePath()).toString();
+                    } catch (Throwable ignored) { }
+                    String lyricsScript = "window.onAndroidLyrics && window.onAndroidLyrics("
+                            + JSONObject.quote(contentUri) + "," + JSONObject.quote(lyrics) + ")";
+                    runOnUiThread(() -> {
+                        if (webView != null) webView.evaluateJavascript(lyricsScript, null);
+                    });
+                }
             });
         }
 
