@@ -42,5 +42,6 @@ chaquopy {
 
 dependencies {
     implementation("com.arthenica:ffmpeg-kit-next:9.0.1")
+    testImplementation("junit:junit:4.13.2")
 }
 

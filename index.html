@@ -3149,6 +3149,15 @@ window.onAndroidFolderPicked = (raw, isFinal = true, wasCapped = false) => {
   if (isFinal) tryRestoreSavedPlayback();
 };
 
+// The Android app serves cached tracks from this https path with CORS headers. Requesting them
+// as CORS lets Web Audio (the equalizer) process them; file:// media would be silenced.
+const ANDROID_MEDIA_PREFIX = 'https://appassets.androidplatform.net/musicdesk-audio/';
+function setPlayerSource(player, url) {
+  if (String(url || '').startsWith(ANDROID_MEDIA_PREFIX)) player.crossOrigin = 'anonymous';
+  else player.removeAttribute('crossorigin');
+  player.src = url;
+}
+
 window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
   const track = localTracks[idx];
   if (!track || idx !== currentTrackIdx || track.contentUri !== contentUri) {
@@ -3170,7 +3179,7 @@ window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData) => {
     renderLocalPlaylist($('searchLocal').value);
   }
   const player = $('localAudioPlayer');
-  player.src = fileUri;
+  setPlayerSource(player, fileUri);
   const resume = window.pendingAudioResume && window.pendingAudioResume.uri === contentUri ? window.pendingAudioResume : null;
   if (resume) {
     player.addEventListener('loadedmetadata', function restorePosition() {
@@ -3393,10 +3402,10 @@ function playLocalTrack(idx, keepQueue = false) {
     $('androidScopeNote').style.display = 'block';
     AndroidMusic.loadAudio(track.contentUri, idx);
   } else {
-    if (track.streamUrl) player.src = track.streamUrl;
+    if (track.streamUrl) setPlayerSource(player, track.streamUrl);
     else {
       track.objectUrl = URL.createObjectURL(track.file);
-      player.src = track.objectUrl;
+      setPlayerSource(player, track.objectUrl);
     }
     const resume = window.pendingLocalAudioResume && window.pendingLocalAudioResume.uri === localTrackKey(track)
       ? window.pendingLocalAudioResume : null;
@@ -4146,8 +4155,8 @@ $('eqPreset').addEventListener('change', () => {
   updateEq();
 });
 $('localAudioPlayer').addEventListener('play', () => { if (eqContext && eqContext.state === 'suspended') eqContext.resume().catch(() => {}); });
-// The Android app loads audio from file:// URLs; Web Audio silences cross-origin media, so the equalizer stays off there.
-const eqSupported = !window.AndroidMusic && Boolean(window.AudioContext || window.webkitAudioContext);
+// On Android the player's tracks come from ANDROID_MEDIA_PREFIX with CORS, so Web Audio can process them there too.
+const eqSupported = Boolean(window.AudioContext || window.webkitAudioContext);
 if (!eqSupported) { $('eqCard').style.display = 'none'; if (eqState.enabled) { eqState.enabled = false; saveEq(); } }
 else { renderEq(); if (eqState.enabled) { if (ensureEqGraph()) applyEq(); else eqState.enabled = false; renderEq(); } }
 syncPlayerControls();

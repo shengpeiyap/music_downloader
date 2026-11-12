@@ -1118,7 +1118,13 @@ class EqualizerWiringTests(unittest.TestCase):
         for needle in ("eqCard", "createMediaElementSource", "EQ_PRESETS", "musicdesk-eq", "eqPreset"):
             self.assertIn(needle, html)
         self.assertIn("Enable equalizer", Path("i18n.js").read_text(encoding="utf-8"))
-        self.assertIn("!window.AndroidMusic", html)  # file:// audio is silenced by Web Audio on Android
+        # Android serves player audio from a CORS https path so Web Audio is not silenced there.
+        self.assertIn("ANDROID_MEDIA_PREFIX = 'https://appassets.androidplatform.net/musicdesk-audio/'", html)
+        self.assertIn("player.crossOrigin = 'anonymous'", html)
+        self.assertNotIn("!window.AndroidMusic && Boolean(window.AudioContext", html)
+        activity = Path("android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        self.assertIn("LocalMediaRoutes.urlFor(cached)", activity)
+        self.assertIn("serveCachedAudio(request)", activity)
         self.assertIn("is-translation", html)
 
 

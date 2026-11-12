@@ -25,6 +25,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.widget.Toast;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
@@ -38,6 +39,7 @@ import java.io.ByteArrayOutputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -116,6 +118,13 @@ public final class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " MusicDeskAndroid/" + BuildConfig.VERSION_NAME);
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (!LocalMediaRoutes.matches(uri.getScheme(), uri.getHost(), uri.getPath())) return null;
+                return serveCachedAudio(request);
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
@@ -1052,7 +1061,8 @@ public final class MainActivity extends Activity {
                             while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
                         }
                     }
-                    localUri = Uri.fromFile(cached).toString();
+                    // Served over https with CORS so the Web Audio equalizer can process it.
+                    localUri = LocalMediaRoutes.urlFor(cached);
                 } catch (Exception failure) {
                     if (cached != null) cached.delete();
                     error = failure.getMessage() == null ? "读取音频失败" : failure.getMessage();
@@ -1320,6 +1330,86 @@ public final class MainActivity extends Activity {
     private String safeDownloadFilename(String filename) {
         String clean = filename == null ? "MusicDesk-download" : filename.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
         return clean.isEmpty() ? "MusicDesk-download" : clean;
+    }
+
+    /**
+     * Answers the WebView's request for a cached track. WebView itself skips to the start of a
+     * requested Range in the returned stream, so the stream is the whole file, cut off after the
+     * range's last byte, and the response states the range so the media player can seek.
+     */
+    private WebResourceResponse serveCachedAudio(WebResourceRequest request) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Access-Control-Allow-Origin", "*");
+        headers.put("Access-Control-Allow-Headers", "Range");
+        headers.put("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
+        headers.put("Accept-Ranges", "bytes");
+        headers.put("Cache-Control", "no-store");
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return new WebResourceResponse("text/plain", "utf-8", 204, "No Content", headers, null);
+        }
+        try {
+            File file = LocalMediaRoutes.resolve(new File(getCacheDir(), "musicdesk-audio"), request.getUrl().getPath());
+            if (file == null) {
+                return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", headers, null);
+            }
+            long length = file.length();
+            String rangeHeader = null;
+            for (Map.Entry<String, String> entry : request.getRequestHeaders().entrySet()) {
+                if ("range".equalsIgnoreCase(entry.getKey())) rangeHeader = entry.getValue();
+            }
+            String mime = LocalMediaRoutes.mimeType(file.getName());
+            if (rangeHeader == null || rangeHeader.trim().isEmpty()) {
+                return new WebResourceResponse(mime, null, 200, "OK", headers, new FileInputStream(file));
+            }
+            long[] range = LocalMediaRoutes.parseRange(rangeHeader, length);
+            if (range == null) {
+                headers.put("Content-Range", "bytes */" + length);
+                return new WebResourceResponse("text/plain", "utf-8", 416, "Range Not Satisfiable", headers, null);
+            }
+            headers.put("Content-Range", "bytes " + range[0] + "-" + range[1] + "/" + length);
+            return new WebResourceResponse(mime, null, 206, "Partial Content", headers,
+                    new BoundedInputStream(new FileInputStream(file), range[1] + 1));
+        } catch (IOException failure) {
+            return new WebResourceResponse("text/plain", "utf-8", 500, "Internal Server Error", headers, null);
+        }
+    }
+
+    /** Ends the stream after {@code limit} bytes from its start, i.e. at a Range's last byte. */
+    private static final class BoundedInputStream extends java.io.FilterInputStream {
+        private long remaining;
+
+        BoundedInputStream(InputStream input, long limit) {
+            super(input);
+            remaining = limit;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (remaining <= 0) return -1;
+            int value = super.read();
+            if (value >= 0) remaining--;
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            if (remaining <= 0) return -1;
+            int count = super.read(buffer, offset, (int) Math.min(length, remaining));
+            if (count > 0) remaining -= count;
+            return count;
+        }
+
+        @Override
+        public long skip(long count) throws IOException {
+            long skipped = super.skip(Math.min(count, remaining));
+            if (skipped > 0) remaining -= skipped;
+            return skipped;
+        }
+
+        @Override
+        public int available() throws IOException {
+            return (int) Math.min(super.available(), remaining);
+        }
     }
 
     private String cacheKey(String contentUri) {
