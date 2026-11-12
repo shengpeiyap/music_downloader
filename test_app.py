@@ -1,3 +1,4 @@
+import os
 import re
 import unittest
 import json
@@ -1214,6 +1215,33 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         spec.loader.exec_module(cls.module)
         cls.tmp = tempfile.mkdtemp()
+
+    def test_player_reads_embedded_lyrics_from_every_format(self):
+        import shutil, subprocess
+        from mutagen.id3 import ID3, USLT, SYLT
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("ffmpeg is required to generate test audio")
+        lyrics = "[00:01.00]hello\n[00:02.00]world"
+        for ext in ("mp3", "m4a", "flac", "ogg"):
+            path = os.path.join(self.tmp, f"lyrics.{ext}")
+            subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=1", "-metadata", f"lyrics={lyrics}", path], check=True)
+            self.assertEqual(self.module.read_local_lyrics(path), lyrics, ext)
+        usl = os.path.join(self.tmp, "uslt.mp3")
+        shutil.copy(os.path.join(self.tmp, "lyrics.mp3"), usl)
+        tags = ID3(usl); tags.delall("TXXX"); tags.add(USLT(encoding=3, lang="eng", desc="", text="line one")); tags.save()
+        self.assertEqual(self.module.read_local_lyrics(usl), "line one")
+        syl = os.path.join(self.tmp, "sylt.mp3")
+        shutil.copy(os.path.join(self.tmp, "lyrics.mp3"), syl)
+        tags = ID3(syl); tags.delall("TXXX"); tags.add(SYLT(encoding=3, lang="eng", format=2, type=1, desc="", text=[("a", 1000)])); tags.save()
+        self.assertEqual(self.module.read_local_lyrics(syl), "[00:01.00]a")
+
+    def test_android_player_requests_lyrics_after_loading_audio(self):
+        java = Path("android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        html = Path("index.html").read_text(encoding="utf-8")
+        self.assertIn('"read_local_lyrics"', java)
+        self.assertIn("window.onAndroidLyrics", java)
+        self.assertIn("window.onAndroidLyrics = ", html)
 
     def test_bot_check_retries_with_other_player_clients(self):
         seen = []

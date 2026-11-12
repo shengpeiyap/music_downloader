@@ -3302,6 +3302,14 @@ function observeLibraryArtwork(container) {
   }
   container.querySelectorAll('img[id^="track-img-"]').forEach(img => artworkObserver.observe(img));
 }
+window.onAndroidLyrics = (contentUri, lyrics) => {
+  const idx = localTracks.findIndex(track => track.contentUri === contentUri);
+  if (idx < 0 || !lyrics) return;
+  const track = localTracks[idx];
+  track.lrc = lyrics;
+  if (idx === currentTrackIdx) renderLocalLyrics(track.lrc);
+};
+
 window.onAndroidArtwork = (contentUri, data) => {
   const idx = localTracks.findIndex(track => track.contentUri === contentUri);
   if (idx < 0) return;
