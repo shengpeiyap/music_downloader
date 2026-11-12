@@ -1122,12 +1122,12 @@ async function saveApiResponse(response, fallbackName) {
 function downloadWithAndroidYtDlp(source, metadata) {
   return new Promise((resolve, reject) => {
     let settled = false;
-    window.onAndroidNativeDownloadComplete = (error, filename, warning) => {
+    window.onAndroidNativeDownloadComplete = (error, filename, warning, lyricsStatus) => {
       if (settled) return;
       settled = true;
       window.onAndroidNativeDownloadComplete = null;
       if (error) reject(new Error(error));
-      else resolve({filename, warning});
+      else resolve({filename, warning, lyricsStatus: lyricsStatus || ''});
     };
     try {
       const error = AndroidMusic.downloadWithYtDlp(source, JSON.stringify(metadata || {}));
@@ -1241,6 +1241,12 @@ async function searchAndroidKeywordWithFallback(query) {
       throw new Error(`MusicBrainz 搜索失败（${mbMessage}）；yt-dlp 备用搜索也失败（${ytMessage}）。`);
     }
   }
+}
+
+function androidLyricsStatusText(status) {
+  if (status === 'synced') return '已嵌入同步 LRC 歌词';
+  if (status === 'plain') return '已嵌入普通歌词（来源无时间戳）';
+  return '未找到歌词，将不嵌入歌词';
 }
 
 function androidDownloadSource(metadata) {
@@ -2027,19 +2033,12 @@ $('downloadBtn').addEventListener('click', async () => {
     }
     if (useAndroidYtDlp) {
       const source = androidDownloadSource(currentMetadata);
-      let downloadMetadata = {...currentMetadata};
-      let lyricStatus = '未找到歌词，将不嵌入歌词';
-      try {
-        const lyricResult = await lookupLyricsOnAndroid(currentMetadata.title, currentMetadata.artist);
-        const lyrics = lyricResult.synced_lyrics || lyricResult.lyrics || '';
-        if (lyrics) {
-          downloadMetadata.lyrics = lyrics;
-          lyricStatus = lyricResult.synced_lyrics ? '已嵌入同步 LRC 歌词' : '已嵌入普通歌词（来源无时间戳）';
-        }
-      } catch (_) {
-        // Lyrics are optional; a lyrics service failure must not block audio download.
-      }
+      // Lyrics are looked up after the download, against the audio's own title and length,
+      // so a translated catalog title (e.g. "Idol" for アイドル) cannot pull the lyrics of a
+      // different-language version of the song.
+      const downloadMetadata = {...currentMetadata, lookup_lyrics: true};
       const result = await downloadWithAndroidYtDlp(source, downloadMetadata);
+      const lyricStatus = androidLyricsStatusText(result.lyricsStatus);
       $('lookupStatus').textContent = `本机下载完成，已保存音频：${result.filename}；${lyricStatus}${result.warning ? `；${result.warning}` : ''}`;
       $('sourceStatus').textContent = '本机 yt-dlp 下载后会转换为 MP3，并写入可用的曲目信息与封面标签。';
       return;

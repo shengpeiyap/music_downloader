@@ -69,6 +69,7 @@ public final class MainActivity extends Activity {
     private File pendingCustomOutput;
     private File pendingConversionOutput;
     private String pendingNativeDownloadWarning = "";
+    private String pendingNativeDownloadLyricsStatus = "";
     private volatile boolean queueOpen;
     private final ExecutorService folderExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor();
@@ -275,9 +276,14 @@ public final class MainActivity extends Activity {
     }
 
     private void notifyNativeDownloadComplete(String error, String filename, String warning) {
+        notifyNativeDownloadComplete(error, filename, warning, "");
+    }
+
+    private void notifyNativeDownloadComplete(String error, String filename, String warning, String lyricsStatus) {
         if (webView == null) return;
         webView.evaluateJavascript("window.onAndroidNativeDownloadComplete && window.onAndroidNativeDownloadComplete("
-                + JSONObject.quote(error) + "," + JSONObject.quote(filename) + "," + JSONObject.quote(warning) + ")", null);
+                + JSONObject.quote(error) + "," + JSONObject.quote(filename) + "," + JSONObject.quote(warning)
+                + "," + JSONObject.quote(lyricsStatus == null ? "" : lyricsStatus) + ")", null);
     }
 
     private void notifyNativeMetadataComplete(String error, String metadata) {
@@ -432,12 +438,13 @@ public final class MainActivity extends Activity {
             }
             String resultError = error;
             String resultFilename = filename;
-            runOnUiThread(() -> notifyNativeDownloadComplete(resultError, resultFilename, pendingNativeDownloadWarning));
+            runOnUiThread(() -> notifyNativeDownloadComplete(resultError, resultFilename, pendingNativeDownloadWarning, pendingNativeDownloadLyricsStatus));
         });
     }
 
-    private void saveNativeDownload(File source, String warning) {
+    private void saveNativeDownload(File source, String warning, String lyricsStatus) {
         pendingNativeDownloadWarning = warning == null ? "" : warning;
+        pendingNativeDownloadLyricsStatus = lyricsStatus == null ? "" : lyricsStatus;
         pendingNativeDownload = source;
         runOnUiThread(() -> {
             String filename = source.getName();
@@ -1248,7 +1255,7 @@ public final class MainActivity extends Activity {
                             cover == null ? "" : cover.getAbsolutePath());
                     downloaded.delete();
                     if (converted != null) converted.delete();
-                    saveNativeDownload(tagged, warning);
+                    saveNativeDownload(tagged, warning, data.optString("lyrics_status", ""));
                 } catch (Throwable failure) {
                     String message = failure.getMessage();
                     if (message == null || message.trim().isEmpty()) message = "本机 yt-dlp 下载失败。";

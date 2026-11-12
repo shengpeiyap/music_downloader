@@ -220,6 +220,84 @@ class DownloaderTests(unittest.TestCase):
         self.assertIn("track_name=%E3%82%A2%E3%83%B3%E3%82%B3%E3%83%BC%E3%83%AB", request.call_args_list[1].args[0])
         self.assertIn("artist_name=YOASOBI", request.call_args_list[1].args[0])
 
+    def test_lyrics_lookup_prefers_original_language_version_of_translated_title(self):
+        # MusicBrainz names YOASOBI's アイドル "Idol", which is also the title of the English
+        # version. The downloaded MV's own title and length must decide which lyrics win.
+        english = {"trackName": "Idol", "artistName": "YOASOBI", "duration": 226.0,
+                   "syncedLyrics": "[00:00.58] Couldn't beat her smile"}
+        japanese = {"trackName": "アイドル", "artistName": "YOASOBI", "duration": 226.0,
+                    "syncedLyrics": "[00:00.58] 無敵の笑顔で荒らすメディア"}
+
+        def fake_request(url, timeout=8):
+            query = parse_qs(urlsplit(url).query)
+            if "/api/get?" in url:
+                self.assertEqual(query.get("duration"), ["226"])
+                return japanese if query["track_name"] == ["アイドル"] else english
+            return []
+
+        with patch.object(musicdesk_downloader, "_json_request", side_effect=fake_request):
+            result = json.loads(musicdesk_downloader.lookup_lyrics(
+                "Idol", "YOASOBI", duration=225.8,
+                source_title="YOASOBI「アイドル」 Official Music Video", source_artist="YOASOBI",
+            ))
+        self.assertIn("無敵の笑顔", result["lyrics"])
+
+    def test_lyrics_lookup_ranks_search_results_by_script_and_audio_length(self):
+        results = [
+            {"trackName": "アイドル", "artistName": "YOASOBI", "duration": 222.0, "syncedLyrics": "[00:01.00] 相壊す"},
+            {"trackName": "Idol", "artistName": "YOASOBI", "duration": 226.0, "syncedLyrics": "[00:01.00] Couldn't beat"},
+            {"trackName": "アイドル", "artistName": "YOASOBI", "duration": 226.0, "syncedLyrics": "[00:01.00] 無敵の笑顔"},
+        ]
+        with patch.object(musicdesk_downloader, "_json_request",
+                          side_effect=lambda url, timeout=8: results if "/api/search?" in url else {}):
+            result = json.loads(musicdesk_downloader.lookup_lyrics(
+                "Idol", "YOASOBI", duration=226, source_title="YOASOBI「アイドル」 Official Music Video",
+            ))
+        self.assertIn("無敵の笑顔", result["lyrics"])
+
+    def test_lyrics_lookup_keeps_english_lyrics_for_english_audio(self):
+        english = {"trackName": "Idol", "artistName": "YOASOBI", "duration": 213.0,
+                   "syncedLyrics": "[00:00.58] Couldn't beat her smile"}
+        with patch.object(musicdesk_downloader, "_json_request", return_value=english) as request:
+            result = json.loads(musicdesk_downloader.lookup_lyrics(
+                "Idol", "YOASOBI", duration=213, source_title="YOASOBI - Idol (English Version)",
+            ))
+        self.assertIn("Couldn't beat", result["lyrics"])
+        self.assertEqual(request.call_count, 1)
+
+    def test_download_looks_up_lyrics_against_downloaded_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            audio = Path(directory) / "video.m4a"
+            audio.write_bytes(b"audio")
+            info = {"title": "YOASOBI「アイドル」 Official Music Video", "channel": "YOASOBI", "duration": 226,
+                    "requested_downloads": [{"filepath": str(audio)}]}
+            with patch.object(musicdesk_downloader, "_run_with_client_fallbacks", return_value=(info, audio)), \
+                 patch.object(musicdesk_downloader, "_metadata_cover", return_value=None), \
+                 patch.object(musicdesk_downloader, "_write_metadata", return_value=True), \
+                 patch.object(musicdesk_downloader, "lookup_lyrics",
+                              return_value=json.dumps({"lyrics": "[00:01.00]無敵", "synced_lyrics": "[00:01.00]無敵"})) as lookup:
+                result = json.loads(musicdesk_downloader.download_audio_with_metadata(
+                    "ytsearch1:YOASOBI Idol", directory,
+                    json.dumps({"title": "Idol", "artist": "YOASOBI", "lookup_lyrics": True}),
+                ))
+        lookup.assert_called_once_with("Idol", "YOASOBI", duration=226,
+                                       source_title="YOASOBI「アイドル」 Official Music Video", source_artist="YOASOBI")
+        self.assertEqual(result["lyrics_status"], "synced")
+        self.assertIn("無敵", result["tag_metadata"]["lyrics"])
+
+    def test_download_without_lookup_flag_does_not_fetch_lyrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            audio = Path(directory) / "video.m4a"
+            audio.write_bytes(b"audio")
+            with patch.object(musicdesk_downloader, "_run_with_client_fallbacks", return_value=({"title": "Song"}, audio)), \
+                 patch.object(musicdesk_downloader, "_metadata_cover", return_value=None), \
+                 patch.object(musicdesk_downloader, "_write_metadata", return_value=True), \
+                 patch.object(musicdesk_downloader, "lookup_lyrics") as lookup:
+                result = json.loads(musicdesk_downloader.download_audio_with_metadata(
+                    "ytsearch1:Song", directory, json.dumps({"lyrics": "plain words"})))
+        lookup.assert_not_called()
+        self.assertEqual(result["lyrics_status"], "plain")
+
     def test_search_metadata_overrides_source_fields_for_download_tags(self):
         info, cover = musicdesk_downloader._combine_metadata(
             {"title": "YouTube title", "artist": "Channel", "thumbnail": "https://example.test/source.jpg"},

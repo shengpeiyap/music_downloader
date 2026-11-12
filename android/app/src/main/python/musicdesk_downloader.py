@@ -564,53 +564,118 @@ def _lyrics_artist_variants(artist: str):
     return variants
 
 
-def lookup_lyrics(title: str, artist: str = "") -> str:
-    """Look up synced or plain lyrics directly from LRCLIB without the PC API."""
+_CJK_TEXT = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+
+
+def _has_cjk(value) -> bool:
+    return bool(_CJK_TEXT.search(str(value or "")))
+
+
+def _lyrics_text(item) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return ((item.get("syncedLyrics") or "").strip() or (item.get("plainLyrics") or "").strip())
+
+
+def _lyrics_rank(item, duration: float, want_cjk: bool):
+    """Prefer lyrics in the recording's own script, then the audio's length, then synced lyrics.
+
+    A Japanese song often has an English version under the translated title (e.g. アイドル /
+    Idol). Both share artist and sometimes length, so the script of the original title is the
+    strongest hint that the lyrics belong to the audio that was actually downloaded.
+    """
+    lyrics = _lyrics_text(item)
+    try:
+        length = float(item.get("duration") or 0)
+    except (TypeError, ValueError):
+        length = 0
+    script_ok = not want_cjk or _has_cjk(lyrics)
+    close = bool(duration and length and abs(length - duration) <= 3)
+    return (
+        bool(lyrics),
+        script_ok,
+        close,
+        bool(item.get("syncedLyrics")),
+        bool(item.get("plainLyrics")),
+        bool(item.get("albumName")),
+    )
+
+
+def lookup_lyrics(title: str, artist: str = "", duration=0, source_title: str = "", source_artist: str = "") -> str:
+    """Look up synced or plain lyrics directly from LRCLIB without the PC API.
+
+    ``duration`` (seconds) and ``source_title``/``source_artist`` describe the audio that was
+    actually downloaded (e.g. the YouTube video), so a translated catalog title does not pull
+    the lyrics of a different-language version of the song.
+    """
     title = (title or "").strip()
     artist = (artist or "").strip()
-    if not title:
+    source_title = (source_title or "").strip()
+    if not title and not source_title:
         raise ValueError("请先读取歌曲信息。")
-    title_variants = _lyrics_title_variants(title)
+    try:
+        duration = float(duration or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    title_variants = _lyrics_title_variants(title) if title else []
+    for variant in _lyrics_title_variants(source_title):
+        if _lyrics_normalize(variant) not in {_lyrics_normalize(item) for item in title_variants}:
+            title_variants.append(variant)
+    reference_titles = {_lyrics_normalize(item) for item in title_variants}
     artist_variants = [item for item in _lyrics_artist_variants(artist)
-                       if _lyrics_normalize(item) != _lyrics_normalize(title)]
+                       if _lyrics_normalize(item) not in reference_titles]
+    for variant in _lyrics_artist_variants(source_artist):
+        if (_lyrics_normalize(variant) not in reference_titles
+                and _lyrics_normalize(variant) not in {_lyrics_normalize(item) for item in artist_variants}):
+            artist_variants.append(variant)
     clean_artist = artist_variants[0] if artist_variants else ""
+    want_cjk = _has_cjk(title) or _has_cjk(source_title)
+    fallback = None
 
     def lyrics_result(data):
-        if not isinstance(data, dict):
-            return ""
         synced = (data.get("syncedLyrics") or "").strip()
-        lyrics = (synced or data.get("plainLyrics") or "").strip()
-        if lyrics:
-            return json.dumps({"lyrics": lyrics, "synced_lyrics": synced, "provider": "LRCLIB"}, ensure_ascii=False)
-        return ""
+        lyrics = _lyrics_text(data)
+        return json.dumps({"lyrics": lyrics, "synced_lyrics": synced, "provider": "LRCLIB"}, ensure_ascii=False)
+
+    def keep_best(data):
+        nonlocal fallback
+        if _lyrics_text(data) and (fallback is None
+                                   or _lyrics_rank(data, duration, want_cjk) > _lyrics_rank(fallback, duration, want_cjk)):
+            fallback = data
+
+    def good_enough(data):
+        rank = _lyrics_rank(data, duration, want_cjk)
+        return rank[0] and rank[1] and (not duration or rank[2] or not data.get("duration"))
 
     # First retain the original exact lookup, then try a quoted/cleaned song
     # title with the primary performer (e.g. a YouTube MV title and channel).
-    exact_pairs = [(title, clean_artist)]
-    if len(title_variants) > 1:
-        primary_artist = artist_variants[1] if len(artist_variants) > 1 else clean_artist
-        exact_pairs.extend((variant, primary_artist) for variant in title_variants[1:])
-    for candidate_title, candidate_artist in exact_pairs:
+    exact_pairs = []
+    if title_variants:
+        exact_pairs.append((title_variants[0], clean_artist))
+    primary_artist = artist_variants[1] if len(artist_variants) > 1 else clean_artist
+    exact_pairs.extend((variant, primary_artist) for variant in title_variants[1:])
+    for candidate_title, candidate_artist in list(dict.fromkeys(exact_pairs)):
         params = {"track_name": candidate_title}
         if candidate_artist:
             params["artist_name"] = candidate_artist
+        if duration:
+            params["duration"] = str(int(round(duration)))
         try:
-            result = lyrics_result(_json_request(
-                "https://lrclib.net/api/get?" + urllib.parse.urlencode(params), timeout=8
-            ))
-            if result:
-                return result
+            data = _json_request("https://lrclib.net/api/get?" + urllib.parse.urlencode(params), timeout=8)
         except Exception:
             continue
+        if not isinstance(data, dict) or not _lyrics_text(data):
+            continue
+        if good_enough(data):
+            return lyrics_result(data)
+        keep_best(data)
 
-    search_pairs = [(clean_artist, title)] if clean_artist else []
-    search_pairs.extend((artist_variants[1], variant) for variant in title_variants[1:] if len(artist_variants) > 1)
+    search_pairs = [(clean_artist, title_variants[0])] if clean_artist and title_variants else []
+    search_pairs.extend((primary_artist, variant) for variant in title_variants[1:] if len(artist_variants) > 1)
     search_pairs.extend(("", variant) for variant in title_variants)
     search_queries = list(dict.fromkeys(
         " ".join(part for part in pair if part).strip() for pair in search_pairs
     ))
-    normalized_titles = {_lyrics_normalize(item) for item in title_variants}
-    candidates = []
     search_succeeded = False
     search_error = None
     for search_query in search_queries:
@@ -624,32 +689,28 @@ def lookup_lyrics(title: str, artist: str = "") -> str:
             continue
         if not isinstance(results, list):
             continue
-        candidates = [item for item in results if _lyrics_normalize(item.get("trackName")) in normalized_titles]
+        results = [item for item in results if isinstance(item, dict)]
+        candidates = [item for item in results if _lyrics_normalize(item.get("trackName")) in reference_titles]
         if not candidates:
             candidates = [item for item in results if any(
                 normalized and normalized in _lyrics_normalize(item.get("trackName"))
-                for normalized in normalized_titles
+                for normalized in reference_titles
             )]
-        if candidates:
+        if clean_artist and candidates:
+            matched = [item for item in candidates if any(
+                _lyrics_normalize(name) in _lyrics_normalize(item.get("artistName")) for name in artist_variants
+            )]
+            if matched:
+                candidates = matched
+        for item in candidates:
+            keep_best(item)
+        if fallback is not None and good_enough(fallback):
             break
-    if not candidates and not search_succeeded and search_error:
+    if fallback is None and not search_succeeded and search_error:
         raise ValueError("LRCLIB 暂时无法访问；请稍后重试或连接电脑服务。") from search_error
-    if clean_artist and candidates:
-        matched = [item for item in candidates if _lyrics_normalize(clean_artist) in _lyrics_normalize(item.get("artistName"))]
-        if matched:
-            candidates = matched
-    if not candidates:
+    if fallback is None:
         raise ValueError("公开歌词库中没有找到这首歌的歌词。")
-    best = max(candidates, key=lambda item: (
-        bool(item.get("syncedLyrics")),
-        bool(item.get("plainLyrics")),
-        bool(item.get("albumName")),
-    ))
-    synced_lyrics = (best.get("syncedLyrics") or "").strip()
-    lyrics = (synced_lyrics or best.get("plainLyrics") or "").strip()
-    if not lyrics:
-        raise ValueError("公开歌词库中没有找到这首歌的歌词。")
-    return json.dumps({"lyrics": lyrics, "synced_lyrics": synced_lyrics, "provider": "LRCLIB"}, ensure_ascii=False)
+    return lyrics_result(fallback)
 
 
 _BOT_CHECK = re.compile(r"confirm you.{0,3}re not a bot|sign in to confirm|not a bot", re.I)
@@ -743,6 +804,23 @@ def download_audio_with_metadata(source: str, work_dir: str, supplied_metadata_j
     info, audio_path = _run_with_client_fallbacks(options, action)
 
     tag_info, cover_source = _combine_metadata(info, supplied_metadata_json)
+    lyrics_status = _lyrics_kind(tag_info.get("lyrics"))
+    if not tag_info.get("lyrics") and _wants_lyrics_lookup(supplied_metadata_json):
+        # Match lyrics against the audio that was actually downloaded: its own title (often the
+        # original-language name in 「」) and its length, not only the catalog title.
+        try:
+            found = json.loads(lookup_lyrics(
+                tag_info.get("title") or "", _artist(tag_info),
+                duration=info.get("duration") or 0,
+                source_title=info.get("title") or "",
+                source_artist=info.get("channel") or info.get("uploader") or "",
+            ))
+            if found.get("lyrics"):
+                tag_info["lyrics"] = normalize_lyrics(found["lyrics"], "auto")
+                lyrics_status = _lyrics_kind(tag_info["lyrics"])
+        except Exception:
+            # Lyrics are optional; a lyrics service failure must not block the audio download.
+            pass
     # MusicBrainz/CAA entries may return a valid-looking URL even when no front
     # cover exists. If that request fails, try the source's yt-dlp thumbnail.
     cover_candidates = [cover_source, info.get("thumbnail") or ""]
@@ -785,5 +863,21 @@ def download_audio_with_metadata(source: str, work_dir: str, supplied_metadata_j
     return json.dumps({
         "path": str(audio_path), "title": title, "metadata_embedded": tagged,
         "cover_embedded": bool(tagged and cover), "cover_path": str(cover[2]) if cover else "",
-        "tag_metadata": tag_metadata,
+        "tag_metadata": tag_metadata, "lyrics_status": lyrics_status,
     }, ensure_ascii=False)
+
+
+def _lyrics_kind(lyrics) -> str:
+    """Return 'synced' for timestamped LRC, 'plain' for other lyrics, 'none' when empty."""
+    text = str(lyrics or "").strip()
+    if not text:
+        return "none"
+    return "synced" if re.search(r"^\s*\[\d+:\d{1,2}(?:[.:]\d+)?\]", text, re.M) else "plain"
+
+
+def _wants_lyrics_lookup(supplied_json: str) -> bool:
+    try:
+        supplied = json.loads(supplied_json or "{}")
+    except ValueError:
+        return False
+    return isinstance(supplied, dict) and bool(supplied.get("lookup_lyrics"))
