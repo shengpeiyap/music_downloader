@@ -67,6 +67,7 @@ test_app.py           # 桌面与跨端测试（含对页面、Java 源码的结
 tests/                # Node 回归测试（i18n、Android 界面门控等）和批量队列测试
 android/app/src/test/ # Android 的 Python 测试与 Java 单元测试
 docs/release-notes/   # 各版本发行说明
+.github/workflows/    # ci.yml：每个 PR 跑全部测试；release.yml：打包、签名、核对证书、起草 Release
 ```
 
 ---
@@ -128,7 +129,7 @@ MusicBrainz 每秒最多 1 次请求（手机端用 `_MB_LOCK` 节流）。LRCLI
 
 ## 4. 验证
 
-交付前在仓库根目录跑完下面这些（CI 只跑了其中一部分，本地要补全）：
+交付前在仓库根目录跑完下面这些。CI（`ci.yml`）在每个 PR 上也会全部跑一遍；动了打包相关文件时，`release.yml` 还会在 PR 上做一次不签名的完整打包：
 
 ```powershell
 python -m unittest test_app -v
@@ -155,12 +156,15 @@ cd android; .\gradlew.bat testDebugUnitTest assembleDebug
 版本号规则：界面或功能的大更新升第二位（0.2.0 → 0.3.0），修复更新升第三位。
 
 1. 从最新 `master` 切 `release/vX.Y.Z` 分支：改 `versionName`，`versionCode` +1，写 `docs/release-notes/vX.Y.Z.md`，开 PR 合并。
-2. 便携版：`build_windows.bat` → `dist/MusicDesk-portable.zip`。解压后冒烟测试：`MusicDesk.exe --port 8765` 能正常提供页面，内置的 yt-dlp、spotdl、Deno 都能运行。
-3. Android：`gradlew assembleRelease` 得到未签名包，由作者用 `releases/musicdesk-release.jks` 签名（apksigner 或 Android Studio）。**代理不输入签名密码。**
-4. 用 `apksigner verify --print-certs` 核对证书与历史版本一致：`CN=Yap Sheng Pei`，SHA-256 `5a826e425ba008a81add2f0fa861811c25e664aea31056da4a2d86c007553b9b`。证书变了，用户就无法覆盖升级。
-5. 在合并后的 `master` 上打 `vX.Y.Z` 标签，用 `gh release create` 发布：附上两个文件，说明末尾附 SHA-256 校验值，并设为 Latest。
+2. 在合并后的 `master` 上打标签并推送：`git tag -a vX.Y.Z -m "MusicDesk vX.Y.Z"`，然后 `git push origin vX.Y.Z`。
+3. `release.yml` 自动完成：
+   - 检查标签与 `versionName` 一致。
+   - 打包便携版，检查包内文件和内置工具。
+   - 用 Actions 密钥签名 APK，并核对证书：`CN=Yap Sheng Pei`，SHA-256 `5a826e425ba008a81add2f0fa861811c25e664aea31056da4a2d86c007553b9b`。证书不符就让 CI 失败，因为证书一变，用户就无法覆盖升级。
+   - 创建**草稿** Release：附上两个文件，说明取自发行说明文件，末尾附 SHA-256。
+4. 作者检查草稿（可以下载便携版冒烟测试：`MusicDesk.exe --port 8765`），确认后点发布，并设为 Latest。
 
----
+签名所需的四个 Actions 密钥（`MUSICDESK_KEYSTORE_BASE64` / `MUSICDESK_KEYSTORE_PASSWORD` / `MUSICDESK_KEY_ALIAS` / `MUSICDESK_KEY_PASSWORD`）只由作者设置，**代理不输入签名密码**。本地出正式签名包：导出 `MUSICDESK_KEYSTORE_FILE` 等四个环境变量后再运行 `assembleRelease`；不设置时得到的是 `app-release-unsigned.apk`。
 
 ## 6. 代理工作方式
 

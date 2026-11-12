@@ -1,0 +1,198 @@
+# Builds the release files and, for a version tag, drafts the GitHub release.
+#
+# - Pushing a tag vX.Y.Z (on a master commit whose versionName is X.Y.Z): build the
+#   Windows portable zip and the signed Android APK, check the APK's certificate, and
+#   create a DRAFT release with both files and their SHA-256. The author reviews the
+#   draft and publishes it (and marks it Latest) by hand.
+# - Manual run (Actions -> Release build -> Run workflow): same builds, signed, uploaded
+#   as workflow artifacts only. No tag, no release.
+# - Pull requests that touch the build: same builds UNSIGNED, to catch build breakage
+#   before merge. Secrets are never used for pull requests.
+#
+# Signing secrets (Settings -> Secrets and variables -> Actions):
+#   MUSICDESK_KEYSTORE_BASE64  base64 of releases/musicdesk-release.jks
+#   MUSICDESK_KEYSTORE_PASSWORD, MUSICDESK_KEY_ALIAS, MUSICDESK_KEY_PASSWORD
+# android/app/build.gradle.kts signs the release build only when all four are present.
+name: Release build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - build_windows.bat
+      - package_portable.py
+      - launcher.py
+      - requirements.txt
+      - requirements-build.txt
+      - android/app/build.gradle.kts
+      - android/build.gradle.kts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # SHA-256 of the certificate every MusicDesk release has been signed with (CN=Yap Sheng Pei).
+  # Android refuses to update an installed app signed with a different certificate, so a
+  # mismatch must fail the build rather than ship an APK nobody can upgrade to.
+  RELEASE_CERT_SHA256: 5a826e425ba008a81add2f0fa861811c25e664aea31056da4a2d86c007553b9b
+  SIGN_RELEASE: ${{ github.event_name != 'pull_request' }}
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Read app version
+        id: version
+        run: |
+          version="$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' android/app/build.gradle.kts)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "App version: $version"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $version in android/app/build.gradle.kts"
+            exit 1
+          fi
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Python for Chaquopy
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
+      - name: Restore release keystore
+        if: env.SIGN_RELEASE == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MUSICDESK_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Secret MUSICDESK_KEYSTORE_BASE64 is not set; see the comment at the top of release.yml"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/musicdesk-release.jks"
+          echo "MUSICDESK_KEYSTORE_FILE=$RUNNER_TEMP/musicdesk-release.jks" >> "$GITHUB_ENV"
+      - name: Build release APK
+        working-directory: android
+        env:
+          MUSICDESK_KEYSTORE_PASSWORD: ${{ env.SIGN_RELEASE == 'true' && secrets.MUSICDESK_KEYSTORE_PASSWORD || '' }}
+          MUSICDESK_KEY_ALIAS: ${{ env.SIGN_RELEASE == 'true' && secrets.MUSICDESK_KEY_ALIAS || '' }}
+          MUSICDESK_KEY_PASSWORD: ${{ env.SIGN_RELEASE == 'true' && secrets.MUSICDESK_KEY_PASSWORD || '' }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --console=plain :app:assembleRelease
+      - name: Verify the APK is signed with the release certificate
+        if: env.SIGN_RELEASE == 'true'
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error::No signed APK was produced; check the four MUSICDESK_* secrets"
+            exit 1
+          fi
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | tee certs.txt
+          if ! grep -q "certificate SHA-256 digest: $RELEASE_CERT_SHA256" certs.txt; then
+            echo "::error::APK is not signed with the MusicDesk release certificate; installed apps could not update to it"
+            exit 1
+          fi
+      - name: Name the APK
+        run: |
+          mkdir -p out
+          if [ "$SIGN_RELEASE" = "true" ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "out/MusicDesk-v${{ steps.version.outputs.version }}-android-release.apk"
+          else
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk "out/MusicDesk-v${{ steps.version.outputs.version }}-android-release-unsigned.apk"
+          fi
+          rm -f "$RUNNER_TEMP/musicdesk-release.jks"
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: out/*.apk
+          if-no-files-found: error
+
+  windows-portable:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Set up Deno (JavaScript runtime bundled for yt-dlp)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Create the build environment
+        run: python -m venv .venv
+      - name: Build the portable package
+        shell: cmd
+        run: build_windows.bat
+      - name: Check the package contents and bundled tools
+        shell: pwsh
+        run: |
+          $zip = "dist\MusicDesk-portable.zip"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $names = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip)).Entries.FullName
+          foreach ($required in "MusicDesk.exe", "yt-dlp.exe", "spotdl.exe", "deno.exe", "_internal/index.html", "_internal/i18n.js", "_internal/library_sort.js", "_internal/default_song_img.png") {
+            if (-not ($names | Where-Object { $_ -ieq $required })) { throw "Portable zip is missing $required" }
+          }
+          & dist\MusicDesk\yt-dlp.exe --version
+          & dist\MusicDesk\spotdl.exe --version
+          $version = (Select-String -Path android/app/build.gradle.kts -Pattern 'versionName = "([^"]+)"').Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item $zip "out\MusicDesk-v$version-windows-portable.zip"
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: out/*.zip
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, windows-portable]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Download build files
+        uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Draft the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          notes="docs/release-notes/$tag.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::Release notes $notes are missing; add them in the release PR"
+            exit 1
+          fi
+          {
+            cat "$notes"
+            printf '\n## SHA-256\n\n```\n'
+            (cd out && sha256sum *)
+            printf '```\n'
+          } > release-body.md
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" out/* --clobber
+          else
+            gh release create "$tag" out/* --draft --verify-tag --title "MusicDesk $tag" --notes-file release-body.md
+          fi

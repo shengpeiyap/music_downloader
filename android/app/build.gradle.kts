@@ -3,6 +3,14 @@ plugins {
     id("com.chaquo.python")
 }
 
+// Release signing comes from the environment: GitHub Actions secrets in the release workflow,
+// or variables the author exports locally. Without all four values and an existing keystore the
+// release APK is built unsigned (app-release-unsigned.apk), so ordinary builds never need the key.
+val releaseKeystore = System.getenv("MUSICDESK_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }?.let { file(it) }
+val releaseSigningReady = releaseKeystore?.isFile == true &&
+    listOf("MUSICDESK_KEYSTORE_PASSWORD", "MUSICDESK_KEY_ALIAS", "MUSICDESK_KEY_PASSWORD")
+        .all { !System.getenv(it).isNullOrBlank() }
+
 android {
     namespace = "com.musicdesk.android"
     compileSdk = 36
@@ -21,6 +29,22 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("MUSICDESK_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MUSICDESK_KEY_ALIAS")
+                keyPassword = System.getenv("MUSICDESK_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            if (releaseSigningReady) signingConfig = signingConfigs.getByName("release")
+        }
+    }
 }
 
 chaquopy {
