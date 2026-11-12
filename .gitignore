@@ -7,3 +7,11 @@ dist/
 /android/.gradle/
 /android/.idea/
 /android/local.properties
+
+# Release builds and signing material stay out of git. Builds are attached to
+# GitHub Releases; the keystore must never be committed (it signs app updates).
+releases/
+android/app/release/
+*.jks
+*.keystore
+hsperfdata_*/

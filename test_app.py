@@ -195,6 +195,17 @@ class DesktopLauncherTests(unittest.TestCase):
                 server.server_close()
                 worker.join(timeout=2)
 
+    def test_release_builds_and_signing_keys_are_never_committed(self):
+        # Release files live on GitHub Releases. The Android keystore sits beside them in
+        # releases/ and must never reach this public repository.
+        for path in ("releases/musicdesk-release.jks", "releases/MusicDesk-v9.9.9-windows-portable.zip",
+                     "android/app/release/app-release.apk", "any/where/upload.keystore"):
+            ignored = subprocess.run(["git", "check-ignore", "-q", path], cwd=Path(__file__).parent)
+            self.assertEqual(ignored.returncode, 0, f"{path} should be ignored by .gitignore")
+        tracked = subprocess.run(["git", "ls-files"], cwd=Path(__file__).parent,
+                                 capture_output=True, text=True, check=True).stdout.splitlines()
+        self.assertFalse([p for p in tracked if p.endswith((".jks", ".keystore", ".apk")) or p.startswith("releases/")])
+
     def test_portable_archive_keeps_app_relative_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
