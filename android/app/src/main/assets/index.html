@@ -2840,6 +2840,22 @@ function showEmbeddedLyricsSource(data) {
   } else if (!lyrics.trim()) {
     text = '音频没有内嵌歌词';
   }
+  setLyricsSourceNote(text);
+}
+
+// The note describes the file as read. Once the lyrics box no longer matches it, say that the
+// file still holds the old lyrics until it is saved.
+let lyricsSourceNote = {base: '', loaded: ''};
+function setLyricsSourceNote(base) {
+  lyricsSourceNote = {base, loaded: $('tagLyrics').value};
+  refreshLyricsSourceNote();
+}
+function refreshLyricsSourceNote() {
+  const {base, loaded} = lyricsSourceNote;
+  const edited = $('tagLyrics').value !== loaded;
+  let text = base;
+  if (edited && base.startsWith('内嵌歌词：')) text = `${base}（已修改，保存后写入）`;
+  else if (edited && base === '音频没有内嵌歌词' && $('tagLyrics').value.trim()) text = '音频原本没有内嵌歌词，保存后写入';
   $('tagLyricsSource').textContent = text;
 }
 
@@ -2873,7 +2889,7 @@ window.onAndroidLocalTagsComplete = (error, tagsJson, artwork, audioName) => {
         const lyrics = result.lyrics || '';
         if (!lyrics) throw new Error('公开歌词库中没有找到这首歌的歌词。');
         $('tagLyrics').value = lyrics;
-        $('tagLyricsSource').textContent = '歌词来自 LRCLIB，保存后才会写入文件';
+        setLyricsSourceNote('歌词来自 LRCLIB，保存后才会写入文件');
         renderCustomLyricsPreview();
         $('customStatus').textContent = result.synced_lyrics
           ? '已从 LRCLIB 载入同步 LRC；点击“保存并打包导出文件”即可内嵌。'

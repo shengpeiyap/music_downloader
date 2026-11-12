@@ -1274,6 +1274,10 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
         self.assertIn('id="tagLyricsSource"', html)
         self.assertEqual(html.count("showEmbeddedLyricsSource(data);"), 2)  # desktop and Android readers
         self.assertIn("Embedded lyrics: $1 · $2", Path("i18n.js").read_text(encoding="utf-8"))
+        # Once the lyrics box differs from the file, the note says the file changes only on save.
+        self.assertIn("function renderCustomLyricsPreview() {\n  refreshLyricsSourceNote();", html.replace("\r\n", "\n"))
+        self.assertIn("（已修改，保存后写入）", html)
+        self.assertIn("'（已修改，保存后写入）': ' (edited; written when you save)'", Path("i18n.js").read_text(encoding="utf-8"))
 
     def test_queue_sheet_requests_and_receives_track_covers(self):
         html = Path("index.html").read_text(encoding="utf-8")
