@@ -535,6 +535,22 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('--add-data "i18n.js;."', build_script)
         self.assertIn("function updateMobileTabLabel(tabName)", (root / "i18n.js").read_text(encoding="utf-8"))
 
+    def test_every_local_page_asset_is_bundled_in_the_portable_build(self):
+        # The portable app serves files from its package folder; a script or image the page
+        # loads but the build leaves out is a 404 there (library_sort.js once broke the library).
+        # build_windows.bat is the source of truth; MusicDesk.spec is regenerated and gitignored.
+        root = Path(__file__).parent
+        page = (root / "index.html").read_text(encoding="utf-8")
+        build_script = (root / "build_windows.bat").read_text(encoding="utf-8")
+        assets = set(re.findall(r'<script src="([^":/]+)"', page))
+        assets |= set(re.findall(r"""\bDEFAULT_COVER\s*=\s*['"]([^'"]+)['"]""", page))
+        self.assertIn("library_sort.js", assets)
+        self.assertIn("default_song_img.png", assets)
+        for asset in sorted(assets):
+            self.assertTrue((root / asset).is_file(), asset)
+            self.assertIn(f'--add-data "{asset};."', build_script, asset)
+        self.assertIn('--add-data "index.html;."', build_script)
+
     def test_android_player_supports_repeat_shuffle_and_large_library_views(self):
         root = Path(__file__).parent
         page = (root / "index.html").read_text(encoding="utf-8")
