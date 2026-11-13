@@ -29,6 +29,7 @@ from io import BytesIO
 from PIL import Image
 import musicbrainzngs
 from desktop_media import resolve_selected_audio, serve_local_audio
+from desktop.lyrics import LyricsService
 from desktop.metadata import MetadataService
 from desktop.server import make_handler
 from musicdesk_core import batch as batch_queue
@@ -50,6 +51,7 @@ from musicdesk_core import (
 
 musicbrainzngs.set_useragent("MusicDesk", "1.0", "https://github.com/musicdesk")
 _metadata_service = MetadataService(sys.modules[__name__])
+_lyrics_service = LyricsService(sys.modules[__name__])
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 FORMATS = {"mp3": "audio/mpeg", "wav": "audio/wav", "flac": "audio/flac", "ogg": "audio/ogg", "m4a": "audio/mp4"}
@@ -415,65 +417,15 @@ def crop_yt_padding_smart(img_bytes: bytes) -> bytes:
 
 
 def fetch_lrc_lyrics(title: str, artist: str) -> str:
-    if not title or title == "未知标题":
-        return ""
-    try:
-        clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} else artist.strip()
-        query = f"track_name={urllib.parse.quote(title)}"
-        if clean_artist:
-            query += f"&artist_name={urllib.parse.quote(clean_artist)}"
-
-        url = f"https://lrclib.net/api/get?{query}"
-        req = urllib.request.Request(url, headers={"User-Agent": "MusicDesk/1.0"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            synced = data.get("syncedLyrics", "")
-            if synced:
-                print(f"[MusicDesk 歌词成功] 成功检索到 LRC 同步歌词")
-                return synced
-            plain = data.get("plainLyrics", "")
-            if plain:
-                return plain
-    except Exception:
-        pass
-
-    result = search_lrc_track(title, artist)
-    if result:
-        lyrics = result.get("syncedLyrics") or result.get("plainLyrics") or ""
-        if lyrics:
-            print("[MusicDesk 歌词成功] 通过曲名检索找到歌词")
-        return lyrics
-    return ""
+    return _lyrics_service.fetch_lrc_lyrics(title, artist)
 
 
 def search_lrc_track(title: str, artist: str) -> dict | None:
-    if not title:
-        return None
-    clean_artist = "" if artist in {"未知艺人", "Unknown Artist"} or artist.strip() == title.strip() else artist.strip()
-    query = " ".join(part for part in (clean_artist, title.strip()) if part)
-    search_url = "https://lrclib.net/api/search?" + urllib.parse.urlencode({"q": query})
-    request = urllib.request.Request(search_url, headers={"User-Agent": "MusicDesk/1.0"})
-    try:
-        with urllib.request.urlopen(request, timeout=6) as response:
-            results = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return None
+    return _lyrics_service.search_lrc_track(title, artist)
 
-    if not isinstance(results, list):
-        return None
-    normalize = lambda value: re.sub(r"[^\w]", "", str(value or "").casefold())
-    wanted_title = normalize(title)
-    wanted_artist = normalize(clean_artist)
-    candidates = [item for item in results if normalize(item.get("trackName")) == wanted_title]
-    if not candidates:
-        candidates = [item for item in results if wanted_title and wanted_title in normalize(item.get("trackName"))]
-    if not candidates:
-        return None
-    if wanted_artist:
-        artist_matches = [item for item in candidates if wanted_artist in normalize(item.get("artistName"))]
-        if artist_matches:
-            candidates = artist_matches
-    return max(candidates, key=lambda item: (bool(item.get("syncedLyrics")), bool(item.get("plainLyrics")), bool(item.get("albumName"))))
+
+
+
 
 
 def find_executable(name: str) -> list[str]:

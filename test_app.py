@@ -1028,6 +1028,11 @@ class ShareUrlTests(unittest.TestCase):
 
 
 class LyricsLookupTests(unittest.TestCase):
+    def test_lyrics_lookup_uses_the_compatibility_service_wrapper(self):
+        with patch("app._lyrics_service.fetch_lrc_lyrics", return_value="[00:01.00]Hello") as lookup:
+            self.assertEqual(fetch_lrc_lyrics("Song", "Artist"), "[00:01.00]Hello")
+        lookup.assert_called_once_with("Song", "Artist")
+
     def test_fetches_synced_lyrics_from_lrclib(self):
         response = MagicMock()
         response.__enter__.return_value = response
