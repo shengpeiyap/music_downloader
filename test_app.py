@@ -23,6 +23,11 @@ from launcher import create_native_window, enable_file_downloads, main as launch
 import launcher
 from package_portable import create_portable_archive
 
+# The page is being split from index.html into web/*.js and web/*.css. Tests read the page
+# together with every local script and stylesheet it loads, so moved code stays visible.
+sys.path.insert(0, str(Path(__file__).parent / "tools"))
+from page_assets import local_assets, page_source  # noqa: E402
+
 
 class FfmpegResolutionTests(unittest.TestCase):
     def test_real_conversion_ignores_embedded_mp3_cover_stream(self):
@@ -262,14 +267,14 @@ class LocalTagMetadataTests(unittest.TestCase):
     def test_download_formats_preview_and_lyrics_format_controls_exist_on_all_frontends(self):
         root = Path(__file__).parent
         for page_path in (root / "index.html", root / "android/app/src/main/assets/index.html"):
-            page = page_path.read_text(encoding="utf-8")
+            page = page_source(page_path)
             for marker in ('id="downloadFormat"', 'id="downloadBitrate"', 'id="downloadSidecarLrc"', 'id="youtubePreviewBtn"', 'id="tagLyricsFormat"', 'id="tagTrackNumber"', 'id="tagDiscNumber"', 'id="tagGenre"', 'id="tagComposer"', "function youtubeVideoId(metadata)", "function updateYouTubePreview()"):
                 self.assertIn(marker, page)
             self.assertIn("localStorage.setItem('musicdesk-download-settings'", page)
             self.assertIn("formData.append('lyrics_format'", page)
 
     def test_android_player_keeps_display_queue_stable_while_shuffling_play_order(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         self.assertIn('if (!playbackQueue.includes(localTracks[idx]))', page)
         self.assertIn('let playbackOrder = [];', page)
         self.assertIn('function updatePlaybackOrder(firstTrack = null)', page)
@@ -293,7 +298,10 @@ class LocalTagMetadataTests(unittest.TestCase):
         queue_renderer = page.split('function renderQueue()', 1)[1].split('function openPlayAllChoice()', 1)[0]
         self.assertIn('const queue = playbackQueue.length ? playbackQueue : localTracks;', queue_renderer)
         self.assertIn('// Initialize the playback mode control immediately on every platform', page)
-        self.assertTrue(page.rstrip().endswith('syncPlayerControls();\n</script></body></html>'))
+        # The playback-mode control is initialised as the last statement of the main page script
+        # (split-out scripts such as web/equalizer.js load after it).
+        main_script = Path("index.html").read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertIn('\nsyncPlayerControls();\n</script>\n<script src="web/equalizer.js"></script>\n</body></html>', main_script)
         self.assertIn('PLAYBACK_MODE_ICONS', page)
         self.assertIn('let lastMediaSessionUpdate = 0;', page)
         self.assertNotIn('playbackQueue = playbackQueue.filter(track => track !== current)', page)
@@ -303,7 +311,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
         service = (root / "android/app/src/main/java/com/musicdesk/android/MusicPlaybackService.java").read_text(encoding="utf-8")
         manifest = (root / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
-        page = (root / "index.html").read_text(encoding="utf-8")
+        page = page_source(root / "index.html")
         self.assertIn('settings.setSupportZoom(false)', activity)
         self.assertIn('musicdesk-library-index.json', activity)
         self.assertIn('COLUMN_LAST_MODIFIED', activity)
@@ -321,21 +329,21 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('window.persistAndroidPlayback && window.persistAndroidPlayback(true)', activity)
 
     def test_lyrics_reader_sends_only_fields_needed_for_lookup(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         self.assertIn(
             "JSON.stringify({title: currentMetadata.title, artist: currentMetadata.artist})",
             page,
         )
 
     def test_default_cover_is_display_only_and_never_used_as_embedded_cover(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         self.assertIn("const DEFAULT_COVER = 'default_song_img.png'", page)
         self.assertIn('img[src$="default_song_img.png"]{background:#f3f6f1;padding:12px}', page)
         self.assertIn("$('customCoverPreview').dataset.embeddedCover = d.cover || ''", page)
         self.assertTrue((Path(__file__).parent / "default_song_img.png").is_file())
 
     def test_custom_packaging_and_player_have_drag_drop_zones(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         self.assertIn('id="customAudioDrop"', page)
         self.assertIn('id="playlistDropZone"', page)
         self.assertIn('function setupDropZone(zone, onDrop)', page)
@@ -345,13 +353,13 @@ class LocalTagMetadataTests(unittest.TestCase):
     def test_custom_packaging_has_audio_trim_and_lyric_calibration_on_web_and_android(self):
         root = Path(__file__).parent
         for page_path in (root / "index.html", root / "android/app/src/main/assets/index.html"):
-            page = page_path.read_text(encoding="utf-8")
+            page = page_source(page_path)
             for marker in ('id="customAudioPreview"', 'id="customTrimStart"', 'id="customTrimEnd"', 'id="customLyricsPreview"', 'id="customLyricsSetTime"', 'id="customLyricsTimingMode"', 'id="customLyricsMarkCurrent"', 'id="customLyricsUndoMark"', 'id="customLyricsFinishTiming"', "function parseCustomLrc(text)", "function markCurrentPlainLyric()", "function finishPlainLyricTiming()", 'id="helpBtn"', 'id="helpDialog"', "event.code === 'Space'", "event.key.toLowerCase() === 'k'", "event.key.toLowerCase() === 'm'", "event.key.toLowerCase() === 't'"):
                 self.assertIn(marker, page)
             self.assertIn("formData.append('trim_start'", page)
 
     def test_local_player_has_removal_and_custom_transport_controls(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         for control_id in (
             "previousTrackBtn", "togglePlaybackBtn", "nextTrackBtn", "playbackSeek",
             "currentTimeLabel", "durationLabel",
@@ -361,7 +369,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("URL.revokeObjectURL(removed.objectUrl)", page)
 
     def test_navigation_is_the_same_four_destinations_on_web_and_android(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         nav = page[page.index('id="navTabs"'):page.index('id="statusChip"')]
         labels = re.findall(r'data-tab="(\w+)"[^>]*>.*?<span>([^<]+)</span>', nav)
         self.assertEqual(labels, [("online", "下载"), ("custom", "编辑"), ("local", "播放"), ("settings", "设置")])
@@ -371,13 +379,13 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("min-height:72px", page)
 
     def test_errors_shown_to_users_drop_exception_class_prefixes(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         self.assertIn("function friendlyMessage(value)", page)
         self.assertNotIn("$('lookupStatus').textContent = err.message", page)
         self.assertNotIn("escapeHTML(err.message)", page)
 
     def test_mini_player_and_queue_live_outside_the_play_tab(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         play_tab = page[page.index('id="tab-local"'):page.index('id="tab-settings"')]
         for element_id in ("androidMiniPlayer", "queueBackdrop"):
             self.assertNotIn(f'id="{element_id}"', play_tab)
@@ -386,7 +394,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("switchTab('local'); showAndroidLocalTab('player')", page)
 
     def test_download_settings_panel_keeps_one_source_of_truth_per_setting(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         for element_id in ("enginePriority", "downloadFormat", "downloadBitrate", "downloadSidecarLrc",
                            "downloadSettingsPanel", "openDownloadSettings", "downloadSettingsBackdrop"):
             self.assertEqual(page.count(f'id="{element_id}"'), 1, element_id)
@@ -397,7 +405,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("(min-width:960px)", page)
 
     def test_editor_shows_common_fields_and_folds_the_rest(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         form = page[page.index('id="customTagForm"'):page.index('id="customStatus"')]
         accordions = form.index('class="acc"')
         for common in ("tagTitle", "tagArtist", "tagAlbum", "tagYear"):
@@ -409,7 +417,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("$('trimDetails').hidden = false;", page)
 
     def test_first_run_guide_is_body_level_skippable_and_translated(self):
-        html = open("index.html", encoding="utf-8").read()
+        html = page_source(Path("index.html"))
         i18n = open("i18n.js", encoding="utf-8").read()
         self.assertIn("musicdesk-guide-done", html)
         self.assertIn("navigator.webdriver", html)
@@ -417,7 +425,7 @@ class LocalTagMetadataTests(unittest.TestCase):
             self.assertIn("'%s'" % text, i18n)
 
     def test_device_feedback_fixes_are_in_the_page(self):
-        html = open("index.html", encoding="utf-8").read()
+        html = page_source(Path("index.html"))
         activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
         # standalone .lrc is locked (not silently forced on) while the phone is unpaired
         for needle in ("function sidecarLrcLocked()", "function syncSidecarLrcLock()", 'id="sidecarLrcNote"'):
@@ -432,7 +440,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("musicdesk-art", activity)
 
     def test_english_mode_copy_and_long_titles_do_not_break_layout(self):
-        html = open("index.html", encoding="utf-8").read()
+        html = page_source(Path("index.html"))
         i18n = open("i18n.js", encoding="utf-8").read()
         # buttons may wrap and long titles break, so English copy cannot widen the page
         self.assertNotIn(".dl-btn{margin-top:0;white-space:nowrap", html)
@@ -445,12 +453,12 @@ class LocalTagMetadataTests(unittest.TestCase):
             self.assertIn(needle, html)
 
     def test_editor_fills_more_info_fields_from_file_tags(self):
-        html = open("index.html", encoding="utf-8").read()
+        html = page_source(Path("index.html"))
         self.assertIn("function fillTagExtras(tags)", html)
         self.assertEqual(html.count("fillTagExtras("), 4)  # definition + three file-read sites
 
     def test_library_has_single_add_menu_and_back_closes_overlays(self):
-        html = (ROOT / "index.html").read_text(encoding="utf-8") if "ROOT" in globals() else open("index.html", encoding="utf-8").read()
+        html = page_source(Path("index.html"))
         self.assertIn('id="addMusicBtn"', html)
         menu = html[html.index('id="addMusicMenu"'):]
         menu = menu[:menu.index("</div>")]
@@ -462,7 +470,7 @@ class LocalTagMetadataTests(unittest.TestCase):
             self.assertIn(name, close)
 
     def test_player_rows_use_a_menu_instead_of_loud_remove_buttons(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         self.assertNotIn('class="track-remove"', page)
         self.assertEqual(page.count('class="track-more"'), 2)
         self.assertIn("function openTrackMenu(index)", page)
@@ -478,8 +486,8 @@ class LocalTagMetadataTests(unittest.TestCase):
 
     def test_android_webview_mvp_has_mobile_audio_picker_and_bundled_web_assets(self):
         root = Path(__file__).parent
-        page = (root / "index.html").read_text(encoding="utf-8")
-        android_page = (root / "android/app/src/main/assets/index.html").read_text(encoding="utf-8")
+        page = page_source(root / "index.html")
+        android_page = page_source(root / "android/app/src/main/assets/index.html")
         activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
         gradle = (root / "android/app/build.gradle.kts").read_text(encoding="utf-8")
         self.assertIn('id="audioFilesInput"', page)
@@ -540,7 +548,7 @@ class LocalTagMetadataTests(unittest.TestCase):
 
     def test_i18n_script_is_included_and_bundled_for_portable_build(self):
         root = Path(__file__).parent
-        page = (root / "index.html").read_text(encoding="utf-8")
+        page = page_source(root / "index.html")
         build_script = (root / "build_windows.bat").read_text(encoding="utf-8")
         self.assertIn('<script src="i18n.js"></script>', page)
         self.assertIn('--add-data "i18n.js;."', build_script)
@@ -551,16 +559,33 @@ class LocalTagMetadataTests(unittest.TestCase):
         # loads but the build leaves out is a 404 there (library_sort.js once broke the library).
         # build_windows.bat is the source of truth; MusicDesk.spec is regenerated and gitignored.
         root = Path(__file__).parent
-        page = (root / "index.html").read_text(encoding="utf-8")
+        page = page_source(root / "index.html")
         build_script = (root / "build_windows.bat").read_text(encoding="utf-8")
-        assets = set(re.findall(r'<script src="([^":/]+)"', page))
+        assets = set(local_assets(root / "index.html"))
         assets |= set(re.findall(r"""\bDEFAULT_COVER\s*=\s*['"]([^'"]+)['"]""", page))
-        self.assertIn("library_sort.js", assets)
-        self.assertIn("default_song_img.png", assets)
+        for expected in ("library_sort.js", "default_song_img.png", "web/styles.css", "web/equalizer.js"):
+            self.assertIn(expected, assets)
         for asset in sorted(assets):
             self.assertTrue((root / asset).is_file(), asset)
-            self.assertIn(f'--add-data "{asset};."', build_script, asset)
+            if asset.startswith("web/"):
+                self.assertIn('--add-data "web;web"', build_script, asset)  # the whole folder ships
+            else:
+                self.assertIn(f'--add-data "{asset};."', build_script, asset)
         self.assertIn('--add-data "index.html;."', build_script)
+
+    def test_android_assets_follow_the_files_the_page_loads(self):
+        # sync_android_assets.py derives its list from index.html, so a file split out into
+        # web/ reaches the Android app without editing the list.
+        root = Path(__file__).parent
+        import page_assets
+        import sync_android_assets
+        self.assertEqual(list(sync_android_assets.SHARED), page_assets.shared_files())
+        for name in sync_android_assets.SHARED:
+            self.assertTrue((root / "android/app/src/main/assets" / name).is_file(), name)
+        self.assertEqual(sync_android_assets.differing(), [])
+        # page_source() really includes the split files.
+        self.assertIn("function ensureEqGraph()", page_source(root / "index.html"))
+        self.assertNotIn("function ensureEqGraph()", (root / "index.html").read_text(encoding="utf-8"))
 
     def test_agents_guide_matches_the_repository(self):
         # AGENTS.md is the map agents and contributors start from; a stale path, version, or
@@ -635,7 +660,7 @@ class LocalTagMetadataTests(unittest.TestCase):
 
     def test_android_player_supports_repeat_shuffle_and_large_library_views(self):
         root = Path(__file__).parent
-        page = (root / "index.html").read_text(encoding="utf-8")
+        page = page_source(root / "index.html")
         activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
         for mode in ("sequential", "repeat-one", "repeat-all", "shuffle"):
             self.assertIn(mode, page)
@@ -661,7 +686,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("data-category=\"favorites\"", page)
 
     def test_android_library_keeps_controls_fixed_and_restores_filtered_playback_queue(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         self.assertIn("body.android-app{position:fixed", page)
         self.assertIn("body.android-app #localTrackList{flex:1;min-height:0", page)
         self.assertIn("let playbackQueue = []", page)
@@ -696,7 +721,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('android:usesCleartextTraffic="true"', manifest)
 
     def test_desktop_and_browser_restore_local_audio_and_use_native_desktop_picker(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         persistence = page.split("function persistAndroidPlayback(force = false)", 1)[1].split("function tryRestoreSavedPlayback()", 1)[0]
         self.assertNotIn("if (!window.AndroidMusic)", persistence)
         self.assertIn("desktopFiles: localTracks.map(item => item.desktopPath).filter(Boolean)", persistence)
@@ -712,7 +737,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("local_audio_id", page)
 
     def test_plain_lyrics_are_rendered_without_timing_in_online_and_local_readers(self):
-        page = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+        page = page_source(Path(__file__).parent / "index.html")
         self.assertIn("function renderPlainLyrics(container, lyricText, emptyMessage)", page)
         self.assertIn("renderPlainLyrics(container, lrcText, '未检索到歌词')", page)
         self.assertIn("renderPlainLyrics(container, lrcText, '暂无内嵌歌词')", page)
@@ -1195,7 +1220,7 @@ class LanApiTests(unittest.TestCase):
 
 class BatchDownloadWiringTests(unittest.TestCase):
     def test_batch_ui_and_capability_are_wired(self):
-        html = Path("index.html").read_text(encoding="utf-8")
+        html = page_source(Path("index.html"))
         for needle in ("batchPanel", "/api/playlist", "/api/batch", "PLAYLIST_URL_RE", "批量下载暂时只支持电脑网页端"):
             self.assertIn(needle, html)
         self.assertIn("playlist_batch", MUSICDESK_API_CAPABILITIES)
@@ -1204,7 +1229,7 @@ class BatchDownloadWiringTests(unittest.TestCase):
 
 class BilingualLyricsWiringTests(unittest.TestCase):
     def test_bilingual_lyrics_ui_is_wired(self):
-        html = Path("index.html").read_text(encoding="utf-8")
+        html = page_source(Path("index.html"))
         for needle in ("bilingualLyricsToggle", "groupLyricTranslations", "mergeTranslationIntoLyrics", "mergeTranslationBtn", "musicdesk-bilingual-lyrics"):
             self.assertIn(needle, html)
         self.assertIn("Show lyric translations", Path("i18n.js").read_text(encoding="utf-8"))
@@ -1212,7 +1237,7 @@ class BilingualLyricsWiringTests(unittest.TestCase):
 
 class EqualizerWiringTests(unittest.TestCase):
     def test_equalizer_ui_is_wired(self):
-        html = Path("index.html").read_text(encoding="utf-8")
+        html = page_source(Path("index.html"))
         for needle in ("eqCard", "createMediaElementSource", "EQ_PRESETS", "musicdesk-eq", "eqPreset"):
             self.assertIn(needle, html)
         self.assertIn("Enable equalizer", Path("i18n.js").read_text(encoding="utf-8"))
@@ -1368,7 +1393,7 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
         self.assertEqual(sorted(read_music_metadata(mp3, "describe.mp3")["lyrics_fields"]), ["ID3 SYLT", "ID3 USLT"])
 
     def test_editor_shows_where_lyrics_are_embedded(self):
-        html = Path("index.html").read_text(encoding="utf-8")
+        html = page_source(Path("index.html"))
         self.assertIn('id="tagLyricsSource"', html)
         self.assertEqual(html.count("showEmbeddedLyricsSource(data);"), 2)  # desktop and Android readers
         self.assertIn("Embedded lyrics: $1 · $2", Path("i18n.js").read_text(encoding="utf-8"))
@@ -1378,14 +1403,14 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
         self.assertIn("'（已修改，保存后写入）': ' (edited; written when you save)'", Path("i18n.js").read_text(encoding="utf-8"))
 
     def test_queue_sheet_requests_and_receives_track_covers(self):
-        html = Path("index.html").read_text(encoding="utf-8")
+        html = page_source(Path("index.html"))
         self.assertIn('<img data-artwork-idx="${idx}"', html)
         self.assertIn("observeLibraryArtwork($('queueList'))", html)
         self.assertIn('document.querySelectorAll(`img[data-artwork-idx="${idx}"]`)', html)
 
     def test_android_player_requests_lyrics_after_loading_audio(self):
         java = Path("android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
-        html = Path("index.html").read_text(encoding="utf-8")
+        html = page_source(Path("index.html"))
         self.assertIn('"read_local_lyrics"', java)
         self.assertIn("window.onAndroidLyrics", java)
         self.assertIn("window.onAndroidLyrics = ", html)
@@ -1471,7 +1496,7 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
 
     def test_desktop_candidates_endpoint_and_ui_are_wired(self):
         source = open("app.py", encoding="utf-8").read()
-        html = open("index.html", encoding="utf-8").read()
+        html = page_source(Path("index.html"))
         activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
         for needle in ('"/api/search_candidates"', "def search_metadata_candidates(", "album_hint"):
             self.assertIn(needle, source)

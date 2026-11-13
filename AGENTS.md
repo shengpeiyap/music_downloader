@@ -36,7 +36,10 @@
 - **手机连接电脑**：手机配对电脑服务后（电脑用 `start_lan.bat` 以局域网模式启动），手机上的相关任务改由电脑处理并回传结果。
 
 ```
-index.html            # ★ 唯一的界面：HTML + CSS + 全部页面 JS（下载 / 编辑 / 播放 / 设置）
+index.html            # ★ 唯一的界面：页面结构 + 主脚本（下载 / 编辑 / 播放 / 设置，正按 docs/architecture-plan.md 逐步拆出）
+web/                  # 从 index.html 拆出的文件，普通 <script>/<link> 按顺序加载（不用 ES 模块）
+  styles.css          #   全部样式
+  equalizer.js        #   均衡器（在主脚本之后加载）
 i18n.js               # 中英翻译：静态文案表 + 动态消息的正则 patterns
 library_sort.js       # 曲库排序（页面渲染曲库时直接调用 window.sortLibraryTracks）
 default_song_img.png  # 默认封面
@@ -59,7 +62,8 @@ android/app/src/main/
   python/musicdesk_downloader.py  # 手机端 Python：yt-dlp 下载、MusicBrainz、LRCLIB、标签读写
 android/ffmpeg-kit-maven/  # 本地 Maven 仓库里的 ffmpeg-kit AAR
 
-tools/sync_android_assets.py  # 把根目录的网页文件复制到 Android assets（--check 只检查）
+tools/page_assets.py  # 找出页面加载的本地脚本和样式；page_source() 供测试读取「页面 + 脚本」全文
+tools/sync_android_assets.py  # 把页面及其加载的文件复制到 Android assets（--check 只检查）
 build_windows.bat     # 便携版打包（PyInstaller → dist/MusicDesk-portable.zip）
 package_portable.py   # 打 ZIP，并把 Deno/Node/QuickJS 放进包里（yt-dlp 需要 JS 运行时）
 start.bat / start_lan.bat  # 源码方式启动（自动建 .venv）
@@ -76,13 +80,20 @@ docs/release-notes/   # 各版本发行说明
 
 ### 3.1 只改根目录的网页文件，再同步到 Android
 
-`index.html`、`i18n.js`、`library_sort.js`、`default_song_img.png` 以根目录为准。改完运行 `python tools/sync_android_assets.py`；测试会用 `--check` 确认两份一致。
+`index.html`、`web/` 下的文件、`i18n.js`、`library_sort.js`、`default_song_img.png` 以根目录为准。改完运行 `python tools/sync_android_assets.py`，测试和 CI 会用 `--check` 确认两份一致。
+
+同步列表由 `tools/page_assets.py` 从 `index.html` 的 `<script src>` / `<link rel="stylesheet">` 自动得出，新文件不用手动登记。
 
 ### 3.2 页面新引用的文件，必须加进便携版打包
 
 便携版只从包内目录提供文件，漏打包就是 404。`library_sort.js` 曾经漏打，导致电脑端曲库列表无法显示（v0.2.0 受影响）。
 
-新增 `<script src>` 或资源时：加进 `build_windows.bat` 的 `--add-data`，以及 `tools/sync_android_assets.py` 的 `SHARED`。测试 `test_every_local_page_asset_is_bundled_in_the_portable_build` 会检查前者。`MusicDesk.spec` 是自动生成的，已被忽略，不要改它。
+- **新文件放进 `web/`**：整个文件夹已经用 `--add-data "web;web"` 打包，也会自动同步到 Android，不需要改其他地方。
+- **放在根目录的新文件**：要在 `build_windows.bat` 里加一条 `--add-data "文件名;."`。
+- 测试 `test_every_local_page_asset_is_bundled_in_the_portable_build` 会检查这两种情况；CI 的 release 构建还会检查便携版 ZIP 里真的有这些文件。
+- `MusicDesk.spec` 是自动生成的，已被忽略，不要改它。
+
+**测试读页面要用 `page_source()`**（Python，`tools/page_assets.py`）或 `readPage()`（Node，`tests/lib/page_source.js`）。它们会返回 `index.html` 加上它加载的全部脚本，代码搬到 `web/` 之后测试仍然找得到。
 
 ### 3.3 文案写中文，英文走 i18n.js
 
@@ -181,4 +192,4 @@ cd android; .\gradlew.bat testDebugUnitTest assembleDebug
 | 均衡器削波 | 「低音」等加强预设在响亮的歌曲上峰值会超过 1.0，可考虑加前置衰减 |
 | 手机息屏播放 | 均衡器走 Web Audio，已在真机验证息屏 26 秒正常；不同厂商的系统可能不同 |
 | 外部接口变化 | YouTube 的机器人验证、LRCLIB / MusicBrainz 的数据质量都会变，以实际结果为准 |
-| 单文件过大 | `index.html` 约 4200 行（其中约 3360 行是 JS），`app.py` 约 1800 行，`MainActivity.java` 约 1550 行；拆分计划见 `docs/architecture-plan.md` |
+| 单文件过大 | `index.html` 约 3780 行（主脚本约 3300 行），`app.py` 约 1800 行，`MainActivity.java` 约 1550 行；拆分进度见 `docs/architecture-plan.md` |

@@ -1,8 +1,9 @@
+const {readPage} = require('./lib/page_source');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const html = readPage(path.join(__dirname, '..', 'index.html'));
 const match = html.match(/function friendlyMessage\(value\) \{[\s\S]*?\n\}/);
 assert(match, 'friendlyMessage helper missing');
 const friendlyMessage = new Function(`${match[0]}; return friendlyMessage;`)();
