@@ -1,3 +1,4 @@
+const {readPage} = require('./lib/page_source');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
@@ -5,7 +6,7 @@ const vm = require('node:vm');
 
 // Load i18n.js in a minimal DOM-less sandbox and exercise the text lookup through a fake document.
 const source = fs.readFileSync(path.join(__dirname, '..', 'i18n.js'), 'utf8');
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const html = readPage(path.join(__dirname, '..', 'index.html'));
 const settings = html.slice(html.indexOf('<div id="tab-settings"'), html.indexOf('id="androidMiniPlayer"'));
 const connectCard = settings.slice(settings.indexOf('id="androidApiConnectCard"'), settings.indexOf('<section class="card settings-card android-setting">'));
 const sentences = [...connectCard.matchAll(/<p[^>]*>([^<]+)<\/p>/g)].map(match => match[1].trim()).filter(text => /[一-鿿]/.test(text) && text !== '尚未连接');

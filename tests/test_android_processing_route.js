@@ -1,9 +1,10 @@
+const {readPage} = require('./lib/page_source');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'assets', 'index.html'), 'utf8');
+const html = readPage(path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'assets', 'index.html'));
 const match = html.match(/function shouldProcessOnAndroid\(\) \{[^}]+\}/);
 assert.ok(match, 'Android processing route helper exists');
 

@@ -146,7 +146,7 @@ jobs:
           $zip = "dist\MusicDesk-portable.zip"
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $names = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip)).Entries.FullName
-          foreach ($required in "MusicDesk.exe", "yt-dlp.exe", "spotdl.exe", "deno.exe", "_internal/index.html", "_internal/i18n.js", "_internal/library_sort.js", "_internal/default_song_img.png") {
+          foreach ($required in "MusicDesk.exe", "yt-dlp.exe", "spotdl.exe", "deno.exe", "_internal/index.html", "_internal/i18n.js", "_internal/library_sort.js", "_internal/web/styles.css", "_internal/web/equalizer.js", "_internal/default_song_img.png") {
             if (-not ($names | Where-Object { $_ -ieq $required })) { throw "Portable zip is missing $required" }
           }
           & dist\MusicDesk\yt-dlp.exe --version

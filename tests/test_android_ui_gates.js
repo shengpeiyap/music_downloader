@@ -1,8 +1,9 @@
+const {readPage} = require('./lib/page_source');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const html = fs.readFileSync(require('node:path').join(__dirname, '..', 'android', 'app', 'src', 'main', 'assets', 'index.html'), 'utf8');
+const html = readPage(require('node:path').join(__dirname, '..', 'android', 'app', 'src', 'main', 'assets', 'index.html'));
 const match = html.match(/function updateAndroidApiGates\(\) \{[\s\S]*?\n\}/);
 assert.ok(match, 'Android API gate function exists');
 

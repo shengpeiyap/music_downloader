@@ -12,9 +12,13 @@ import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from page_assets import ROOT, shared_files  # noqa: E402
+
 ASSETS = ROOT / "android" / "app" / "src" / "main" / "assets"
-SHARED = ("index.html", "i18n.js", "library_sort.js", "default_song_img.png")
+# Derived from the scripts and stylesheets index.html loads, so files split out into web/
+# are copied without editing this list.
+SHARED = tuple(shared_files())
 
 
 def differing() -> list[str]:
@@ -32,6 +36,7 @@ def main() -> int:
             return 1
         return 0
     for name in stale:
+        (ASSETS / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, ASSETS / name)
         print(f"updated {name}")
     return 0

@@ -1,7 +1,8 @@
+const {readPage} = require('./lib/page_source');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const html = readPage(path.join(__dirname, '..', 'index.html'));
 const match = html.match(/function downloadOptionNeedsComputer\(selectId, value\) \{[\s\S]*?\n\}/);
 assert(match, 'gating helper missing');
 const gate = (phone, connected) => new Function('window', 'androidApiConnected', `${match[0]}; return downloadOptionNeedsComputer;`)(phone ? {AndroidMusic: {}} : {}, connected);
