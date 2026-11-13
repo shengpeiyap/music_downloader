@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import Handler, MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, normalize_lyrics, parse_lrc_timestamps, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
+from app import Handler, MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, fetch_youtube_rich_metadata, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, normalize_lyrics, parse_lrc_timestamps, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
@@ -264,6 +264,17 @@ class DesktopLauncherTests(unittest.TestCase):
 
 
 class LocalTagMetadataTests(unittest.TestCase):
+    def test_youtube_rich_metadata_is_available_through_compatibility_entry(self):
+        info = {"track": "Song", "artist": "Artist", "album": "Album", "upload_date": "20240102",
+                "thumbnail": "https://img.example/cover.jpg"}
+        with patch("app.find_executable", return_value=["yt-dlp"]), \
+             patch("app.subprocess.run", return_value=SimpleNamespace(
+                 returncode=0, stdout=json.dumps(info), stderr="")) as run:
+            result = fetch_youtube_rich_metadata("https://www.youtube.com/watch?v=track")
+        self.assertEqual(result, {"title": "Song", "artist": "Artist", "album": "Album", "year": "2024",
+                                  "thumbnail": "https://img.example/cover.jpg"})
+        self.assertIn("--dump-json", run.call_args.args[0])
+
     def test_download_formats_preview_and_lyrics_format_controls_exist_on_all_frontends(self):
         root = Path(__file__).parent
         for page_path in (root / "index.html", root / "android/app/src/main/assets/index.html"):
