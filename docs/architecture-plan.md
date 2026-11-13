@@ -1,6 +1,6 @@
 # 拆分计划：把大文件按功能解耦
 
-状态：**阶段 1 已完成**。页面脚本按功能拆分完成；后续如继续拆分桌面服务或 Android Java，另开阶段计划。
+状态：**阶段 1 已完成；阶段 2 进行中**。页面脚本按功能拆分完成；桌面服务按职责逐步迁入 `desktop/`，`app.py` 保留兼容入口。
 
 | 步骤 | 内容 | 状态 |
 |---|---|---|
@@ -9,12 +9,22 @@
 | 1c | 公共工具 → `web/core.js`；Android 桥接 → `web/android.js` | 已完成 |
 | 1d | 下载页 / 编辑页 / 播放页 → `web/download.js`、`web/editor.js`、`web/player.js` | 已完成 |
 
+### 阶段 2 进度：桌面服务解耦
+
+| 步骤 | 内容 | 状态 |
+|---|---|---|
+| 2a | HTTP Handler 与路由 → `desktop/server.py`；保留 `app.Handler` 和 `app.*` 测试替换点 | 已完成 |
+| 2b | MusicBrainz、Spotify、yt-dlp 元数据查询 → `desktop/metadata.py` | 待做 |
+| 2c | LRCLIB 歌词查询 → `desktop/lyrics.py` | 待做 |
+| 2d | yt-dlp / SpotDL 下载与格式导出 → `desktop/downloads.py` | 待做 |
+| 2e | 本地标签读写与封面处理 → `desktop/tagging.py` | 待做 |
+
 ## 为什么要拆
 
 | 文件 | 行数 | 问题 |
 |---|---|---|
 | `index.html` | 约 484 行（页面结构和脚本清单） | 页面结构仍包含较多模板 HTML，但交互逻辑已按功能拆入普通脚本 |
-| `app.py` | 约 1799 行 | HTTP 路由、元数据检索、歌词、下载、转换、标签封装混在一起 |
+| `app.py` | 约 1223 行 | 已迁出 HTTP 路由；元数据检索、歌词、下载、转换、标签封装仍在兼容入口中 |
 | `MainActivity.java` | 约 1550 | WebView 设置、29 个 JS 接口、文件访问、下载保存、媒体服务在同一个类里 |
 
 拆分的收益：
@@ -59,7 +69,7 @@ styles.css       # 从 <style> 搬出
 
 ```
 desktop/
-  server.py      # Handler 与路由分发（/api/* → 各模块函数）
+  server.py      # Handler 与路由分发（/api/* → 各模块函数，已迁移）
   metadata.py    # MusicBrainz、Spotify、yt-dlp 搜索
   lyrics.py      # LRCLIB（可与手机端共用 musicdesk_core.lyrics 的排序逻辑）
   downloads.py   # yt-dlp / SpotDL 子进程、下载与导出

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
-from app import MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, normalize_lyrics, parse_lrc_timestamps, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
+from app import Handler, MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, normalize_lyrics, parse_lrc_timestamps, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
 from desktop_media import DesktopMediaBridge
 import tempfile
 from pathlib import Path
@@ -1118,6 +1118,10 @@ class FetchMediaStreamTests(unittest.TestCase):
 
 
 class LanApiTests(unittest.TestCase):
+    def test_http_handler_is_exported_from_compatibility_entry(self):
+        self.assertEqual(Handler.__name__, "Handler")
+        self.assertEqual(Handler.__module__, "desktop.server")
+
     def test_non_lan_mode_rejects_wildcard_bind(self):
         from app import main
         with self.assertRaises(SystemExit) as result:
@@ -1512,7 +1516,7 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
         self.assertEqual(result[0]["duration"], 212)
 
     def test_desktop_candidates_endpoint_and_ui_are_wired(self):
-        source = open("app.py", encoding="utf-8").read()
+        source = Path("app.py").read_text(encoding="utf-8") + Path("desktop/server.py").read_text(encoding="utf-8")
         html = page_source(Path("index.html"))
         activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
         for needle in ('"/api/search_candidates"', "def search_metadata_candidates(", "album_hint"):
