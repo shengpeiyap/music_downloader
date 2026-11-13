@@ -1,33 +1,9 @@
 // Settings, Android desktop pairing, and first-run guidance.
 let androidApiConfig = null;
 let androidApiConnected = false;
-function shouldProcessOnAndroid() { return !!window.AndroidMusic && !androidApiConnected; }
 const REQUIRED_ANDROID_API_VERSION = 1;
 const REQUIRED_ANDROID_API_CAPABILITIES = ['metadata', 'search_metadata', 'lyrics_text', 'download', 'convert', 'parse_local_tag', 'package_custom_tag'];
 try { androidApiConfig = JSON.parse(localStorage.getItem('musicdesk-api-config') || 'null'); } catch (_) {}
-function requestMusicDeskApi(path, options) {
-  if (window.AndroidMusic && /^\/api\//.test(path)) {
-    if (!androidApiConnected || !androidApiConfig || !androidApiConfig.url || !androidApiConfig.token) {
-      return Promise.reject(new Error('此功能已锁定。请先连接电脑上的 MusicDesk 服务，确认 API 匹配后再使用。'));
-    }
-    const headers = {...(options && options.headers || {}), Authorization: `Bearer ${androidApiConfig.token}`};
-    return fetch(`${androidApiConfig.url}${path}`, {...options, headers}).then(response => {
-      if (response.status === 401) {
-        androidApiConnected = false;
-        updateApiConnectionMessage(false, '配对密钥无效或已过期；功能已锁定，请重新连接。');
-      }
-      return response;
-    }).catch(error => {
-      if (error instanceof TypeError) {
-        androidApiConnected = false;
-        updateApiConnectionMessage(false, '电脑服务无法访问；在线功能已锁定。请确认电脑服务运行中且手机和电脑在同一 Wi‑Fi。');
-      }
-      throw error;
-    });
-  }
-  return fetch(path, options);
-}
-
 function normalizedApiConfig(url, token) {
   const parsed = new URL(url.trim());
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname !== '/' && parsed.pathname !== '')) {

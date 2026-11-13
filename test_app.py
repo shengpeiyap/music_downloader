@@ -585,6 +585,15 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertEqual(sync_android_assets.differing(), [])
         # page_source() really includes the split files.
         self.assertIn("function ensureEqGraph()", page_source(root / "index.html"))
+
+    def test_shared_core_and_android_bridge_load_before_settings_and_main_script(self):
+        root = Path(__file__).parent
+        page = (root / "index.html").read_text(encoding="utf-8")
+        sources = re.findall(r'<script src="([^"]+)"', page)
+        self.assertLess(sources.index("web/core.js"), sources.index("web/settings.js"))
+        self.assertLess(sources.index("web/android.js"), sources.index("web/settings.js"))
+        self.assertIn("function requestMusicDeskApi(path, options)", (root / "web/core.js").read_text(encoding="utf-8"))
+        self.assertIn("function lookupLyricsOnAndroid(title, artist)", (root / "web/android.js").read_text(encoding="utf-8"))
         self.assertNotIn("function ensureEqGraph()", (root / "index.html").read_text(encoding="utf-8"))
 
     def test_agents_guide_matches_the_repository(self):

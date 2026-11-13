@@ -1,19 +1,19 @@
 # 拆分计划：把大文件按功能解耦
 
-状态：**阶段 1 进行中**。步骤 1a、1b 已完成；继续逐步拆分时更新本文件和 `AGENTS.md` §2。
+状态：**阶段 1 进行中**。步骤 1a、1b、1c 已完成；继续逐步拆分时更新本文件和 `AGENTS.md` §2。
 
 | 步骤 | 内容 | 状态 |
 |---|---|---|
 | 1a | 基础设施（`tools/page_assets.py`、自动同步、`web/` 整体打包、测试改读 `page_source()`）+ 样式 → `web/styles.css` + 均衡器 → `web/equalizer.js` | 已完成 |
 | 1b | 设置页、电脑连接、双语歌词设置与首次引导 → `web/settings.js` | 已完成 |
-| 1c | 公共工具 → `web/core.js`；Android 桥接 → `web/android.js` | 待做 |
+| 1c | 公共工具 → `web/core.js`；Android 桥接 → `web/android.js` | 已完成 |
 | 1d | 下载页 / 编辑页 / 播放页 → `web/download.js`、`web/editor.js`、`web/player.js` | 待做 |
 
 ## 为什么要拆
 
 | 文件 | 行数 | 问题 |
 |---|---|---|
-| `index.html` | 约 3497 行（页面结构与剩余主脚本；样式、均衡器、设置模块已外拆） | 下载、编辑、播放与公共逻辑仍集中在一起；每个 PR 容易冲突，审查难；测试仍有较多源码结构检查 |
+| `index.html` | 约 3300 行（页面结构与剩余主脚本；公共工具、Android 桥接、样式、均衡器、设置模块已外拆） | 下载、编辑、播放仍集中在一起；每个 PR 容易冲突，审查难；测试仍有较多源码结构检查 |
 | `app.py` | 约 1799 行 | HTTP 路由、元数据检索、歌词、下载、转换、标签封装混在一起 |
 | `MainActivity.java` | 约 1550 | WebView 设置、29 个 JS 接口、文件访问、下载保存、媒体服务在同一个类里 |
 
@@ -46,6 +46,8 @@ web/
   editor.js      # 编辑页：读标签、歌词工具（打点、平移、译文合并）、封装导出
   player.js      # 播放页：曲库、播放列表、迷你播放器、歌词显示
   equalizer.js   # 均衡器
+  core.js        # 公共 DOM、文案、API 与文件响应工具
+  android.js     # AndroidMusic Promise 桥接
   settings.js    # 设置页、连接电脑、首次引导
 styles.css       # 从 <style> 搬出
 ```
