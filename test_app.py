@@ -298,10 +298,9 @@ class LocalTagMetadataTests(unittest.TestCase):
         queue_renderer = page.split('function renderQueue()', 1)[1].split('function openPlayAllChoice()', 1)[0]
         self.assertIn('const queue = playbackQueue.length ? playbackQueue : localTracks;', queue_renderer)
         self.assertIn('// Initialize the playback mode control immediately on every platform', page)
-        # The playback-mode control is initialised as the last statement of the main page script
-        # (split-out scripts such as web/equalizer.js load after it).
-        main_script = Path("index.html").read_text(encoding="utf-8").replace("\r\n", "\n")
-        self.assertIn('\nsyncPlayerControls();\n</script>\n<script src="web/equalizer.js"></script>\n</body></html>', main_script)
+        # The playback-mode control is initialized at the end of player.js before the equalizer.
+        player_script = Path("web/player.js").read_text(encoding="utf-8")
+        self.assertIn("initSettings();\nsyncPlayerControls();", player_script)
         self.assertIn('PLAYBACK_MODE_ICONS', page)
         self.assertIn('let lastMediaSessionUpdate = 0;', page)
         self.assertNotIn('playbackQueue = playbackQueue.filter(track => track !== current)', page)
@@ -586,14 +585,23 @@ class LocalTagMetadataTests(unittest.TestCase):
         # page_source() really includes the split files.
         self.assertIn("function ensureEqGraph()", page_source(root / "index.html"))
 
-    def test_shared_core_and_android_bridge_load_before_settings_and_main_script(self):
+    def test_page_modules_load_in_dependency_order_and_own_their_features(self):
         root = Path(__file__).parent
         page = (root / "index.html").read_text(encoding="utf-8")
         sources = re.findall(r'<script src="([^"]+)"', page)
         self.assertLess(sources.index("web/core.js"), sources.index("web/settings.js"))
         self.assertLess(sources.index("web/android.js"), sources.index("web/settings.js"))
+        for name in ("download.js", "editor.js", "player.js"):
+            self.assertIn(f"web/{name}", sources)
+        self.assertLess(sources.index("web/download.js"), sources.index("web/editor.js"))
+        self.assertLess(sources.index("web/editor.js"), sources.index("web/player.js"))
+        self.assertLess(sources.index("web/player.js"), sources.index("web/equalizer.js"))
+        self.assertNotRegex(page, r"<script>\s*[^<]")
         self.assertIn("function requestMusicDeskApi(path, options)", (root / "web/core.js").read_text(encoding="utf-8"))
         self.assertIn("function lookupLyricsOnAndroid(title, artist)", (root / "web/android.js").read_text(encoding="utf-8"))
+        self.assertIn("$('lookup').addEventListener('submit'", (root / "web/download.js").read_text(encoding="utf-8"))
+        self.assertIn("$('customTagForm').addEventListener('submit'", (root / "web/editor.js").read_text(encoding="utf-8"))
+        self.assertIn("function playLocalTrack(idx", (root / "web/player.js").read_text(encoding="utf-8"))
         self.assertNotIn("function ensureEqGraph()", (root / "index.html").read_text(encoding="utf-8"))
 
     def test_agents_guide_matches_the_repository(self):
