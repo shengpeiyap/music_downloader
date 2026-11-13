@@ -57,6 +57,7 @@ desktop/              # 桌面服务适配层
   metadata.py         #   MusicBrainz、Spotify、yt-dlp 元数据查询；app.py 导出兼容包装
   lyrics.py           #   LRCLIB 查询与同步/纯文本歌词回退；app.py 导出兼容包装
   downloads.py        #   yt-dlp / SpotDL、来源校验、播放列表与 ffmpeg 导出；app.py 导出兼容包装
+  tagging.py          #   本地标签读取与封面裁剪；app.py 导出兼容包装
 desktop_media.py      # 桌面原生选文件，以及为页面私有提供本地音频
 musicdesk_core/       # ★ 桌面与 Android 共用、不依赖平台的逻辑
   media.py            #   ffmpeg 参数、裁剪时间、导出文件名
@@ -203,4 +204,4 @@ cd android; .\gradlew.bat testDebugUnitTest assembleDebug
 | 均衡器削波 | 「低音」等加强预设在响亮的歌曲上峰值会超过 1.0，可考虑加前置衰减 |
 | 手机息屏播放 | 均衡器走 Web Audio，已在真机验证息屏 26 秒正常；不同厂商的系统可能不同 |
 | 外部接口变化 | YouTube 的机器人验证、LRCLIB / MusicBrainz 的数据质量都会变，以实际结果为准 |
-| 单文件过大 | `index.html` 约 484 行（主要保留页面结构与脚本清单）；`app.py` 约 476 行（HTTP、元数据、歌词和下载导出逻辑已迁出）；后续拆分见 `docs/architecture-plan.md`。`MainActivity.java` 约 1550 行 |
+| 单文件过大 | `index.html` 约 484 行（主要保留页面结构与脚本清单）；`app.py` 约 374 行（业务模块已迁出，保留兼容包装、服务配置和 CLI）；后续拆分见 `docs/architecture-plan.md`。`MainActivity.java` 约 1550 行 |
