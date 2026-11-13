@@ -318,7 +318,7 @@ class LocalTagMetadataTests(unittest.TestCase):
 
     def test_android_library_cache_zoom_sheet_and_media_session_hooks_exist(self):
         root = Path(__file__).parent
-        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8") + (root / "android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java").read_text(encoding="utf-8")
         service = (root / "android/app/src/main/java/com/musicdesk/android/MusicPlaybackService.java").read_text(encoding="utf-8")
         manifest = (root / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
         page = page_source(root / "index.html")
@@ -436,7 +436,7 @@ class LocalTagMetadataTests(unittest.TestCase):
 
     def test_device_feedback_fixes_are_in_the_page(self):
         html = page_source(Path("index.html"))
-        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
+        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read() + open("android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java", encoding="utf-8").read()
         # standalone .lrc is locked (not silently forced on) while the phone is unpaired
         for needle in ("function sidecarLrcLocked()", "function syncSidecarLrcLock()", 'id="sidecarLrcNote"'):
             self.assertIn(needle, html)
@@ -498,7 +498,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         root = Path(__file__).parent
         page = page_source(root / "index.html")
         android_page = page_source(root / "android/app/src/main/assets/index.html")
-        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8") + (root / "android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java").read_text(encoding="utf-8")
         gradle = (root / "android/app/build.gradle.kts").read_text(encoding="utf-8")
         self.assertIn('id="audioFilesInput"', page)
         self.assertIn("MusicDeskAndroid", page)
@@ -534,7 +534,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn("musicdesk-language", (root / "i18n.js").read_text(encoding="utf-8"))
         self.assertIn("ACTION_OPEN_DOCUMENT_TREE", activity)
         self.assertIn("buildChildDocumentsUriUsingTree", activity)
-        self.assertIn('webView.addJavascriptInterface(new AndroidMusicBridge(), "AndroidMusic")', activity)
+        self.assertIn('webView.addJavascriptInterface(new AndroidMusicBridge(this), "AndroidMusic")', activity)
         self.assertIn('webView.loadUrl("file:///android_asset/index.html")', activity)
         self.assertIn('window.onAndroidFolderPicked', page)
         self.assertIn('AndroidMusic.loadAudio(track.contentUri, idx)', page)
@@ -549,7 +549,7 @@ class LocalTagMetadataTests(unittest.TestCase):
         self.assertIn('id="tab-settings"', page)
         self.assertIn('id="androidSettingsNav"', page)
         self.assertIn('function renderQueue()', page)
-        self.assertIn('private String readArtwork(Uri source)', activity)
+        self.assertIn('String readArtwork(Uri source)', activity)
         self.assertNotIn('track.put("cover"', activity)
         for bridge_method in ('getAppVersion()', 'getSavedFolders()', 'removeSavedFolder(String value)', 'rescanSavedFolder(String value)', 'hasNotificationPermission()', 'openNotificationSettings()', 'openAppSettings()', 'checkForUpdates()', 'openReleasePage(String value)'):
             self.assertIn(bridge_method, activity)
@@ -689,7 +689,7 @@ class LocalTagMetadataTests(unittest.TestCase):
     def test_android_player_supports_repeat_shuffle_and_large_library_views(self):
         root = Path(__file__).parent
         page = page_source(root / "index.html")
-        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        activity = (root / "android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8") + (root / "android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java").read_text(encoding="utf-8")
         for mode in ("sequential", "repeat-one", "repeat-all", "shuffle"):
             self.assertIn(mode, page)
         self.assertIn("window.onAndroidAudioReady = (idx, contentUri, fileUri, error, artworkData)", page)
@@ -1282,7 +1282,7 @@ class EqualizerWiringTests(unittest.TestCase):
         self.assertIn("ANDROID_MEDIA_PREFIX = 'https://appassets.androidplatform.net/musicdesk-audio/'", html)
         self.assertIn("player.crossOrigin = 'anonymous'", html)
         self.assertNotIn("!window.AndroidMusic && Boolean(window.AudioContext", html)
-        activity = Path("android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        activity = Path("android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8") + Path("android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java").read_text(encoding="utf-8")
         self.assertIn("LocalMediaRoutes.urlFor(cached)", activity)
         self.assertIn("serveCachedAudio(request)", activity)
         self.assertIn("is-translation", html)
@@ -1446,7 +1446,7 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
         self.assertIn('document.querySelectorAll(`img[data-artwork-idx="${idx}"]`)', html)
 
     def test_android_player_requests_lyrics_after_loading_audio(self):
-        java = Path("android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8")
+        java = Path("android/app/src/main/java/com/musicdesk/android/MainActivity.java").read_text(encoding="utf-8") + Path("android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java").read_text(encoding="utf-8")
         html = page_source(Path("index.html"))
         self.assertIn('"read_local_lyrics"', java)
         self.assertIn("window.onAndroidLyrics", java)
@@ -1491,7 +1491,7 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
         self.assertEqual(json.loads(self.module.read_local_audio_tags(path))["title"], "Same")
 
     def test_native_export_uses_a_separate_output_folder(self):
-        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
+        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read() + open("android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java", encoding="utf-8").read()
         self.assertGreaterEqual(activity.count('new File(work, "out")'), 2)
 
     def test_extra_tags_and_missing_lyrics_are_read_for_every_format(self):
@@ -1534,7 +1534,7 @@ class AndroidPythonBehaviourTests(unittest.TestCase):
     def test_desktop_candidates_endpoint_and_ui_are_wired(self):
         source = Path("app.py").read_text(encoding="utf-8") + Path("desktop/server.py").read_text(encoding="utf-8")
         html = page_source(Path("index.html"))
-        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read()
+        activity = open("android/app/src/main/java/com/musicdesk/android/MainActivity.java", encoding="utf-8").read() + open("android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java", encoding="utf-8").read()
         for needle in ('"/api/search_candidates"', "def search_metadata_candidates(", "album_hint"):
             self.assertIn(needle, source)
         for needle in ('id="candidatesPanel"', "function pickCandidate(", "function finishKeywordSearch(", "AndroidMusic.searchCandidates"):
