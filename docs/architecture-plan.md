@@ -16,7 +16,7 @@
 | 2a | HTTP Handler 与路由 → `desktop/server.py`；保留 `app.Handler` 和 `app.*` 测试替换点 | 已完成 |
 | 2b | MusicBrainz、Spotify、yt-dlp 元数据查询 → `desktop/metadata.py`；保留 `app.py` 函数兼容包装 | 已完成 |
 | 2c | LRCLIB 歌词查询 → `desktop/lyrics.py`；保留 `app.py` 函数兼容包装 | 已完成 |
-| 2d | yt-dlp / SpotDL 下载与格式导出 → `desktop/downloads.py` | 待做 |
+| 2d | yt-dlp / SpotDL 下载与格式导出 → `desktop/downloads.py`；保留 `app.py` 函数兼容包装 | 已完成 |
 | 2e | 本地标签读写与封面处理 → `desktop/tagging.py` | 待做 |
 
 ## 为什么要拆
@@ -24,7 +24,7 @@
 | 文件 | 行数 | 问题 |
 |---|---|---|
 | `index.html` | 约 484 行（页面结构和脚本清单） | 页面结构仍包含较多模板 HTML，但交互逻辑已按功能拆入普通脚本 |
-| `app.py` | 约 849 行 | HTTP 路由、元数据与 LRCLIB 查询已迁出；下载、转换、标签封装仍在兼容入口中 |
+| `app.py` | 约 476 行 | HTTP 路由、元数据、LRCLIB、下载调度与音频导出已迁出；剩余启动、工具与标签逻辑仍在兼容入口中 |
 | `MainActivity.java` | 约 1550 | WebView 设置、29 个 JS 接口、文件访问、下载保存、媒体服务在同一个类里 |
 
 拆分的收益：
@@ -72,7 +72,7 @@ desktop/
   server.py      # Handler 与路由分发（/api/* → 各模块函数，已迁移）
   metadata.py    # MusicBrainz、Spotify、yt-dlp 搜索（已迁移）
   lyrics.py      # LRCLIB（已迁移；可与手机端共用 musicdesk_core.lyrics 的排序逻辑）
-  downloads.py   # yt-dlp / SpotDL 子进程、下载与导出
+  downloads.py   # yt-dlp / SpotDL 子进程、下载与导出（已迁移）
   tagging.py     # 读写标签、封面处理
 ```
 
