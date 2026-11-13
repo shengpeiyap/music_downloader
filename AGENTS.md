@@ -36,12 +36,15 @@
 - **手机连接电脑**：手机配对电脑服务后（电脑用 `start_lan.bat` 以局域网模式启动），手机上的相关任务改由电脑处理并回传结果。
 
 ```
-index.html            # ★ 唯一的界面：页面结构 + 主脚本（下载 / 编辑 / 播放 / 设置，正按 docs/architecture-plan.md 逐步拆出）
+index.html            # ★ 唯一的界面：页面结构与脚本清单；交互逻辑按功能放在 web/ 下
 web/                  # 从 index.html 拆出的文件，普通 <script>/<link> 按顺序加载（不用 ES 模块）
   styles.css          #   全部样式
-  equalizer.js        #   均衡器（在主脚本之后加载）
+  equalizer.js        #   均衡器（在播放器模块之后加载）
   core.js             #   公共 DOM、文案、API 与文件响应工具
   android.js          #   AndroidMusic Promise 桥接
+  download.js         #   在线检索、下载设置、试听、批量下载
+  editor.js           #   本地转换、标签编辑、歌词工具与封装
+  player.js           #   曲库、播放队列、播放器与恢复逻辑
   settings.js         #   Android 配对、设置页逻辑、双语歌词设置与首次使用引导
 i18n.js               # 中英翻译：静态文案表 + 动态消息的正则 patterns
 library_sort.js       # 曲库排序（页面渲染曲库时直接调用 window.sortLibraryTracks）
@@ -195,4 +198,4 @@ cd android; .\gradlew.bat testDebugUnitTest assembleDebug
 | 均衡器削波 | 「低音」等加强预设在响亮的歌曲上峰值会超过 1.0，可考虑加前置衰减 |
 | 手机息屏播放 | 均衡器走 Web Audio，已在真机验证息屏 26 秒正常；不同厂商的系统可能不同 |
 | 外部接口变化 | YouTube 的机器人验证、LRCLIB / MusicBrainz 的数据质量都会变，以实际结果为准 |
-| 单文件过大 | `index.html` 约 3300 行（页面结构与剩余主脚本；公共工具、Android 桥接、均衡器、设置逻辑已拆出），`app.py` 约 1799 行，`MainActivity.java` 约 1550 行；拆分进度见 `docs/architecture-plan.md` |
+| 单文件过大 | `index.html` 约 484 行（主要保留页面结构与脚本清单）；脚本拆分进度见 `docs/architecture-plan.md`。`app.py` 约 1799 行，`MainActivity.java` 约 1550 行 |
