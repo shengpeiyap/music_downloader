@@ -240,6 +240,31 @@ final class AndroidMusicBridge {
     }
 
     @JavascriptInterface
+    public String getDiscordDirectStatus() {
+        return host.discordPresenceManager.statusJson();
+    }
+
+    @JavascriptInterface
+    public String setDiscordDirectToken(String token) {
+        return host.discordPresenceManager.setToken(token);
+    }
+
+    @JavascriptInterface
+    public void clearDiscordDirectToken() {
+        host.discordPresenceManager.clearToken();
+    }
+
+    @JavascriptInterface
+    public String updateDiscordDirectPresence(String payloadJson) {
+        try {
+            host.discordPresenceManager.update(new JSONObject(payloadJson));
+            return "";
+        } catch (org.json.JSONException error) {
+            return "Discord 状态数据无效。";
+        }
+    }
+
+    @JavascriptInterface
     public String getAppVersion() {
         try { return host.getPackageManager().getPackageInfo(host.getPackageName(), 0).versionName; }
         catch (PackageManager.NameNotFoundException ignored) { return "unknown"; }

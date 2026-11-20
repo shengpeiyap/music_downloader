@@ -317,6 +317,28 @@ class DiscordPresenceTests(unittest.TestCase):
         self.assertIn("discord_presence", page)
         self.assertIn("Artist - Title", page)
 
+    def test_android_direct_discord_gateway_is_wired_and_opt_in(self):
+        root = Path(__file__).parent
+        page = page_source(root / "index.html")
+        self.assertIn('id="discordDirectTokenInput"', page)
+        self.assertIn('type="password"', page)
+        self.assertIn("setDiscordDirectToken", page)
+        self.assertIn("updateDiscordDirectPresence", page)
+        self.assertIn("getDiscordDirectStatus", page)
+        self.assertIn("clearDiscordDirectToken", page)
+        bridge = (root / "android/app/src/main/java/com/musicdesk/android/AndroidMusicBridge.java").read_text(encoding="utf-8")
+        self.assertIn("public String getDiscordDirectStatus()", bridge)
+        self.assertIn("public String setDiscordDirectToken(String token)", bridge)
+        self.assertIn("public void clearDiscordDirectToken()", bridge)
+        self.assertIn("public String updateDiscordDirectPresence(String payloadJson)", bridge)
+        manager = (root / "android/app/src/main/java/com/musicdesk/android/DiscordPresenceManager.java").read_text(encoding="utf-8")
+        # The direct Gateway connection has nothing to do with desktop/discord_presence.py's
+        # local Windows named-pipe IPC; it must not reuse or depend on that module.
+        self.assertNotIn("DiscordIPCClient", manager)
+        self.assertIn("wss://gateway.discord.gg", manager)
+        gradle = (root / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+        self.assertIn("com.squareup.okhttp3:okhttp", gradle)
+
 
 class DesktopLauncherTests(unittest.TestCase):
     def test_launcher_rejects_unprotected_lan_and_uses_shared_server_factory(self):

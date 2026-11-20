@@ -406,7 +406,18 @@
       <div class="settings-row"><label for="discordPresenceToggle">分享当前播放状态</label><input id="discordPresenceToggle" class="switch" type="checkbox" role="switch"></div>
       <div class="settings-row"><label for="discordDetailsToggle">分享作者和歌曲标题</label><input id="discordDetailsToggle" class="switch" type="checkbox" role="switch" checked></div>
       <p class="settings-about">关闭后仍会显示 MusicDesk 正在听，但不发送作者或歌曲标题。电脑端需要 Discord 桌面版正在运行；Android 需先连接运行 Discord 的电脑。</p>
-      <p id="discordPresenceStatus" class="status" aria-live="polite">电脑端可直接连接 Discord；Android 端需通过已配对电脑转发。</p>
+      <p id="discordPresenceStatus" class="status" aria-live="polite">电脑端可直接连接 Discord；Android 端需通过已配对电脑转发，或在下方直连。</p>
+    </section>
+    <section class="card settings-card android-setting">
+      <h2>Android 直连 Discord（无需电脑）</h2>
+      <p class="hint">不连电脑也能显示 Discord 状态，但需要你自己的 Discord 账号令牌，且直连时横幅会显示「歌手 - 歌名」而不是 MusicDesk。</p>
+      <p class="settings-about">⚠️ 这种直连方式不是 Discord 官方支持的用法（相当于用自己的账号令牌模拟客户端），违反 Discord 服务条款，理论上有账号被限制的风险。令牌只保存在手机本地，只会发给 Discord 自己的服务器。确认愿意承担风险再使用。</p>
+      <div class="settings-row"><input id="discordDirectTokenInput" type="password" autocomplete="off" placeholder="粘贴 Discord 账号令牌"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="discordDirectConnectBtn" type="button">保存并连接</button>
+        <button id="discordDirectDisconnectBtn" class="lrc-btn" type="button" hidden>断开并清除令牌</button>
+      </div>
+      <p id="discordDirectStatus" class="status" aria-live="polite">尚未连接</p>
     </section>
     <section class="card settings-card web-setting">
       <h2>手机配对</h2>

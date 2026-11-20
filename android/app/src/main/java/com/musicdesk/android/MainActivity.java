@@ -80,6 +80,7 @@ public final class MainActivity extends Activity {
     final ExecutorService nativeDownloadExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, JSONObject> cachedTracks = new HashMap<>();
     final Map<String, Uri> selectedDocumentUris = new HashMap<>();
+    final DiscordPresenceManager discordPresenceManager = new DiscordPresenceManager(this);
     private boolean mediaReceiverRegistered;
     volatile boolean playbackActive;
     private final BroadcastReceiver mediaCommandReceiver = new BroadcastReceiver() {
@@ -806,6 +807,7 @@ public final class MainActivity extends Activity {
         artworkExecutor.shutdownNow();
         updateExecutor.shutdownNow();
         nativeDownloadExecutor.shutdownNow();
+        discordPresenceManager.close();
         if (downloadOutput != null) {
             try { downloadOutput.close(); } catch (IOException ignored) {}
             downloadOutput = null;
