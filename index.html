@@ -399,6 +399,15 @@
         <ul><li>WAV、FLAC、AAC 等所有格式和比特率</li><li>SpotDL 来源与在线标签搜索</li><li>歌词下载与格式转换</li></ul>
       </div>
     </section>
+    <section class="card settings-card">
+      <h2>Discord 状态分享</h2>
+      <p class="hint">开启后 Discord 横幅显示作者，点开活动可查看歌曲标题和播放进度。歌曲信息可单独关闭；MusicDesk 不会上传音频或本地文件路径。</p>
+      <p class="settings-about">已使用 MusicDesk 的 Discord 应用，无需填写 ID。</p>
+      <div class="settings-row"><label for="discordPresenceToggle">分享当前播放状态</label><input id="discordPresenceToggle" class="switch" type="checkbox" role="switch"></div>
+      <div class="settings-row"><label for="discordDetailsToggle">分享作者和歌曲标题</label><input id="discordDetailsToggle" class="switch" type="checkbox" role="switch" checked></div>
+      <p class="settings-about">关闭后仍会显示 MusicDesk 正在听，但不发送作者或歌曲标题。电脑端需要 Discord 桌面版正在运行；Android 需先连接运行 Discord 的电脑。</p>
+      <p id="discordPresenceStatus" class="status" aria-live="polite">电脑端可直接连接 Discord；Android 端需通过已配对电脑转发。</p>
+    </section>
     <section class="card settings-card web-setting">
       <h2>手机配对</h2>
       <p class="hint">想让手机用这台电脑处理下载和转换：</p>

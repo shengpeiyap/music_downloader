@@ -9,12 +9,14 @@ import wave
 import http.client
 import socket
 import threading
+import struct
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
 from app import Handler, MUSICDESK_API_CAPABILITIES, MUSICDESK_API_VERSION, acquire_custom_audio_source, build_audio_trim_args, build_conversion_args, build_download_query, create_musicdesk_server, crop_yt_padding_smart, fetch_lrc_lyrics, fetch_media_stream, fetch_spotify_embed_html, fetch_spotify_oembed, fetch_with_ytdlp, fetch_youtube_rich_metadata, find_executable, find_ffmpeg, get_ytdlp_js_runtime_args, is_api_authorized, is_loopback_address, load_music_tag, lookup_metadata, lookup_metadata_by_keyword, lookup_musicbrainz_metadata, make_tag_export_filename, multipart_fields, multipart_text, normalize_lyrics, parse_lrc_timestamps, parse_metadata_search_query, parse_share_url, process_and_export_media, read_music_metadata, search_ytdlp_metadata, shift_lrc_timestamps, validate_download_source, validate_thumbnail_url
 from desktop_media import DesktopMediaBridge
+from desktop import discord_presence
 import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
@@ -102,6 +104,218 @@ class FfmpegResolutionTests(unittest.TestCase):
         with patch.dict(sys.modules, {"imageio_ffmpeg": None}):
             with patch("app.shutil.which", return_value="system-ffmpeg"):
                 self.assertEqual(find_ffmpeg(), "system-ffmpeg")
+
+
+class DiscordPresenceTests(unittest.TestCase):
+    def test_presence_payload_is_bounded_and_contains_no_file_path(self):
+        payload = discord_presence.clean_payload({
+            "application_id": "123456789012345678", "title": "  Song  ", "artist": "Artist",
+            "duration": 200.9, "position": 50.8, "playing": True, "path": "C:/private/song.mp3",
+        })
+        self.assertEqual(payload, {
+            "application_id": "123456789012345678", "title": "Song", "artist": "Artist",
+            "duration": 200, "position": 50, "playing": True, "has_track": True, "share_details": True,
+        })
+
+    def test_presence_rejects_invalid_application_id_and_unbounded_metadata(self):
+        for app_id in ("123", "not-an-id", "123456789012345678901"):
+            with self.subTest(app_id=app_id), self.assertRaises(ValueError):
+                discord_presence.clean_payload({"application_id": app_id, "title": "Song", "artist": "Artist"})
+        payload = discord_presence.clean_payload({
+            "application_id": "123456789012345678", "title": "x" * 200, "artist": "y" * 200,
+            "duration": 999999, "position": 999999, "playing": True,
+        })
+        self.assertEqual(len(payload["title"]), 128)
+        self.assertEqual(len(payload["artist"]), 128)
+        self.assertEqual(payload["duration"], 86400)
+        self.assertEqual(payload["position"], 86400)
+
+    def test_presence_timestamps_follow_playback_and_pause(self):
+        payload = discord_presence.clean_payload({
+            "application_id": "123456789012345678", "title": "Song", "artist": "Artist",
+            "duration": 180, "position": 35, "playing": True,
+        })
+        self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
+            "details": "Song", "state": "Artist", "start": 965, "end": 1145,
+        })
+        payload["playing"] = False
+        self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
+            "details": "Song", "state": "已暂停 · Artist",
+        })
+
+    def test_presence_can_hide_song_details_and_clear_when_nothing_is_playing(self):
+        payload = discord_presence.clean_payload({
+            "application_id": "123456789012345678", "title": "Song", "artist": "Artist",
+            "duration": 180, "position": 35, "playing": True, "share_details": False,
+        })
+        self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
+            "start": 965, "end": 1145,
+        })
+        payload["has_track"] = False
+        self.assertIsNone(discord_presence.build_presence_fields(payload, now=1000))
+
+    def test_presence_rejects_invalid_song_detail_sharing_option(self):
+        with self.assertRaises(ValueError):
+            discord_presence.clean_payload({
+                "application_id": "123456789012345678", "title": "Song", "artist": "Artist",
+                "share_details": "false",
+            })
+
+    def test_presence_manager_updates_and_clears_on_its_worker(self):
+        updated = threading.Event()
+        cleared = threading.Event()
+        calls = {}
+
+        class FakePresence:
+            def __init__(self, application_id): calls["application_id"] = application_id
+            def connect(self): calls["connected"] = True
+            def update(self, **activity): calls["activity"] = activity; updated.set()
+            def clear(self): cleared.set()
+            def close(self): calls["closed"] = True
+
+        manager = discord_presence.DiscordPresenceManager()
+        payload = discord_presence.clean_payload({
+            "application_id": "123456789012345678", "title": "Song", "artist": "Artist",
+            "duration": 100, "position": 10, "playing": True,
+        })
+        try:
+            with patch.object(discord_presence, "DiscordIPCClient", FakePresence):
+                manager.update(payload)
+                self.assertTrue(updated.wait(2))
+                self.assertEqual(calls["application_id"], payload["application_id"])
+                self.assertEqual(calls["activity"]["details"], "Song")
+                self.assertEqual(calls["activity"]["state"], "Artist")
+                manager.update(None)
+                self.assertTrue(cleared.wait(2))
+        finally:
+            manager.close()
+        self.assertTrue(calls.get("closed"))
+
+    def test_native_discord_rpc_frames_set_activity_and_uses_no_external_package(self):
+        client = discord_presence.DiscordIPCClient("123456789012345678")
+        client._handle = 1
+        writes = []
+        client._write = writes.append
+
+        def respond(_timeout=3):
+            frame = json.loads(writes[-1][8:].decode("utf-8"))
+            return discord_presence.DiscordIPCClient.OP_FRAME, {"nonce": frame["nonce"], "data": {}}
+
+        client._read_frame = respond
+        client.update(details="Song", state="Artist", start=100, end=200)
+        opcode, size = struct.unpack("<II", writes[0][:8])
+        frame = json.loads(writes[0][8:8 + size].decode("utf-8"))
+        activity = frame["args"]["activity"]
+        self.assertEqual(opcode, discord_presence.DiscordIPCClient.OP_FRAME)
+        self.assertEqual(activity["type"], 2)
+        self.assertEqual(activity["details"], "Song")
+        self.assertEqual(activity["timestamps"], {"start": 100, "end": 200})
+        self.assertNotIn("name", activity)
+        self.assertNotIn("from pypresence", Path(discord_presence.__file__).read_text(encoding="utf-8"))
+
+    def test_native_discord_rpc_uses_waitnamedpipe_compatible_path(self):
+        checked_paths = []
+        def api_function(result):
+            return lambda *args: result
+        wait_pipe = api_function(True)
+        wait_pipe.side_effect = None
+        def record_pipe(path, _timeout):
+            checked_paths.append(path)
+            return True
+        api = SimpleNamespace(
+            WaitNamedPipeW=record_pipe,
+            CreateFileW=api_function(123),
+            WriteFile=api_function(True),
+            ReadFile=api_function(True),
+            SetNamedPipeHandleState=api_function(True),
+            CloseHandle=api_function(True),
+        )
+        client = discord_presence.DiscordIPCClient("123456789012345678")
+        with patch.object(discord_presence.sys, "platform", "win32"), \
+             patch.object(client, "_kernel32", return_value=api), \
+             patch.object(client, "_write"), \
+             patch.object(client, "_read_frame", return_value=(client.OP_FRAME, {"evt": "READY"})):
+            client.connect()
+            client.close()
+        self.assertEqual(checked_paths, [r"\\.\pipe\discord-ipc-0"])
+    def test_desktop_presence_http_route_validates_and_clears(self):
+        class FakeManager:
+            def __init__(self): self.updates = []
+            def update(self, payload):
+                self.updates.append(payload)
+                return {"connected": False, "message": "queued"}
+
+        manager = FakeManager()
+        token = "pairing-token-for-discord-route-test-123456"
+        server = create_musicdesk_server("127.0.0.1", 0, api_token=token)
+        server.lan_mode = True
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            with patch.object(discord_presence, "get_manager", return_value=manager), \
+                 patch.object(discord_presence, "get_status", return_value={"connected": False, "message": "queued"}):
+                connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                body = json.dumps({"enabled": True, "application_id": "123456789012345678", "title": "Song", "artist": "Artist", "duration": 100, "position": 12, "playing": True})
+                connection.request("POST", "/api/discord/presence", body=body, headers={"Content-Type": "application/json"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 202)
+                self.assertTrue(json.loads(response.read())["ok"])
+                self.assertEqual(manager.updates[-1]["title"], "Song")
+
+                connection.request("POST", "/api/discord/presence", body='{"enabled":true,"application_id":"bad"}', headers={"Content-Type": "application/json"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 400)
+                response.read()
+
+                connection.request("POST", "/api/discord/presence", body='{"enabled":false}', headers={"Content-Type": "application/json"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertIsNone(manager.updates[-1])
+
+                connection.request("GET", "/api/discord/status")
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertFalse(json.loads(response.read())["connected"])
+
+                with patch("app.is_loopback_address", return_value=False):
+                    connection.request("GET", "/api/discord/status")
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 401)
+                    response.read()
+
+                    connection.request("GET", "/api/discord/status", headers={"Authorization": f"Bearer {token}"})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    response.read()
+
+                    connection.request("POST", "/api/discord/presence", body='{"enabled":false}', headers={"Content-Type": "application/json"})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 401)
+                    response.read()
+
+                    connection.request("POST", "/api/discord/presence", body='{"enabled":false}', headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    response.read()
+                self.assertEqual(len(manager.updates), 3)
+                connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=3)
+
+    def test_discord_status_controls_are_desktop_only_and_opt_in(self):
+        page = page_source(Path(__file__).parent / "index.html")
+        self.assertIn('id="discordPresenceToggle"', page)
+        self.assertIn('id="discordDetailsToggle"', page)
+        self.assertNotIn('id="discordApplicationId"', page)
+        player = page_source(Path(__file__).parent / 'web' / 'player.js')
+        self.assertIn("1573350042746626168", player)
+        self.assertIn("musicdesk-discord-presence", page)
+        self.assertIn("musicdesk-discord-share-details", page)
+        self.assertIn("Discord Rich Presence", page)
+        self.assertIn("discord_presence", page)
+        self.assertIn("Artist - Title", page)
 
 
 class DesktopLauncherTests(unittest.TestCase):

@@ -32,6 +32,7 @@ from desktop.lyrics import LyricsService
 from desktop.metadata import MetadataService
 from desktop.server import make_handler
 from desktop.tagging import TaggingService
+from desktop import discord_presence
 from musicdesk_core import batch as batch_queue
 from musicdesk_core import (
     SAFE_NAME,
@@ -67,7 +68,7 @@ SAFE_THUMBNAIL_HOSTS = {
 }
 MUSICDESK_API_CAPABILITIES = (
     "metadata", "search_metadata", "lyrics_text", "download", "convert",
-    "parse_local_tag", "package_custom_tag", "playlist_batch",
+    "parse_local_tag", "package_custom_tag", "playlist_batch", "discord_presence",
 )
 
 

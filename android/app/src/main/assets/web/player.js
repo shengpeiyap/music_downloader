@@ -1,5 +1,6 @@
 // Local library, playback, queue, lyrics display, and platform restoration.
 const DEFAULT_COVER = 'default_song_img.png';
+const DISCORD_APPLICATION_ID = '1573350042746626168';
 document.addEventListener('error', event => {
   const image = event.target;
   if (image instanceof HTMLImageElement && !image.src.endsWith(DEFAULT_COVER)) image.src = DEFAULT_COVER;
@@ -912,6 +913,88 @@ function syncPlayerControls() {
   syncAndroidMediaSession();
 }
 
+let lastDiscordPresenceBucket = -1;
+let lastDiscordPresenceRequest = 0;
+let discordPresenceRequestPending = false;
+let discordPresenceWasEnabled = localStorage.getItem('musicdesk-discord-presence') === '1';
+let discordPresencePollTimer = null;
+function discordPresenceEndpoint(resource) {
+  if (!window.AndroidMusic) return `/api/discord/${resource}`;
+  if (!androidApiConnected || !androidApiConfig || !androidApiCapabilities.includes('discord_presence')) return null;
+  return `${androidApiConfig.url}/api/discord/${resource}`;
+}
+function discordPresenceHeaders() {
+  return window.AndroidMusic ? {Authorization: `Bearer ${androidApiConfig.token}`} : {};
+}
+async function pollDiscordPresenceStatus() {
+  clearTimeout(discordPresencePollTimer);
+  if (localStorage.getItem('musicdesk-discord-presence') !== '1') return;
+  const endpoint = discordPresenceEndpoint('status');
+  if (!endpoint) return;
+  try {
+    const response = await fetch(endpoint, {headers: discordPresenceHeaders()});
+    const result = await response.json();
+    const status = $('discordPresenceStatus');
+    if (response.ok && status && result.message) status.textContent = ui(result.message);
+    if (!result.connected && localStorage.getItem('musicdesk-discord-presence') === '1') {
+      discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 2500);
+    }
+  } catch (_) {
+    discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 5000);
+  }
+}
+window.syncDiscordPresence = async function(force = false) {
+  const enabled = localStorage.getItem('musicdesk-discord-presence') === '1';
+  const shareDetails = localStorage.getItem('musicdesk-discord-share-details') !== '0';
+  const appId = DISCORD_APPLICATION_ID;
+  const player = $('localAudioPlayer');
+  const track = localTracks[currentTrackIdx];
+  const now = Date.now();
+  const bucket = Math.floor((Number(player.currentTime) || 0) / 30);
+  if (!force && now - lastDiscordPresenceRequest < 25000 && bucket === lastDiscordPresenceBucket) return;
+  if (discordPresenceRequestPending) return;
+  const validAppId = /^\d{17,20}$/.test(appId);
+  const shouldShare = enabled && validAppId;
+  const endpoint = discordPresenceEndpoint('presence');
+  const status = $('discordPresenceStatus');
+  if (!endpoint) {
+    if (window.AndroidMusic && enabled && status) status.textContent = ui(!androidApiConnected
+      ? '请先连接电脑，并确保电脑已启动 Discord。'
+      : '请更新电脑端 MusicDesk 以启用 Discord 状态转发。');
+    return;
+  }
+  if (!shouldShare && !discordPresenceWasEnabled) return;
+  discordPresenceRequestPending = true;
+  lastDiscordPresenceRequest = now;
+  lastDiscordPresenceBucket = bucket;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST', headers: {'Content-Type': 'application/json', ...discordPresenceHeaders()},
+      body: JSON.stringify(shouldShare ? {
+        enabled: true, application_id: appId,
+        title: track ? (track.title || '未知标题') : '',
+        artist: track ? (track.artist || '未知歌手') : '',
+        has_track: !!track, share_details: shareDetails,
+        duration: Number.isFinite(player.duration) ? player.duration : 0,
+        position: Number(player.currentTime) || 0,
+        playing: !!track && !player.paused
+      } : {enabled: false})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Discord 状态更新失败。');
+    discordPresenceWasEnabled = shouldShare;
+    if (shouldShare) discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 500);
+    else clearTimeout(discordPresencePollTimer);
+    const status = $('discordPresenceStatus');
+    if (status) status.textContent = ui(result.message || (result.connected ? '已连接并正在分享播放状态' : '状态已关闭'));
+  } catch (error) {
+    const status = $('discordPresenceStatus');
+    if (status) status.textContent = ui(error.message || '无法更新 Discord 状态。');
+  } finally {
+    discordPresenceRequestPending = false;
+  }
+};
+
 function syncAndroidMediaSession(force = false) {
   if (!window.AndroidMusic || typeof AndroidMusic.updatePlayback !== 'function') return;
   const now = Date.now();
@@ -1298,6 +1381,7 @@ $('playbackSeek').addEventListener('input', event => {
 ['timeupdate', 'loadedmetadata', 'durationchange', 'play', 'pause', 'ended'].forEach(type =>
   $('localAudioPlayer').addEventListener(type, () => {
     syncPlayerControls();
+    if (type !== 'timeupdate' || Math.floor($('localAudioPlayer').currentTime / 30) !== lastDiscordPresenceBucket) window.syncDiscordPresence(type !== 'timeupdate');
     if (type !== 'timeupdate') syncAndroidMediaSession(true);
     if (type !== 'timeupdate' || Math.floor($('localAudioPlayer').currentTime / 3) !== lastSavedPlaybackBucket) persistAndroidPlayback(type !== 'timeupdate');
   })

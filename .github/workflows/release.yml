@@ -27,6 +27,14 @@ on:
       - launcher.py
       - requirements.txt
       - requirements-build.txt
+      - app.py
+      - desktop/**
+      - index.html
+      - i18n.js
+      - library_sort.js
+      - web/**
+      - tools/sync_android_assets.py
+      - android/app/src/main/assets/**
       - android/app/build.gradle.kts
       - android/build.gradle.kts
 

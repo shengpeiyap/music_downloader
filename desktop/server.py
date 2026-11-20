@@ -146,6 +146,16 @@ def make_handler(services):
                     "capabilities": list(services.MUSICDESK_API_CAPABILITIES),
                 })
                 return
+            if self.path == "/api/discord/status":
+                loopback_client = services.is_loopback_address(self.client_address[0])
+                if not loopback_client and not self.is_api_authorized():
+                    self.send_json(401, {"error": "配对密钥无效。"})
+                    return
+                if not loopback_client and not getattr(self.server, "lan_mode", False):
+                    self.send_json(403, {"error": "Discord 状态转发仅允许在局域网配对后使用。"})
+                    return
+                self.send_json(200, services.discord_presence.get_status())
+                return
             batch_match = services.re.fullmatch(r"/api/batch/([0-9a-f]{32})(/zip)?", services.urllib.parse.urlsplit(self.path).path)
             if batch_match:
                 self.handle_batch_get(batch_match.group(1), bool(batch_match.group(2)))
@@ -185,6 +195,28 @@ def make_handler(services):
                 return
             if self.path.startswith("/api/") and not self.is_api_authorized():
                 self.send_json(401, {"error": "配对密钥无效。"})
+                return
+            if self.path == "/api/discord/presence":
+                if not services.is_loopback_address(self.client_address[0]) and not getattr(self.server, "lan_mode", False):
+                    self.send_json(403, {"error": "Discord 状态转发仅允许在局域网配对后使用。"})
+                    return
+                try:
+                    request_data = self.read_json_object(16 * 1024)
+                    enabled = request_data.get("enabled")
+                    if not isinstance(enabled, bool):
+                        raise ValueError("enabled 必须是布尔值。")
+                    manager = services.discord_presence.get_manager()
+                    if not enabled:
+                        manager.update(None)
+                        self.send_json(200, {"ok": True, "connected": False, "message": "Discord 状态已关闭。"})
+                        return
+                    payload = services.discord_presence.clean_payload(request_data)
+                    status = manager.update(payload)
+                    self.send_json(202, {"ok": True, **status})
+                except ValueError as exc:
+                    self.send_json(400, {"error": str(exc)})
+                except Exception:
+                    self.send_json(503, {"error": "无法更新 Discord 状态。"})
                 return
             if self.path == "/api/metadata":
                 try:
