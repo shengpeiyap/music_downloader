@@ -147,8 +147,12 @@ def make_handler(services):
                 })
                 return
             if self.path == "/api/discord/status":
-                if not services.is_loopback_address(self.client_address[0]):
-                    self.send_json(403, {"error": "Discord 状态只允许由本机播放器管理。"})
+                loopback_client = services.is_loopback_address(self.client_address[0])
+                if not loopback_client and not self.is_api_authorized():
+                    self.send_json(401, {"error": "配对密钥无效。"})
+                    return
+                if not loopback_client and not getattr(self.server, "lan_mode", False):
+                    self.send_json(403, {"error": "Discord 状态转发仅允许在局域网配对后使用。"})
                     return
                 self.send_json(200, services.discord_presence.get_status())
                 return
@@ -193,8 +197,8 @@ def make_handler(services):
                 self.send_json(401, {"error": "配对密钥无效。"})
                 return
             if self.path == "/api/discord/presence":
-                if not services.is_loopback_address(self.client_address[0]):
-                    self.send_json(403, {"error": "Discord 状态只允许由本机播放器管理。"})
+                if not services.is_loopback_address(self.client_address[0]) and not getattr(self.server, "lan_mode", False):
+                    self.send_json(403, {"error": "Discord 状态转发仅允许在局域网配对后使用。"})
                     return
                 try:
                     request_data = self.read_json_object(16 * 1024)

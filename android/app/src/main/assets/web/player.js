@@ -918,11 +918,21 @@ let lastDiscordPresenceRequest = 0;
 let discordPresenceRequestPending = false;
 let discordPresenceWasEnabled = localStorage.getItem('musicdesk-discord-presence') === '1';
 let discordPresencePollTimer = null;
+function discordPresenceEndpoint(resource) {
+  if (!window.AndroidMusic) return `/api/discord/${resource}`;
+  if (!androidApiConnected || !androidApiConfig || !androidApiCapabilities.includes('discord_presence')) return null;
+  return `${androidApiConfig.url}/api/discord/${resource}`;
+}
+function discordPresenceHeaders() {
+  return window.AndroidMusic ? {Authorization: `Bearer ${androidApiConfig.token}`} : {};
+}
 async function pollDiscordPresenceStatus() {
   clearTimeout(discordPresencePollTimer);
   if (localStorage.getItem('musicdesk-discord-presence') !== '1') return;
+  const endpoint = discordPresenceEndpoint('status');
+  if (!endpoint) return;
   try {
-    const response = await fetch('/api/discord/status');
+    const response = await fetch(endpoint, {headers: discordPresenceHeaders()});
     const result = await response.json();
     const status = $('discordPresenceStatus');
     if (response.ok && status && result.message) status.textContent = ui(result.message);
@@ -934,7 +944,6 @@ async function pollDiscordPresenceStatus() {
   }
 }
 window.syncDiscordPresence = async function(force = false) {
-  if (window.AndroidMusic) return;
   const enabled = localStorage.getItem('musicdesk-discord-presence') === '1';
   const shareDetails = localStorage.getItem('musicdesk-discord-share-details') !== '0';
   const appId = DISCORD_APPLICATION_ID;
@@ -946,13 +955,21 @@ window.syncDiscordPresence = async function(force = false) {
   if (discordPresenceRequestPending) return;
   const validAppId = /^\d{17,20}$/.test(appId);
   const shouldShare = enabled && validAppId;
+  const endpoint = discordPresenceEndpoint('presence');
+  const status = $('discordPresenceStatus');
+  if (!endpoint) {
+    if (window.AndroidMusic && enabled && status) status.textContent = ui(!androidApiConnected
+      ? '请先连接电脑，并确保电脑已启动 Discord。'
+      : '请更新电脑端 MusicDesk 以启用 Discord 状态转发。');
+    return;
+  }
   if (!shouldShare && !discordPresenceWasEnabled) return;
   discordPresenceRequestPending = true;
   lastDiscordPresenceRequest = now;
   lastDiscordPresenceBucket = bucket;
   try {
-    const response = await fetch('/api/discord/presence', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
+    const response = await fetch(endpoint, {
+      method: 'POST', headers: {'Content-Type': 'application/json', ...discordPresenceHeaders()},
       body: JSON.stringify(shouldShare ? {
         enabled: true, application_id: appId,
         title: track ? (track.title || '未知标题') : '',

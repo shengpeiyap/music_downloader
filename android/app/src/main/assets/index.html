@@ -399,14 +399,14 @@
         <ul><li>WAV、FLAC、AAC 等所有格式和比特率</li><li>SpotDL 来源与在线标签搜索</li><li>歌词下载与格式转换</li></ul>
       </div>
     </section>
-    <section class="card settings-card web-setting">
+    <section class="card settings-card">
       <h2>Discord 状态分享</h2>
-      <p class="hint">开启后可向 Discord 分享播放状态；歌曲名称和歌手可单独控制。可见范围由 Discord 隐私设置决定，MusicDesk 不会上传音频或本地文件路径。</p>
+      <p class="hint">开启后会分享“作者 - 标题”单行信息与播放进度。Discord 的横幅内容由曲目信息组成；MusicDesk 不会上传音频或本地文件路径。</p>
       <p class="settings-about">已使用 MusicDesk 的 Discord 应用，无需填写 ID。</p>
       <div class="settings-row"><label for="discordPresenceToggle">分享当前播放状态</label><input id="discordPresenceToggle" class="switch" type="checkbox" role="switch"></div>
-      <div class="settings-row"><label for="discordDetailsToggle">分享歌曲名称与歌手</label><input id="discordDetailsToggle" class="switch" type="checkbox" role="switch" checked></div>
-      <p class="settings-about">关闭后仍会显示 MusicDesk 正在播放，但不发送歌名和歌手。专辑封面目前只保存在本机，不会上传到 Discord。</p>
-      <p id="discordPresenceStatus" class="status" aria-live="polite">目前仅支持 Windows 桌面端，并需要 Discord 桌面版正在运行。</p>
+      <div class="settings-row"><label for="discordDetailsToggle">分享作者 - 标题</label><input id="discordDetailsToggle" class="switch" type="checkbox" role="switch" checked></div>
+      <p class="settings-about">关闭后仍会显示 MusicDesk 正在听，但不发送曲目信息。电脑端需要 Discord 桌面版正在运行；Android 需先连接运行 Discord 的电脑。动态封面仅能使用公开图片链接。</p>
+      <p id="discordPresenceStatus" class="status" aria-live="polite">电脑端可直接连接 Discord；Android 端需通过已配对电脑转发。</p>
     </section>
     <section class="card settings-card web-setting">
       <h2>手机配对</h2>

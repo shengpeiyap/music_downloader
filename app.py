@@ -68,7 +68,7 @@ SAFE_THUMBNAIL_HOSTS = {
 }
 MUSICDESK_API_CAPABILITIES = (
     "metadata", "search_metadata", "lyrics_text", "download", "convert",
-    "parse_local_tag", "package_custom_tag", "playlist_batch",
+    "parse_local_tag", "package_custom_tag", "playlist_batch", "discord_presence",
 )
 
 

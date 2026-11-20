@@ -1,6 +1,7 @@
 // Settings, Android desktop pairing, and first-run guidance.
 let androidApiConfig = null;
 let androidApiConnected = false;
+let androidApiCapabilities = [];
 const REQUIRED_ANDROID_API_VERSION = 1;
 const REQUIRED_ANDROID_API_CAPABILITIES = ['metadata', 'search_metadata', 'lyrics_text', 'download', 'convert', 'parse_local_tag', 'package_custom_tag'];
 try { androidApiConfig = JSON.parse(localStorage.getItem('musicdesk-api-config') || 'null'); } catch (_) {}
@@ -75,9 +76,11 @@ async function testAndroidApiConnection(config, showProgress = true) {
       throw new Error('电脑端 API 版本或功能不匹配；请更新电脑端 MusicDesk 后再连接。功能已保持锁定。');
     }
     androidApiConfig = config;
+    androidApiCapabilities = Array.isArray(result.capabilities) ? result.capabilities : [];
     localStorage.setItem('musicdesk-api-config', JSON.stringify(config));
     $('apiPairingToken').value = config.token;
     updateApiConnectionMessage(true);
+    if (localStorage.getItem('musicdesk-discord-presence') === '1' && window.syncDiscordPresence) window.syncDiscordPresence(true);
     return true;
   } catch (error) {
     updateApiConnectionMessage(false, /Failed to fetch|NetworkError|Load failed/i.test(error.message)
@@ -215,9 +218,15 @@ function initSettings() {
     $('connectApiBtn').disabled = false;
   });
 
-  $('forgetApiBtn').addEventListener('click', () => {
+  $('forgetApiBtn').addEventListener('click', async () => {
+    if (window.AndroidMusic && localStorage.getItem('musicdesk-discord-presence') === '1' && androidApiConnected) {
+      localStorage.setItem('musicdesk-discord-presence', '0');
+      if (window.syncDiscordPresence) await window.syncDiscordPresence(true);
+      discordToggle.checked = false;
+    }
     androidApiConfig = null;
     androidApiConnected = false;
+    androidApiCapabilities = [];
     localStorage.removeItem('musicdesk-api-config');
     $('apiPairingToken').value = '';
     updateApiConnectionMessage(false, '已断开电脑服务。');

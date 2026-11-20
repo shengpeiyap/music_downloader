@@ -136,11 +136,11 @@ class DiscordPresenceTests(unittest.TestCase):
             "duration": 180, "position": 35, "playing": True,
         })
         self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
-            "details": "Song", "state": "Artist", "start": 965, "end": 1145,
+            "details": "Artist - Song", "start": 965, "end": 1145,
         })
         payload["playing"] = False
         self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
-            "details": "Song", "state": "已暂停 · Artist",
+            "details": "Artist - Song · 已暂停",
         })
 
     def test_presence_can_hide_song_details_and_clear_when_nothing_is_playing(self):
@@ -183,7 +183,7 @@ class DiscordPresenceTests(unittest.TestCase):
                 manager.update(payload)
                 self.assertTrue(updated.wait(2))
                 self.assertEqual(calls["application_id"], payload["application_id"])
-                self.assertEqual(calls["activity"]["details"], "Song")
+                self.assertEqual(calls["activity"]["details"], "Artist - Song")
                 manager.update(None)
                 self.assertTrue(cleared.wait(2))
         finally:
@@ -208,7 +208,6 @@ class DiscordPresenceTests(unittest.TestCase):
         self.assertEqual(opcode, discord_presence.DiscordIPCClient.OP_FRAME)
         self.assertEqual(activity["type"], 2)
         self.assertEqual(activity["details"], "Song")
-        self.assertEqual(activity["state"], "Artist")
         self.assertEqual(activity["timestamps"], {"start": 100, "end": 200})
         self.assertNotIn("name", activity)
         self.assertNotIn("from pypresence", Path(discord_presence.__file__).read_text(encoding="utf-8"))
@@ -246,7 +245,9 @@ class DiscordPresenceTests(unittest.TestCase):
                 return {"connected": False, "message": "queued"}
 
         manager = FakeManager()
-        server = create_musicdesk_server("127.0.0.1", 0)
+        token = "pairing-token-for-discord-route-test-123456"
+        server = create_musicdesk_server("127.0.0.1", 0, api_token=token)
+        server.lan_mode = True
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         try:
@@ -278,14 +279,24 @@ class DiscordPresenceTests(unittest.TestCase):
                 with patch("app.is_loopback_address", return_value=False):
                     connection.request("GET", "/api/discord/status")
                     response = connection.getresponse()
-                    self.assertEqual(response.status, 403)
+                    self.assertEqual(response.status, 401)
+                    response.read()
+
+                    connection.request("GET", "/api/discord/status", headers={"Authorization": f"Bearer {token}"})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
                     response.read()
 
                     connection.request("POST", "/api/discord/presence", body='{"enabled":false}', headers={"Content-Type": "application/json"})
                     response = connection.getresponse()
                     self.assertEqual(response.status, 401)
                     response.read()
-                self.assertEqual(len(manager.updates), 2)
+
+                    connection.request("POST", "/api/discord/presence", body='{"enabled":false}', headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    response.read()
+                self.assertEqual(len(manager.updates), 3)
                 connection.close()
         finally:
             server.shutdown()
@@ -302,7 +313,8 @@ class DiscordPresenceTests(unittest.TestCase):
         self.assertIn("musicdesk-discord-presence", page)
         self.assertIn("musicdesk-discord-share-details", page)
         self.assertIn("Discord Rich Presence", page)
-        self.assertIn("if (window.AndroidMusic) return", page)
+        self.assertIn("discord_presence", page)
+        self.assertIn("Artist - Title", page)
 
 
 class DesktopLauncherTests(unittest.TestCase):

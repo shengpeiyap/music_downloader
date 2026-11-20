@@ -219,8 +219,11 @@ def build_presence_fields(payload: dict[str, Any], now: int | None = None) -> di
     artist = payload["artist"]
     fields = {}
     if payload["share_details"]:
-        fields["details"] = payload["title"]
-        fields["state"] = artist if is_playing else (f"已暂停 · {artist}" if artist else "已暂停")
+        title = payload["title"]
+        line = f"{artist} - {title}" if artist and title else (artist or title)
+        if not is_playing and line:
+            line = f"{line} · 已暂停"
+        fields["details"] = line[:128]
     if start is not None:
         fields.update(start=start, end=end)
     return fields
