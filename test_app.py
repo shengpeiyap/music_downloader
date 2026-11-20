@@ -212,6 +212,31 @@ class DiscordPresenceTests(unittest.TestCase):
         self.assertNotIn("name", activity)
         self.assertNotIn("from pypresence", Path(discord_presence.__file__).read_text(encoding="utf-8"))
 
+    def test_native_discord_rpc_uses_waitnamedpipe_compatible_path(self):
+        checked_paths = []
+        def api_function(result):
+            return lambda *args: result
+        wait_pipe = api_function(True)
+        wait_pipe.side_effect = None
+        def record_pipe(path, _timeout):
+            checked_paths.append(path)
+            return True
+        api = SimpleNamespace(
+            WaitNamedPipeW=record_pipe,
+            CreateFileW=api_function(123),
+            WriteFile=api_function(True),
+            ReadFile=api_function(True),
+            SetNamedPipeHandleState=api_function(True),
+            CloseHandle=api_function(True),
+        )
+        client = discord_presence.DiscordIPCClient("123456789012345678")
+        with patch.object(discord_presence.sys, "platform", "win32"), \
+             patch.object(client, "_kernel32", return_value=api), \
+             patch.object(client, "_write"), \
+             patch.object(client, "_read_frame", return_value=(client.OP_FRAME, {"evt": "READY"})):
+            client.connect()
+            client.close()
+        self.assertEqual(checked_paths, [r"\\.\pipe\discord-ipc-0"])
     def test_desktop_presence_http_route_validates_and_clears(self):
         class FakeManager:
             def __init__(self): self.updates = []

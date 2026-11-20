@@ -118,7 +118,7 @@ class DiscordIPCClient:
         kernel32 = self._kernel32()
         handle = None
         for index in range(10):
-            pipe = rf"\\?\pipe\discord-ipc-{index}"
+            pipe = rf"\\.\pipe\discord-ipc-{index}"
             if not kernel32.WaitNamedPipeW(pipe, 150):
                 continue
             candidate = kernel32.CreateFileW(pipe, 0xC0000000, 0, None, 3, 0, None)
