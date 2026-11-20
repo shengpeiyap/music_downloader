@@ -926,9 +926,23 @@ function discordPresenceEndpoint(resource) {
 function discordPresenceHeaders() {
   return window.AndroidMusic ? {Authorization: `Bearer ${androidApiConfig.token}`} : {};
 }
+function androidDirectDiscordStatus() {
+  if (!window.AndroidMusic || typeof AndroidMusic.getDiscordDirectStatus !== 'function') return null;
+  try {
+    const result = JSON.parse(AndroidMusic.getDiscordDirectStatus());
+    return result && result.hasToken ? result : null;
+  } catch (_) { return null; }
+}
 async function pollDiscordPresenceStatus() {
   clearTimeout(discordPresencePollTimer);
   if (localStorage.getItem('musicdesk-discord-presence') !== '1') return;
+  const direct = androidDirectDiscordStatus();
+  if (direct) {
+    const status = $('discordPresenceStatus');
+    if (status && direct.message) status.textContent = ui(direct.message);
+    if (!direct.connected) discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 2500);
+    return;
+  }
   const endpoint = discordPresenceEndpoint('status');
   if (!endpoint) return;
   try {
@@ -955,11 +969,39 @@ window.syncDiscordPresence = async function(force = false) {
   if (discordPresenceRequestPending) return;
   const validAppId = /^\d{17,20}$/.test(appId);
   const shouldShare = enabled && validAppId;
-  const endpoint = discordPresenceEndpoint('presence');
   const status = $('discordPresenceStatus');
+  const payload = shouldShare ? {
+    enabled: true, application_id: appId,
+    title: track ? (track.title || '未知标题') : '',
+    artist: track ? (track.artist || '未知歌手') : '',
+    has_track: !!track, share_details: shareDetails,
+    duration: Number.isFinite(player.duration) ? player.duration : 0,
+    position: Number(player.currentTime) || 0,
+    playing: !!track && !player.paused
+  } : {enabled: false};
+  if (androidDirectDiscordStatus()) {
+    if (!shouldShare && !discordPresenceWasEnabled) return;
+    discordPresenceRequestPending = true;
+    lastDiscordPresenceRequest = now;
+    lastDiscordPresenceBucket = bucket;
+    try {
+      const error = AndroidMusic.updateDiscordDirectPresence(JSON.stringify(payload));
+      if (error) throw new Error(error);
+      discordPresenceWasEnabled = shouldShare;
+      if (shouldShare) discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 500);
+      else clearTimeout(discordPresencePollTimer);
+      if (status) status.textContent = ui(shouldShare ? '正在更新 Discord 状态…' : '状态已关闭');
+    } catch (error) {
+      if (status) status.textContent = ui(error.message || '无法更新 Discord 状态。');
+    } finally {
+      discordPresenceRequestPending = false;
+    }
+    return;
+  }
+  const endpoint = discordPresenceEndpoint('presence');
   if (!endpoint) {
     if (window.AndroidMusic && enabled && status) status.textContent = ui(!androidApiConnected
-      ? '请先连接电脑，并确保电脑已启动 Discord。'
+      ? '请先连接电脑，并确保电脑已启动 Discord，或在设置里直连。'
       : '请更新电脑端 MusicDesk 以启用 Discord 状态转发。');
     return;
   }
@@ -970,15 +1012,7 @@ window.syncDiscordPresence = async function(force = false) {
   try {
     const response = await fetch(endpoint, {
       method: 'POST', headers: {'Content-Type': 'application/json', ...discordPresenceHeaders()},
-      body: JSON.stringify(shouldShare ? {
-        enabled: true, application_id: appId,
-        title: track ? (track.title || '未知标题') : '',
-        artist: track ? (track.artist || '未知歌手') : '',
-        has_track: !!track, share_details: shareDetails,
-        duration: Number.isFinite(player.duration) ? player.duration : 0,
-        position: Number(player.currentTime) || 0,
-        playing: !!track && !player.paused
-      } : {enabled: false})
+      body: JSON.stringify(payload)
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Discord 状态更新失败。');
