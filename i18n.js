@@ -40,6 +40,7 @@
     '已连接电脑': 'Computer connected',
     '通用': 'General',
     'Discord 状态分享': 'Discord Rich Presence',
+    '已使用 MusicDesk 的 Discord 应用，无需填写 ID。': 'MusicDesk’s Discord application is configured; no ID entry is needed.',
     '开启后可向 Discord 分享播放状态；歌曲名称和歌手可单独控制。可见范围由 Discord 隐私设置决定，MusicDesk 不会上传音频或本地文件路径。': 'When enabled, MusicDesk shares playback status with Discord. Song title and artist can be controlled separately. Visibility follows your Discord privacy settings. MusicDesk does not upload audio or local file paths.',
     '分享歌曲名称与歌手': 'Share song title and artist',
     '关闭后仍会显示 MusicDesk 正在播放，但不发送歌名和歌手。专辑封面目前只保存在本机，不会上传到 Discord。': 'When off, Discord still shows MusicDesk as active but receives no song title or artist. Album artwork stays on this device and is not uploaded to Discord.',

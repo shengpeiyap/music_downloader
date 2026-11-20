@@ -1,5 +1,6 @@
 // Local library, playback, queue, lyrics display, and platform restoration.
 const DEFAULT_COVER = 'default_song_img.png';
+const DISCORD_APPLICATION_ID = '1573350042746626168';
 document.addEventListener('error', event => {
   const image = event.target;
   if (image instanceof HTMLImageElement && !image.src.endsWith(DEFAULT_COVER)) image.src = DEFAULT_COVER;
@@ -936,7 +937,7 @@ window.syncDiscordPresence = async function(force = false) {
   if (window.AndroidMusic) return;
   const enabled = localStorage.getItem('musicdesk-discord-presence') === '1';
   const shareDetails = localStorage.getItem('musicdesk-discord-share-details') !== '0';
-  const appId = String(localStorage.getItem('musicdesk-discord-application-id') || '').trim();
+  const appId = DISCORD_APPLICATION_ID;
   const player = $('localAudioPlayer');
   const track = localTracks[currentTrackIdx];
   const now = Date.now();
@@ -944,11 +945,6 @@ window.syncDiscordPresence = async function(force = false) {
   if (!force && now - lastDiscordPresenceRequest < 25000 && bucket === lastDiscordPresenceBucket) return;
   if (discordPresenceRequestPending) return;
   const validAppId = /^\d{17,20}$/.test(appId);
-  if (enabled && !validAppId && !discordPresenceWasEnabled) {
-    const status = $('discordPresenceStatus');
-    if (status) status.textContent = ui('请先输入有效的 Discord 应用程序 ID。');
-    return;
-  }
   const shouldShare = enabled && validAppId;
   if (!shouldShare && !discordPresenceWasEnabled) return;
   discordPresenceRequestPending = true;
@@ -973,9 +969,7 @@ window.syncDiscordPresence = async function(force = false) {
     if (shouldShare) discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 500);
     else clearTimeout(discordPresencePollTimer);
     const status = $('discordPresenceStatus');
-    if (status) status.textContent = ui(enabled && !validAppId
-      ? '请先输入有效的 Discord 应用程序 ID。'
-      : result.message || (result.connected ? '已连接并正在分享播放状态' : '状态已关闭'));
+    if (status) status.textContent = ui(result.message || (result.connected ? '已连接并正在分享播放状态' : '状态已关闭'));
   } catch (error) {
     const status = $('discordPresenceStatus');
     if (status) status.textContent = ui(error.message || '无法更新 Discord 状态。');
