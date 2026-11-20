@@ -136,11 +136,11 @@ class DiscordPresenceTests(unittest.TestCase):
             "duration": 180, "position": 35, "playing": True,
         })
         self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
-            "details": "Artist - Song", "start": 965, "end": 1145,
+            "details": "Song", "state": "Artist", "start": 965, "end": 1145,
         })
         payload["playing"] = False
         self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
-            "details": "Artist - Song · 已暂停",
+            "details": "Song", "state": "已暂停 · Artist",
         })
 
     def test_presence_can_hide_song_details_and_clear_when_nothing_is_playing(self):
@@ -183,7 +183,8 @@ class DiscordPresenceTests(unittest.TestCase):
                 manager.update(payload)
                 self.assertTrue(updated.wait(2))
                 self.assertEqual(calls["application_id"], payload["application_id"])
-                self.assertEqual(calls["activity"]["details"], "Artist - Song")
+                self.assertEqual(calls["activity"]["details"], "Song")
+                self.assertEqual(calls["activity"]["state"], "Artist")
                 manager.update(None)
                 self.assertTrue(cleared.wait(2))
         finally:
