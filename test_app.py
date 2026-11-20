@@ -206,6 +206,7 @@ class DiscordPresenceTests(unittest.TestCase):
         frame = json.loads(writes[0][8:8 + size].decode("utf-8"))
         activity = frame["args"]["activity"]
         self.assertEqual(opcode, discord_presence.DiscordIPCClient.OP_FRAME)
+        self.assertEqual(activity["type"], 2)
         self.assertEqual(activity["details"], "Song")
         self.assertEqual(activity["state"], "Artist")
         self.assertEqual(activity["timestamps"], {"start": 100, "end": 200})

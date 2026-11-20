@@ -157,7 +157,7 @@ class DiscordIPCClient:
 
     def update(self, *, details: str | None = None, state: str | None = None,
                start: int | None = None, end: int | None = None) -> None:
-        activity: dict[str, Any] = {}
+        activity: dict[str, Any] = {"type": 2}  # Discord ActivityType.LISTENING
         if details:
             activity["details"] = details
         if state:
