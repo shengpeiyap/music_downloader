@@ -192,6 +192,19 @@ let settingsInitialized = false;
 function initSettings() {
   if (settingsInitialized) return;
   settingsInitialized = true;
+  const discordAppId = $('discordApplicationId');
+  const discordToggle = $('discordPresenceToggle');
+  discordAppId.value = localStorage.getItem('musicdesk-discord-application-id') || '';
+  discordToggle.checked = localStorage.getItem('musicdesk-discord-presence') === '1';
+  discordAppId.addEventListener('input', () => {
+    localStorage.setItem('musicdesk-discord-application-id', discordAppId.value.trim());
+    if (discordToggle.checked) window.syncDiscordPresence(true);
+  });
+  discordToggle.addEventListener('change', () => {
+    localStorage.setItem('musicdesk-discord-presence', discordToggle.checked ? '1' : '0');
+    window.syncDiscordPresence(true);
+  });
+  if (discordToggle.checked) window.syncDiscordPresence(true);
   $('enginePriority').addEventListener('change', updateAndroidDownloadButtonLabel);
   $('connectApiBtn').addEventListener('click', async () => {
     let config;

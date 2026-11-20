@@ -912,6 +912,76 @@ function syncPlayerControls() {
   syncAndroidMediaSession();
 }
 
+let lastDiscordPresenceBucket = -1;
+let lastDiscordPresenceRequest = 0;
+let discordPresenceRequestPending = false;
+let discordPresenceWasEnabled = localStorage.getItem('musicdesk-discord-presence') === '1';
+let discordPresencePollTimer = null;
+async function pollDiscordPresenceStatus() {
+  clearTimeout(discordPresencePollTimer);
+  if (localStorage.getItem('musicdesk-discord-presence') !== '1') return;
+  try {
+    const response = await fetch('/api/discord/status');
+    const result = await response.json();
+    const status = $('discordPresenceStatus');
+    if (response.ok && status && result.message) status.textContent = ui(result.message);
+    if (!result.connected && localStorage.getItem('musicdesk-discord-presence') === '1') {
+      discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 2500);
+    }
+  } catch (_) {
+    discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 5000);
+  }
+}
+window.syncDiscordPresence = async function(force = false) {
+  if (window.AndroidMusic) return;
+  const enabled = localStorage.getItem('musicdesk-discord-presence') === '1';
+  const appId = String(localStorage.getItem('musicdesk-discord-application-id') || '').trim();
+  const player = $('localAudioPlayer');
+  const track = localTracks[currentTrackIdx];
+  const now = Date.now();
+  const bucket = Math.floor((Number(player.currentTime) || 0) / 30);
+  if (!force && now - lastDiscordPresenceRequest < 25000 && bucket === lastDiscordPresenceBucket) return;
+  if (discordPresenceRequestPending) return;
+  const validAppId = /^\d{17,20}$/.test(appId);
+  if (enabled && !validAppId && !discordPresenceWasEnabled) {
+    const status = $('discordPresenceStatus');
+    if (status) status.textContent = ui('请先输入有效的 Discord 应用程序 ID。');
+    return;
+  }
+  const shouldShare = enabled && validAppId;
+  if (!shouldShare && !discordPresenceWasEnabled) return;
+  discordPresenceRequestPending = true;
+  lastDiscordPresenceRequest = now;
+  lastDiscordPresenceBucket = bucket;
+  try {
+    const response = await fetch('/api/discord/presence', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(shouldShare ? {
+        enabled: true, application_id: appId,
+        title: track ? (track.title || '未知标题') : '',
+        artist: track ? (track.artist || '未知歌手') : '',
+        duration: Number.isFinite(player.duration) ? player.duration : 0,
+        position: Number(player.currentTime) || 0,
+        playing: !!track && !player.paused
+      } : {enabled: false})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Discord 状态更新失败。');
+    discordPresenceWasEnabled = shouldShare;
+    if (shouldShare) discordPresencePollTimer = setTimeout(pollDiscordPresenceStatus, 500);
+    else clearTimeout(discordPresencePollTimer);
+    const status = $('discordPresenceStatus');
+    if (status) status.textContent = ui(enabled && !validAppId
+      ? '请先输入有效的 Discord 应用程序 ID。'
+      : result.message || (result.connected ? '已连接并正在分享播放状态' : '状态已关闭'));
+  } catch (error) {
+    const status = $('discordPresenceStatus');
+    if (status) status.textContent = ui(error.message || '无法更新 Discord 状态。');
+  } finally {
+    discordPresenceRequestPending = false;
+  }
+};
+
 function syncAndroidMediaSession(force = false) {
   if (!window.AndroidMusic || typeof AndroidMusic.updatePlayback !== 'function') return;
   const now = Date.now();
@@ -1298,6 +1368,7 @@ $('playbackSeek').addEventListener('input', event => {
 ['timeupdate', 'loadedmetadata', 'durationchange', 'play', 'pause', 'ended'].forEach(type =>
   $('localAudioPlayer').addEventListener(type, () => {
     syncPlayerControls();
+    if (type !== 'timeupdate' || Math.floor($('localAudioPlayer').currentTime / 30) !== lastDiscordPresenceBucket) window.syncDiscordPresence(type !== 'timeupdate');
     if (type !== 'timeupdate') syncAndroidMediaSession(true);
     if (type !== 'timeupdate' || Math.floor($('localAudioPlayer').currentTime / 3) !== lastSavedPlaybackBucket) persistAndroidPlayback(type !== 'timeupdate');
   })

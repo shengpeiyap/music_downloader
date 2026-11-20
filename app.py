@@ -32,6 +32,7 @@ from desktop.lyrics import LyricsService
 from desktop.metadata import MetadataService
 from desktop.server import make_handler
 from desktop.tagging import TaggingService
+from desktop import discord_presence
 from musicdesk_core import batch as batch_queue
 from musicdesk_core import (
     SAFE_NAME,

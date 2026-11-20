@@ -400,6 +400,15 @@
       </div>
     </section>
     <section class="card settings-card web-setting">
+      <h2>Discord 状态分享</h2>
+      <p class="hint">开启后，Discord 桌面版会显示正在播放的歌曲名和歌手。状态对谁可见由 Discord 隐私设置决定；MusicDesk 不会上传音频或本地文件路径。</p>
+      <label for="discordApplicationId">Discord 应用程序 ID</label>
+      <input id="discordApplicationId" type="text" inputmode="numeric" autocomplete="off" placeholder="在 Discord Developer Portal 创建应用后复制 ID">
+      <div class="settings-row"><label for="discordPresenceToggle">分享当前播放状态</label><input id="discordPresenceToggle" class="switch" type="checkbox" role="switch"></div>
+      <p id="discordPresenceStatus" class="status" aria-live="polite">目前仅支持 Windows 桌面端，并需要 Discord 桌面版正在运行。</p>
+      <p class="settings-about"><a href="https://discord.com/developers/applications" target="_blank" rel="noopener">打开 Discord Developer Portal 创建应用</a></p>
+    </section>
+    <section class="card settings-card web-setting">
       <h2>手机配对</h2>
       <p class="hint">想让手机用这台电脑处理下载和转换：</p>
       <ol class="conn-steps">
