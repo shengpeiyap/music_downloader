@@ -401,10 +401,13 @@
     </section>
     <section class="card settings-card web-setting">
       <h2>Discord 状态分享</h2>
-      <p class="hint">开启后，Discord 桌面版会显示正在播放的歌曲名和歌手。状态对谁可见由 Discord 隐私设置决定；MusicDesk 不会上传音频或本地文件路径。</p>
+      <p class="hint">开启后可向 Discord 分享播放状态；歌曲名称和歌手可单独控制。可见范围由 Discord 隐私设置决定，MusicDesk 不会上传音频或本地文件路径。</p>
       <label for="discordApplicationId">Discord 应用程序 ID</label>
-      <input id="discordApplicationId" type="text" inputmode="numeric" autocomplete="off" placeholder="在 Discord Developer Portal 创建应用后复制 ID">
+      <input id="discordApplicationId" type="text" inputmode="numeric" autocomplete="off" placeholder="粘贴 MusicDesk 项目 ID；个人试用可填自己的">
+      <p class="settings-about">Application ID 是公开编号，不是密钥。项目固定一个 ID 后，普通用户就不必填写。</p>
       <div class="settings-row"><label for="discordPresenceToggle">分享当前播放状态</label><input id="discordPresenceToggle" class="switch" type="checkbox" role="switch"></div>
+      <div class="settings-row"><label for="discordDetailsToggle">分享歌曲名称与歌手</label><input id="discordDetailsToggle" class="switch" type="checkbox" role="switch" checked></div>
+      <p class="settings-about">关闭后仍会显示 MusicDesk 正在播放，但不发送歌名和歌手。专辑封面目前只保存在本机，不会上传到 Discord。</p>
       <p id="discordPresenceStatus" class="status" aria-live="polite">目前仅支持 Windows 桌面端，并需要 Discord 桌面版正在运行。</p>
       <p class="settings-about"><a href="https://discord.com/developers/applications" target="_blank" rel="noopener">打开 Discord Developer Portal 创建应用</a></p>
     </section>

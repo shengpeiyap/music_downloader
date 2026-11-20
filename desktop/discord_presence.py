@@ -155,8 +155,13 @@ class DiscordIPCClient:
                 return
         raise TimeoutError("等待 Discord RPC 回复超时")
 
-    def update(self, *, details: str, state: str, start: int | None, end: int | None) -> None:
-        activity: dict[str, Any] = {"details": details, "state": state}
+    def update(self, *, details: str | None = None, state: str | None = None,
+               start: int | None = None, end: int | None = None) -> None:
+        activity: dict[str, Any] = {}
+        if details:
+            activity["details"] = details
+        if state:
+            activity["state"] = state
         timestamps = {key: value for key, value in (("start", start), ("end", end)) if value is not None}
         if timestamps:
             activity["timestamps"] = timestamps
@@ -188,6 +193,10 @@ def clean_payload(value: Any) -> dict[str, Any]:
         position = max(0, min(int(float(value.get("position", 0))), duration))
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("播放进度无效。") from exc
+    has_track = value.get("has_track", bool(title.strip()))
+    share_details = value.get("share_details", True)
+    if not isinstance(has_track, bool) or not isinstance(share_details, bool):
+        raise ValueError("歌曲信息分享选项无效。")
     return {
         "application_id": app_id,
         "title": title.strip()[:128],
@@ -195,19 +204,26 @@ def clean_payload(value: Any) -> dict[str, Any]:
         "duration": duration,
         "position": position,
         "playing": value.get("playing") is True,
+        "has_track": has_track,
+        "share_details": share_details,
     }
 
 
 def build_presence_fields(payload: dict[str, Any], now: int | None = None) -> dict[str, Any] | None:
-    if not payload["title"]:
+    if not payload["has_track"]:
         return None
     now = int(time.time()) if now is None else int(now)
     is_playing = payload["playing"] and payload["duration"] > 0
     start = now - payload["position"] if is_playing else None
     end = start + payload["duration"] if start is not None else None
     artist = payload["artist"]
-    state = artist if is_playing else (f"已暂停 · {artist}" if artist else "已暂停")
-    return {"details": payload["title"], "state": state or "正在播放", "start": start, "end": end}
+    fields = {}
+    if payload["share_details"]:
+        fields["details"] = payload["title"]
+        fields["state"] = artist if is_playing else (f"已暂停 · {artist}" if artist else "已暂停")
+    if start is not None:
+        fields.update(start=start, end=end)
+    return fields
 
 
 class DiscordPresenceManager:
@@ -295,6 +311,9 @@ class DiscordPresenceManager:
                 if activity is None:
                     self._client.clear()
                     message = "已连接；播放歌曲时显示状态"
+                elif not payload["share_details"]:
+                    self._client.update(**activity)
+                    message = "已连接；歌曲信息已隐藏"
                 else:
                     self._client.update(**activity)
                     message = "已连接并正在分享播放状态" if payload["playing"] and payload["duration"] > 0 else "已连接；歌曲已暂停"

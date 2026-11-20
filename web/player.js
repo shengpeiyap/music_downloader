@@ -935,6 +935,7 @@ async function pollDiscordPresenceStatus() {
 window.syncDiscordPresence = async function(force = false) {
   if (window.AndroidMusic) return;
   const enabled = localStorage.getItem('musicdesk-discord-presence') === '1';
+  const shareDetails = localStorage.getItem('musicdesk-discord-share-details') !== '0';
   const appId = String(localStorage.getItem('musicdesk-discord-application-id') || '').trim();
   const player = $('localAudioPlayer');
   const track = localTracks[currentTrackIdx];
@@ -960,6 +961,7 @@ window.syncDiscordPresence = async function(force = false) {
         enabled: true, application_id: appId,
         title: track ? (track.title || '未知标题') : '',
         artist: track ? (track.artist || '未知歌手') : '',
+        has_track: !!track, share_details: shareDetails,
         duration: Number.isFinite(player.duration) ? player.duration : 0,
         position: Number(player.currentTime) || 0,
         playing: !!track && !player.paused

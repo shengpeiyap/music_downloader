@@ -114,7 +114,7 @@ class DiscordPresenceTests(unittest.TestCase):
         })
         self.assertEqual(payload, {
             "application_id": "123456789012345678", "title": "Song", "artist": "Artist",
-            "duration": 200, "position": 50, "playing": True,
+            "duration": 200, "position": 50, "playing": True, "has_track": True, "share_details": True,
         })
 
     def test_presence_rejects_invalid_application_id_and_unbounded_metadata(self):
@@ -140,8 +140,26 @@ class DiscordPresenceTests(unittest.TestCase):
         })
         payload["playing"] = False
         self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
-            "details": "Song", "state": "已暂停 · Artist", "start": None, "end": None,
+            "details": "Song", "state": "已暂停 · Artist",
         })
+
+    def test_presence_can_hide_song_details_and_clear_when_nothing_is_playing(self):
+        payload = discord_presence.clean_payload({
+            "application_id": "123456789012345678", "title": "Song", "artist": "Artist",
+            "duration": 180, "position": 35, "playing": True, "share_details": False,
+        })
+        self.assertEqual(discord_presence.build_presence_fields(payload, now=1000), {
+            "start": 965, "end": 1145,
+        })
+        payload["has_track"] = False
+        self.assertIsNone(discord_presence.build_presence_fields(payload, now=1000))
+
+    def test_presence_rejects_invalid_song_detail_sharing_option(self):
+        with self.assertRaises(ValueError):
+            discord_presence.clean_payload({
+                "application_id": "123456789012345678", "title": "Song", "artist": "Artist",
+                "share_details": "false",
+            })
 
     def test_presence_manager_updates_and_clears_on_its_worker(self):
         updated = threading.Event()
@@ -251,8 +269,10 @@ class DiscordPresenceTests(unittest.TestCase):
     def test_discord_status_controls_are_desktop_only_and_opt_in(self):
         page = page_source(Path(__file__).parent / "index.html")
         self.assertIn('id="discordPresenceToggle"', page)
+        self.assertIn('id="discordDetailsToggle"', page)
         self.assertIn('id="discordApplicationId"', page)
         self.assertIn("musicdesk-discord-presence", page)
+        self.assertIn("musicdesk-discord-share-details", page)
         self.assertIn("Discord Rich Presence", page)
         self.assertIn("if (window.AndroidMusic) return", page)
 
