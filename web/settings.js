@@ -121,20 +121,11 @@ function refreshAndroidPermissionStatus() {
     : '通知已关闭；播放时可能看不到锁屏/通知栏控制。';
 }
 
-function refreshDiscordDirectStatus() {
-  if (!window.AndroidMusic || typeof AndroidMusic.getDiscordDirectStatus !== 'function') return;
-  let result;
-  try { result = JSON.parse(AndroidMusic.getDiscordDirectStatus()); } catch (_) { return; }
-  $('discordDirectStatus').textContent = ui(result.message || (result.hasToken ? '已保存令牌' : '尚未连接。'));
-  $('discordDirectDisconnectBtn').hidden = !result.hasToken;
-}
-
 function refreshAndroidSettings() {
   if (!window.AndroidMusic) return;
   $('appVersionLabel').textContent = `当前版本：${AndroidMusic.getAppVersion()}`;
   refreshAndroidSettingsFolders();
   refreshAndroidPermissionStatus();
-  refreshDiscordDirectStatus();
 }
 window.refreshAndroidSettings = refreshAndroidSettings;
 
@@ -217,21 +208,6 @@ function initSettings() {
     window.syncDiscordPresence(true);
   });
   if (discordToggle.checked) window.syncDiscordPresence(true);
-  if (window.AndroidMusic && typeof AndroidMusic.setDiscordDirectToken === 'function') {
-    $('discordDirectConnectBtn').addEventListener('click', () => {
-      const input = $('discordDirectTokenInput');
-      const error = AndroidMusic.setDiscordDirectToken(input.value);
-      input.value = '';
-      if (error) { $('discordDirectStatus').textContent = ui(error); return; }
-      refreshDiscordDirectStatus();
-      if (discordToggle.checked) window.syncDiscordPresence(true);
-    });
-    $('discordDirectDisconnectBtn').addEventListener('click', () => {
-      AndroidMusic.clearDiscordDirectToken();
-      refreshDiscordDirectStatus();
-    });
-    refreshDiscordDirectStatus();
-  }
   $('enginePriority').addEventListener('change', updateAndroidDownloadButtonLabel);
   $('connectApiBtn').addEventListener('click', async () => {
     let config;

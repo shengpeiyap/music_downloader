@@ -21,7 +21,7 @@
 | 当前版本 | 0.3.0（`android/app/build.gradle.kts` 的 `versionName` / `versionCode`） |
 | 运行形态 | Windows 桌面（原生窗口）、浏览器、Android |
 | 桌面 | Python 3.10+ 本地 HTTP 服务 + pywebview 窗口，PyInstaller 打包为便携版 |
-| Android | Java + WebView，Chaquopy 内嵌 Python 3.14，ffmpeg-kit 转码，OkHttp（仅用于直连 Discord Gateway）；minSdk 24 / targetSdk 35 / compileSdk 36，仅 arm64-v8a |
+| Android | Java + WebView，Chaquopy 内嵌 Python 3.14，ffmpeg-kit 转码；minSdk 24 / targetSdk 35 / compileSdk 36，仅 arm64-v8a |
 | 外部服务 | MusicBrainz、Cover Art Archive、LRCLIB、Spotify oEmbed、YouTube（yt-dlp） |
 | 界面语言 | 源码里是中文，英文由 `i18n.js` 翻译 |
 
@@ -69,8 +69,7 @@ android/app/src/main/
   assets/             # index.html 等的副本（由 tools/sync_android_assets.py 同步，勿手改）
   java/com/musicdesk/android/
     MainActivity.java     # WebView 生命周期、SAF 文件访问、下载保存、曲库扫描；接线 AndroidMusicBridge
-    AndroidMusicBridge.java  # window.AndroidMusic 的全部 @JavascriptInterface 方法；持有 MainActivity host 引用
-    DiscordPresenceManager.java  # 可选的安卓直连 Discord Gateway（用户自己的账号令牌，见下方 Discord 小节）
+    AndroidMusicBridge.java  # window.AndroidMusic 的全部 29 个 @JavascriptInterface 方法；持有 MainActivity host 引用
     LocalMediaRoutes.java # 缓存音频的 https 地址与 Range 解析（见 §3.4）
     MusicPlaybackService.java  # 前台播放通知与媒体按键
   python/musicdesk_downloader.py  # 手机端 Python：yt-dlp 下载、MusicBrainz、LRCLIB、标签读写
@@ -150,14 +149,6 @@ mutagen 的 easy 接口看不到 ID3 的 USLT/SYLT。读歌词用 `_read_embedde
 
 MusicBrainz 每秒最多 1 次请求（手机端用 `_MB_LOCK` 节流）。LRCLIB 和 YouTube 都可能临时失败，界面要给出可读的原因（`friendlyMessage`）。
 
-### 3.10 两套 Discord 状态分享机制，互不相通
-
-- **电脑端（`desktop/discord_presence.py`）**：用 Windows 具名管道连接本机正在运行的 Discord 桌面版（`DiscordIPCClient`），只支持 Windows，且必须有 Discord 桌面版在跑。Android 配对电脑后可以把状态转发给它（`/api/discord/presence`）。
-- **Android 直连（`android/app/src/main/java/com/musicdesk/android/DiscordPresenceManager.java`）**：不经过电脑，直接用**用户自己的 Discord 账号令牌**连 Discord Gateway（WebSocket）。这不是 Discord 官方支持的用法（相当于自建一个客户端去模拟登录），**违反 Discord 服务条款**，有账号被限制的风险——这是用户在设置页里看到警告后自愿选择的，令牌只存在手机本地（`SharedPreferences`），只会发给 Discord 自己的服务器，别的地方都不要让它出现（日志、Issue、提交同样适用 3.8 的规则）。
-  - 两条路径的"横幅"效果不同：电脑端走具名管道的 `SET_ACTIVITY`，横幅文字固定是 Discord 已注册应用的名字（无法改成作者/标题）；Android 直连是整条 Gateway 的 `PRESENCE_UPDATE`，活动的 `name` 字段本身就是横幅文字，所以直连时才能把横幅改成「歌手 - 歌名」。
-  - 封面图没有做：本机曲库的封面只在手机本地（`track.cover` 是 `data:` base64），没有 Discord 的媒体代理能访问的公网地址，强行传一个本地 data URL 不会显示。以后如果要做，大概率要在下载时把来源封面的公网 URL（Cover Art Archive/Spotify 缩略图）跟歌曲一起存下来，而不是只存内嵌的二进制封面。
-  - 两套实现不要互相复用代码或状态；`DiscordPresenceManager.java` 不应该引用 `DiscordIPCClient` 的任何东西，反之亦然。
-
 ---
 
 ## 4. 验证
@@ -215,4 +206,3 @@ cd android; .\gradlew.bat testDebugUnitTest assembleDebug
 | 手机息屏播放 | 均衡器走 Web Audio，已在真机验证息屏 26 秒正常；不同厂商的系统可能不同 |
 | 外部接口变化 | YouTube 的机器人验证、LRCLIB / MusicBrainz 的数据质量都会变，以实际结果为准 |
 | 单文件过大 | `index.html` 约 484 行（主要保留页面结构与脚本清单）；`app.py` 约 374 行（业务模块已迁出，保留兼容包装、服务配置和 CLI）；`MainActivity.java` 约 857 行（JS 接口已迁到 `AndroidMusicBridge.java`，按领域再拆分待续）；后续拆分见 `docs/architecture-plan.md` |
-| Android 直连 Discord 有账号风险 | 这是用户自己选择开启的功能（见 3.10），用账号令牌模拟客户端连 Gateway，违反 Discord 服务条款；没有封面图（本机封面没有公网地址）；未经真机验证（需要真实 Discord 账号测试，这轮没有做，见 PR 描述） |
