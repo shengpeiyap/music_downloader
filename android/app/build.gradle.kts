@@ -66,8 +66,6 @@ chaquopy {
 
 dependencies {
     implementation("com.arthenica:ffmpeg-kit-next:9.0.1")
-    // WebSocket client for DiscordPresenceManager's direct Discord Gateway connection.
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
 }
 
